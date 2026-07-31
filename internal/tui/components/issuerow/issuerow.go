@@ -6,11 +6,12 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type Issue struct {
@@ -91,9 +92,9 @@ func (issue *Issue) renderAssignees() string {
 
 func (issue *Issue) renderStatus() string {
 	if issue.Data.State == "OPEN" {
-		return lipgloss.NewStyle().Foreground(issue.Ctx.Styles.Colors.OpenIssue).Render("")
+		return lipgloss.NewStyle().Foreground(issue.Ctx.Styles.Colors.OpenIssue).Render(constants.IssueOpenedIcon)
 	} else {
-		return issue.getTextStyle().Render("")
+		return issue.getTextStyle().Render(constants.IssueClosedIcon)
 	}
 }
 

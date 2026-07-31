@@ -10,12 +10,12 @@ import (
 	"charm.land/lipgloss/v2/compat"
 	zone "github.com/lrstanley/bubblezone/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 const viewSeparator = " │ "
@@ -118,8 +118,8 @@ func (m *Model) renderViewButton(view config.ViewType) string {
 	// Define icons and labels for each view
 	var icon, label string
 	// Define icons - notifications has solid/outline variants
-	solidBell := ""
-	outlineBell := ""
+	solidBell := constants.BellIcon
+	outlineBell := constants.BellOutlineIcon
 
 	switch view {
 	case config.NotificationsView:
@@ -130,10 +130,10 @@ func (m *Model) renderViewButton(view config.ViewType) string {
 		}
 		label = ""
 	case config.PRsView:
-		icon = ""
+		icon = constants.OpenIcon
 		label = " PRs"
 	case config.IssuesView:
-		icon = ""
+		icon = constants.IssueOpenedIcon
 		label = " Issues"
 	}
 
@@ -168,7 +168,7 @@ func (m *Model) renderViewSwitcher(ctx *context.ProgramContext) string {
 		if m.ctx.RepoUrl != "" {
 			name = git.GetRepoShortName(m.ctx.RepoUrl)
 		}
-		repo = ctx.Styles.Common.FooterStyle.Render(fmt.Sprintf(" %s", name))
+		repo = ctx.Styles.Common.FooterStyle.Render(fmt.Sprintf(constants.RepoIcon+" %s", name))
 	}
 
 	var user string
@@ -185,7 +185,7 @@ func (m *Model) renderViewSwitcher(ctx *context.ProgramContext) string {
 		ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
 		m.renderViewButton(config.IssuesView),
 		lipgloss.NewStyle().Background(ctx.Styles.Common.FooterStyle.GetBackground()).Foreground(
-			ctx.Styles.ViewSwitcher.ViewsSeparator.GetBackground()).Render(" "),
+			ctx.Styles.ViewSwitcher.ViewsSeparator.GetBackground()).Render(constants.PowerlineRightIcon+" "),
 		repo,
 		ctx.Styles.Common.FooterStyle.Foreground(m.ctx.Theme.FaintText).Render(" • "),
 		user,

@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"charm.land/log/v2"
-	gh "github.com/cli/go-gh/v2/pkg/api"
 	graphql "github.com/cli/shurcooL-graphql"
 	"github.com/shurcooL/githubv4"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/theme"
+	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
 )
 
 type IssueData struct {
@@ -100,11 +99,7 @@ func makeIssuesQuery(query string) string {
 }
 
 func FetchIssues(query string, limit int, pageInfo *PageInfo) (IssuesResponse, error) {
-	var err error
-	if client == nil {
-		client, err = gh.DefaultGraphQLClient()
-	}
-
+	c, err := defaultClient()
 	if err != nil {
 		return IssuesResponse{}, err
 	}
@@ -128,7 +123,7 @@ func FetchIssues(query string, limit int, pageInfo *PageInfo) (IssuesResponse, e
 		"endCursor": (*graphql.String)(endCursor),
 	}
 	log.Debug("Fetching issues", "query", query, "limit", limit, "endCursor", endCursor)
-	err = client.Query("SearchIssues", &queryResult, variables)
+	err = c.Query("SearchIssues", &queryResult, variables)
 	if err != nil {
 		return IssuesResponse{}, err
 	}
@@ -154,12 +149,9 @@ type IssuesResponse struct {
 
 // FetchIssue fetches a single issue by its GitHub URL
 func FetchIssue(issueUrl string) (IssueData, error) {
-	var err error
-	if client == nil {
-		client, err = gh.DefaultGraphQLClient()
-		if err != nil {
-			return IssueData{}, err
-		}
+	c, err := defaultClient()
+	if err != nil {
+		return IssueData{}, err
 	}
 
 	var queryResult struct {
@@ -175,7 +167,7 @@ func FetchIssue(issueUrl string) (IssueData, error) {
 		"url": githubv4.URI{URL: parsedUrl},
 	}
 	log.Debug("Fetching Issue", "url", issueUrl)
-	err = client.Query("FetchIssue", &queryResult, variables)
+	err = c.Query("FetchIssue", &queryResult, variables)
 	if err != nil {
 		return IssueData{}, err
 	}

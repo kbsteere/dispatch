@@ -7,12 +7,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type Notification struct {
@@ -67,24 +67,24 @@ func (n *Notification) renderType() string {
 	case "Issue":
 		// Use state-based icons/colors matching issuerow.go
 		if n.Data.SubjectState == "CLOSED" {
-			icon = ""
+			icon = constants.IssueClosedIcon
 			style = style.Foreground(n.Ctx.Styles.Colors.ClosedPR)
 		} else {
-			icon = ""
+			icon = constants.IssueOpenedIcon
 			style = style.Foreground(n.Ctx.Styles.Colors.OpenIssue)
 		}
 	case "Discussion":
-		icon = ""
+		icon = constants.DiscussionIcon
 		style = style.Foreground(
 			compat.AdaptiveColor{Light: lipgloss.Color("#000000"), Dark: lipgloss.Color("#ffffff")},
 		)
 	case "Release":
-		icon = ""
+		icon = constants.GitPullRequestIcon
 		style = style.Foreground(
 			compat.AdaptiveColor{Light: lipgloss.Color("#0969da"), Dark: lipgloss.Color("#58a6ff")},
 		)
 	case "Commit":
-		icon = ""
+		icon = constants.GitCommitIcon
 		style = style.Foreground(n.Ctx.Theme.SecondaryText)
 	case "CheckSuite":
 		// Parse title to determine workflow status (similar to gitify approach)
@@ -152,7 +152,7 @@ func (n *Notification) renderTitleBlock() string {
 		bookmarkPrefix := utils.GetStylePrefix(
 			lipgloss.NewStyle().Foreground(n.Ctx.Theme.WarningText),
 		)
-		line1 = line1 + " " + bookmarkPrefix + ""
+		line1 = line1 + " " + bookmarkPrefix + constants.BookmarkIcon
 	}
 	line1Rendered := repoPrefix + line1
 

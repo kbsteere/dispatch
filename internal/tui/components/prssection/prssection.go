@@ -9,16 +9,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 const SectionType = "pr"
@@ -196,6 +196,12 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			break
 		}
 
+	case SectionPullRequestsFetchErrorMsg:
+		if m.LastFetchTaskId == msg.TaskId {
+			m.SetIsLoading(false)
+			m.SetFetchError(msg.Err)
+		}
+
 	case SectionPullRequestsFetchedMsg:
 		if m.LastFetchTaskId == msg.TaskId {
 			if m.PageInfo != nil {
@@ -206,6 +212,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.TotalCount = msg.TotalCount
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)
+			m.SetFetchError(nil)
 			m.Table.SetRows(m.BuildRows())
 			m.Table.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
@@ -269,13 +276,14 @@ func GetSectionColumns(
 	)
 	stateLayout := config.MergeColumnConfigs(dLayout.State, sLayout.State)
 	ciLayout := config.MergeColumnConfigs(dLayout.Ci, sLayout.Ci)
+	claudeLayout := config.MergeColumnConfigs(dLayout.Claude, sLayout.Claude)
 	labelsLayout := config.MergeColumnConfigs(dLayout.Labels, sLayout.Labels)
 	linesLayout := config.MergeColumnConfigs(dLayout.Lines, sLayout.Lines)
 
 	if !ctx.Config.Theme.Ui.Table.Compact {
 		return []table.Column{
 			{
-				Title:  "",
+				Title:  constants.BranchIcon,
 				Width:  utils.IntPtr(3),
 				Hidden: stateLayout.Hidden,
 			},
@@ -305,28 +313,33 @@ func GetSectionColumns(
 				Hidden: numCommentsLayout.Hidden,
 			},
 			{
-				Title:  "󰯢",
+				Title:  constants.NumCommentsIcon,
 				Width:  utils.IntPtr(4),
 				Hidden: reviewStatusLayout.Hidden,
 			},
 			{
-				Title:  "",
+				Title:  constants.ChecksIcon,
 				Width:  &ctx.Styles.PrSection.CiCellWidth,
 				Grow:   new(bool),
 				Hidden: ciLayout.Hidden,
 			},
 			{
-				Title:  "",
+				Title:  constants.RobotIcon,
+				Width:  utils.IntPtr(3),
+				Hidden: claudeLayout.Hidden,
+			},
+			{
+				Title:  constants.DiffIcon,
 				Width:  linesLayout.Width,
 				Hidden: linesLayout.Hidden,
 			},
 			{
-				Title:  "󱦻",
+				Title:  constants.UpdatedAtIcon,
 				Width:  updatedAtLayout.Width,
 				Hidden: updatedAtLayout.Hidden,
 			},
 			{
-				Title:  "󱡢",
+				Title:  constants.CreatedAtIcon,
 				Width:  createdAtLayout.Width,
 				Hidden: createdAtLayout.Hidden,
 			},
@@ -335,12 +348,12 @@ func GetSectionColumns(
 
 	return []table.Column{
 		{
-			Title:  "",
+			Title:  constants.BranchIcon,
 			Width:  utils.IntPtr(3),
 			Hidden: stateLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.RepoIcon,
 			Width:  repoLayout.Width,
 			Hidden: repoLayout.Hidden,
 		},
@@ -375,28 +388,33 @@ func GetSectionColumns(
 			Hidden: numCommentsLayout.Hidden,
 		},
 		{
-			Title:  "󰯢",
+			Title:  constants.NumCommentsIcon,
 			Width:  utils.IntPtr(4),
 			Hidden: reviewStatusLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.ChecksIcon,
 			Width:  &ctx.Styles.PrSection.CiCellWidth,
 			Grow:   new(bool),
 			Hidden: ciLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.RobotIcon,
+			Width:  utils.IntPtr(3),
+			Hidden: claudeLayout.Hidden,
+		},
+		{
+			Title:  constants.DiffIcon,
 			Width:  linesLayout.Width,
 			Hidden: linesLayout.Hidden,
 		},
 		{
-			Title:  "󱦻",
+			Title:  constants.UpdatedAtIcon,
 			Width:  updatedAtLayout.Width,
 			Hidden: updatedAtLayout.Hidden,
 		},
 		{
-			Title:  "󱡢",
+			Title:  constants.CreatedAtIcon,
 			Width:  createdAtLayout.Width,
 			Hidden: createdAtLayout.Hidden,
 		},
@@ -434,6 +452,11 @@ type SectionPullRequestsFetchedMsg struct {
 	TotalCount int
 	PageInfo   data.PageInfo
 	TaskId     string
+}
+
+type SectionPullRequestsFetchErrorMsg struct {
+	TaskId string
+	Err    error
 }
 
 func (m *Model) GetCurrRow() data.RowData {
@@ -488,6 +511,7 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 				SectionId:   m.Id,
 				SectionType: m.Type,
 				TaskId:      taskId,
+				Msg:         SectionPullRequestsFetchErrorMsg{TaskId: taskId, Err: err},
 				Err:         err,
 			}
 		}
@@ -511,7 +535,9 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 	cmds = append(cmds, fetchCmd)
 
 	m.IsLoading = true
-	if isFirstFetch {
+	// Show the spinner whenever there are no rows to keep displaying;
+	// otherwise the empty-state message would show mid-fetch.
+	if isFirstFetch || len(m.Prs) == 0 {
 		m.SetIsLoading(true)
 		cmds = append(cmds, m.Table.StartLoadingSpinner())
 	}

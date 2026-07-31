@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
 )
 
 var defaultStyle = lipgloss.NewStyle().PaddingLeft(1).PaddingRight(1)

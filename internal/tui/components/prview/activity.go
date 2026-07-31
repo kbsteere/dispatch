@@ -8,10 +8,10 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/markdown"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/markdown"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type RenderedActivity struct {
@@ -179,7 +179,7 @@ func (m *Model) renderReviewDecision(decision string) string {
 	case "PENDING":
 		return m.ctx.Styles.Common.WaitingGlyph
 	case "COMMENTED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render("󰈈")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(constants.EyeIcon)
 	case "APPROVED":
 		return m.ctx.Styles.Common.SuccessGlyph
 	case "CHANGES_REQUESTED":

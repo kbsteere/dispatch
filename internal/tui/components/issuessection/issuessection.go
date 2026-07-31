@@ -8,16 +8,16 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/issuerow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/issuerow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 const SectionType = "issue"
@@ -152,6 +152,12 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			}
 		}
 
+	case SectionIssuesFetchErrorMsg:
+		if m.LastFetchTaskId == msg.TaskId {
+			m.SetIsLoading(false)
+			m.SetFetchError(msg.Err)
+		}
+
 	case SectionIssuesFetchedMsg:
 		if m.LastFetchTaskId == msg.TaskId {
 			if m.PageInfo != nil {
@@ -161,6 +167,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			}
 			m.TotalCount = msg.TotalCount
 			m.SetIsLoading(false)
+			m.SetFetchError(nil)
 			m.PageInfo = &msg.PageInfo
 			m.Table.SetRows(m.BuildRows())
 			m.UpdateLastUpdated(time.Now())
@@ -214,12 +221,12 @@ func GetSectionColumns(
 
 	return []table.Column{
 		{
-			Title:  "",
+			Title:  constants.IssueOpenedIcon,
 			Width:  stateLayout.Width,
 			Hidden: stateLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.RepoIcon,
 			Width:  repoLayout.Width,
 			Hidden: repoLayout.Hidden,
 		},
@@ -244,17 +251,17 @@ func GetSectionColumns(
 			Hidden: commentsLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.AssigneesIcon,
 			Width:  &issueNumCommentsCellWidth,
 			Hidden: reactionsLayout.Hidden,
 		},
 		{
-			Title:  "󱦻",
+			Title:  constants.UpdatedAtIcon,
 			Width:  updatedAtLayout.Width,
 			Hidden: updatedAtLayout.Hidden,
 		},
 		{
-			Title:  "󱡢",
+			Title:  constants.CreatedAtIcon,
 			Width:  createdAtLayout.Width,
 			Hidden: createdAtLayout.Hidden,
 		},
@@ -329,6 +336,7 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 				SectionId:   m.Id,
 				SectionType: m.Type,
 				TaskId:      taskId,
+				Msg:         SectionIssuesFetchErrorMsg{TaskId: taskId, Err: err},
 				Err:         err,
 			}
 		}
@@ -346,6 +354,14 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 		}
 	}
 	cmds = append(cmds, fetchCmd)
+
+	m.IsLoading = true
+	// Show the spinner whenever there are no rows to keep displaying;
+	// otherwise the empty-state message would show mid-fetch.
+	if len(m.Issues) == 0 {
+		m.SetIsLoading(true)
+		cmds = append(cmds, m.Table.StartLoadingSpinner())
+	}
 
 	return cmds
 }
@@ -382,6 +398,11 @@ func FetchAllSections(
 			sectionModel.FetchNextPageSectionRows()...)
 	}
 	return sections, tea.Batch(fetchIssuesCmds...)
+}
+
+type SectionIssuesFetchErrorMsg struct {
+	TaskId string
+	Err    error
 }
 
 type SectionIssuesFetchedMsg struct {

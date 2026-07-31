@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 // PR/Issue state constants from GitHub API
@@ -27,13 +28,10 @@ type Data struct {
 }
 
 func (d Data) GetTitle() string {
-	// Sanitize title: remove carriage returns and other control characters
-	// that can corrupt terminal rendering (e.g., GitHub sometimes returns
-	// titles with trailing \r characters)
-	title := d.Notification.Subject.Title
-	title = strings.ReplaceAll(title, "\r", "")
-	title = strings.ReplaceAll(title, "\n", " ")
-	return strings.TrimSpace(title)
+	// Sanitize title: strip control and escape characters that can corrupt
+	// terminal rendering or inject escape sequences (e.g., GitHub sometimes
+	// returns titles with trailing \r characters).
+	return strings.TrimSpace(utils.SanitizeText(d.Notification.Subject.Title))
 }
 
 func (d Data) GetRepoNameWithOwner() string {

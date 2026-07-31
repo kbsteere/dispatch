@@ -8,7 +8,7 @@ This lets you set your [theme](./theme), [keybindings](./keybindings) and any ot
 
 ## The Global Config
 
-The global config is usually under `$HOME/.config/gh-dash/config.yml` - but that follows the XDG spec. See [How to Configure](/configuration) for more details.
+The global config is usually under `$HOME/.config/dispatch/config.yml` - but that follows the XDG spec. See [How to Configure](/configuration) for more details.
 
 The global config is loaded first, with the option to override anything it defines.
 Here you'd usually want to define stuff like your theme, keybindings etc.
@@ -17,14 +17,14 @@ Here you'd usually want to define stuff like your theme, keybindings etc.
 
 `DASH` supports passing ad-hoc or per-repo config files by:
 
-- Creating a `.gh-dash.yml` file in a git repo's root directory.
+- Creating a `.dispatch.yml` file in a git repo's root directory.
 - Passing a path to a `.yml` file you supplied with the `--config` flag or the `GH_DASH_CONFIG` environment variable.
 
 Any settings defined here will override your global config settings.
 
 ## Example
 
-Your global config under `~/.config/gh-dash/config.yml` could look like this:
+Your global config under `~/.config/dispatch/config.yml` could look like this:
 
 ```yaml
 pager:
@@ -43,7 +43,7 @@ keybindings:
       command: cd {{.RepoPath}} && lazygit
 ```
 
-Then in a git repo you could create a `.gh-dash.yml` file defining just the
+Then in a git repo you could create a `.dispatch.yml` file defining just the
 sections:
 
 ```yaml
@@ -64,8 +64,8 @@ takes a list of paths to other config files:
 
 ```yaml
 include:
-  - /var/lib/gh-dash/system-shared.yml
-  - ~/.config/gh-dash/themes/tokyonight.yml
+  - /var/lib/dispatch/system-shared.yml
+  - ~/.config/dispatch/themes/tokyonight.yml
   - ./shared-keybindings.yml
 
 prSections:

@@ -23,11 +23,11 @@ import (
 	"github.com/spf13/cobra"
 
 	gitm "github.com/aymanbagabas/git-module"
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	dctx "github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	dctx "github.com/kbsteere/dispatch/v4/internal/tui/context"
 )
 
 var (
@@ -43,7 +43,7 @@ var (
 	logo = lipgloss.NewStyle().Foreground(dctx.LogoColor).MarginBottom(1).SetString(constants.Logo)
 
 	rootCmd = &cobra.Command{
-		Use: "gh dash",
+		Use: "dispatch",
 		Long: lipgloss.JoinVertical(
 			lipgloss.Left,
 			logo.Render(),
@@ -52,24 +52,24 @@ var (
 			lipgloss.NewStyle().
 				Faint(true).
 				Italic(true).
-				Render("Visit https://gh-dash.dev for the docs."),
+				Render("Visit https://github.com/kbsteere/dispatch for the docs."),
 		),
 		Short:   "A rich terminal UI for GitHub that doesn't break your flow.",
 		Version: "",
 		Example: `
 # Running without arguments will either:
 #   - Use the global configuration file
-#   - Use a local .gh-dash.yml file if in a git repo
-gh dash
+#   - Use a local .dispatch.yml file if in a git repo
+dispatch
 
 # Run with a specific configuration file
-gh dash --config /path/to/configuration/file.yml
+dispatch --config /path/to/configuration/file.yml
 
 # Run with debug logging to debug.log
-gh dash --debug
+dispatch --debug
 
 # Print version
-gh dash -v
+dispatch -v
 	`,
 		Args: cobra.MaximumNArgs(1),
 	}
@@ -146,9 +146,9 @@ func init() {
 		"",
 		`use this configuration file
 (default lookup:
-  1. a .gh-dash.yml file if inside a git repo
-  2. $GH_DASH_CONFIG env var
-  3. $XDG_CONFIG_HOME/gh-dash/config.yml
+  1. a .dispatch.yml file if inside a git repo
+  2. $DISPATCH_CONFIG env var
+  3. $XDG_CONFIG_HOME/dispatch/config.yml
 )`,
 	)
 	err := rootCmd.MarkPersistentFlagFilename("config", "yaml", "yml")
@@ -162,7 +162,7 @@ func init() {
 			lipgloss.Left,
 			"",
 			logo.Render(),
-			`gh-dash {{printf "version %s\n" .Version}}`,
+			`dispatch {{printf "version %s\n" .Version}}`,
 		),
 	)
 
@@ -182,7 +182,7 @@ func init() {
 		"help",
 		"h",
 		false,
-		"help for gh-dash",
+		"help for dispatch",
 	)
 
 	rootCmd.Run = func(_ *cobra.Command, args []string) {
@@ -191,7 +191,7 @@ func init() {
 		if debug {
 			var fileErr error
 			loggerFile, fileErr = os.OpenFile("debug.log",
-				os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
+				os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 			if fileErr == nil {
 				log.SetOutput(loggerFile)
 				log.SetTimeFormat(time.Kitchen)

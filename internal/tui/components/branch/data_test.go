@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/git"
 )
 
 func TestBranchData_GetRepoNameWithOwner_EmptyRemotes(t *testing.T) {

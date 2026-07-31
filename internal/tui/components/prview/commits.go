@@ -1,14 +1,15 @@
 package prview
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
 	checks "github.com/dlvhdr/x/gh-checks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 func (m *Model) renderCommits() string {
@@ -32,10 +33,7 @@ func (m *Model) renderCommits() string {
 	rendered := make([]string, len(commits))
 	for i, commit := range commits {
 		commit := commit.Commit
-		name := commit.Author.User.Login
-		if name == "" {
-			name = commit.Author.Name
-		}
+		name := cmp.Or(commit.Author.User.Login, commit.Author.Name)
 		left := fmt.Sprintf(
 			"%s %s",
 			faint.Render(constants.VerticalCommitIcon),

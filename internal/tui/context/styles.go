@@ -5,8 +5,9 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/theme"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
 )
 
 type SelectStyles struct {
@@ -135,7 +136,7 @@ func InitStyles(theme theme.Theme) Styles {
 		BorderForeground(theme.PrimaryBorder)
 
 	s.PrView.PillStyle = s.Common.MainTextStyle.
-		Border(lipgloss.Border{Left: "", Right: ""}, false, true, false, true).
+		Border(lipgloss.Border{Left: constants.PowerlineLeftIcon, Right: constants.PowerlineRightIcon}, false, true, false, true).
 		Foreground(theme.InvertedText)
 
 	s.Help.Text = lipgloss.NewStyle().Foreground(theme.SecondaryText)

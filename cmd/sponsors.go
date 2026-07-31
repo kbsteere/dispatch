@@ -10,14 +10,14 @@ import (
 	"charm.land/log/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/data"
 )
 
 // sponsorsCmd represents the sponsors command
 var sponsorsCmd = &cobra.Command{
 	Use:   "sponsors",
-	Short: "Show the list of current sponsors for gh-dash",
-	Long: `Show the list of current sponsors for gh-dash from GitHub Sponsors under https://github.com/sponsors/dlvhdr.
+	Short: "Show the list of current sponsors for gh-dash, dispatch's upstream project",
+	Long: `Show the list of current sponsors for gh-dash (dispatch's upstream project) from GitHub Sponsors under https://github.com/sponsors/dlvhdr.
 If you enjoy dash and want to help, consider supporting the project with a donation!`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.SetLevel(log.ErrorLevel)

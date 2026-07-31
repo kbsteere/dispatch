@@ -8,7 +8,7 @@ import (
 
 func TestNotificationIDStore(t *testing.T) {
 	// Create a temp directory for test files
-	tempDir, err := os.MkdirTemp("", "gh-dash-test")
+	tempDir, err := os.MkdirTemp("", "dispatch-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}

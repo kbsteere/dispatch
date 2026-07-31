@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 type PRKeyMap struct {
@@ -29,6 +29,8 @@ type PRKeyMap struct {
 	ApproveWorkflows     key.Binding
 	ToggleSmartFiltering key.Binding
 	ViewIssues           key.Binding
+	ClaudeReview         key.Binding
+	ClaudeSession        key.Binding
 }
 
 var PRKeys = PRKeyMap{
@@ -108,6 +110,14 @@ var PRKeys = PRKeyMap{
 		key.WithKeys("s"),
 		key.WithHelp("s", "switch to issues"),
 	),
+	ClaudeReview: key.NewBinding(
+		key.WithKeys("b"),
+		key.WithHelp("b", "claude review"),
+	),
+	ClaudeSession: key.NewBinding(
+		key.WithKeys("B"),
+		key.WithHelp("B", "open claude session"),
+	),
 }
 
 func PRFullHelp() []key.Binding {
@@ -130,6 +140,8 @@ func PRFullHelp() []key.Binding {
 		PRKeys.ApproveWorkflows,
 		PRKeys.ToggleSmartFiltering,
 		PRKeys.ViewIssues,
+		PRKeys.ClaudeReview,
+		PRKeys.ClaudeSession,
 	}
 }
 
@@ -196,8 +208,12 @@ func rebindPRKeys(keys []config.Keybinding) error {
 			key = &PRKeys.ViewIssues
 		case "summaryViewMore":
 			key = &PRKeys.SummaryViewMore
+		case "claudeReview":
+			key = &PRKeys.ClaudeReview
+		case "claudeSession":
+			key = &PRKeys.ClaudeSession
 		default:
-			return fmt.Errorf("unknown built-in pr key: '%s'", prKey.Builtin)
+			return fmt.Errorf("unknown built-in pr key: %q", prKey.Builtin)
 		}
 
 		key.SetKeys(prKey.Key)

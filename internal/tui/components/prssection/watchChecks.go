@@ -9,10 +9,10 @@ import (
 	"charm.land/log/v2"
 	"github.com/gen2brain/beeep"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
 )
 
 func (m *Model) watchChecks() tea.Cmd {
@@ -25,6 +25,9 @@ func (m *Model) watchChecks() tea.Cmd {
 	title := pr.GetTitle()
 	repoNameWithOwner := pr.GetRepoNameWithOwner()
 	prData := pr.(*prrow.Data)
+	// Capture the context before launching the detached goroutine below so it
+	// does not read m.Ctx while the update loop may be reassigning it.
+	ctx := m.Ctx
 	taskId := fmt.Sprintf("pr_reopen_%d", prNumber)
 	task := context.Task{
 		Id:           taskId,
@@ -58,8 +61,8 @@ func (m *Model) watchChecks() tea.Cmd {
 					"stderr", errb.String(), "stdout", outb.String())
 			}
 
-			renderedPr := prrow.PullRequest{Ctx: m.Ctx, Data: prData}
-			checksRollup := " Checks are pending"
+			renderedPr := prrow.PullRequest{Ctx: ctx, Data: prData}
+			checksRollup := constants.StopwatchIcon + " Checks are pending"
 			switch renderedPr.GetStatusChecksRollup() {
 			case "SUCCESS":
 				checksRollup = "✅ Checks have passed"
@@ -68,7 +71,7 @@ func (m *Model) watchChecks() tea.Cmd {
 			}
 
 			err = beeep.Notify(
-				fmt.Sprintf("gh-dash: %s", title),
+				fmt.Sprintf("dispatch: %s", title),
 				fmt.Sprintf("PR #%d in %s\n%s", prNumber, repoNameWithOwner, checksRollup),
 				"",
 			)

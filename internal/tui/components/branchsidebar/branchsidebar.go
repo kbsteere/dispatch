@@ -8,9 +8,9 @@ import (
 	"charm.land/lipgloss/v2"
 	gitm "github.com/aymanbagabas/git-module"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branch"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/branch"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
 )
 
 type Model struct {

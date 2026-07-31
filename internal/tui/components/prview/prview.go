@@ -1,29 +1,31 @@
 package prview
 
 import (
+	"cmp"
 	"fmt"
 	"image/color"
 	"regexp"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/carousel"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/cmpcontroller"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/fuzzyselect"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/inputbox"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prssection"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/markdown"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/carousel"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/cmpcontroller"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/fuzzyselect"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/inputbox"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prssection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/tui/markdown"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 var (
@@ -40,11 +42,30 @@ type Model struct {
 	carousel        carousel.Model
 	editor          cmpcontroller.Controller
 	summaryViewMore bool
+	diff            string
+	diffErr         error
+	diffIsLoading   bool
+	diffIsLoaded    bool
 }
 
-var tabs = []string{" Overview", " Activity", " Commits", " Checks", " Files Changed"}
+var tabs []string
+
+// initTabs builds the tab labels at model creation, after the configured
+// icon style has been applied.
+func initTabs() []string {
+	return []string{
+		strings.TrimSpace(constants.OverviewIcon + " Overview"),
+		strings.TrimSpace(constants.DiscussionIcon + " Activity"),
+		strings.TrimSpace(constants.CommitIcon + " Commits"),
+		strings.TrimSpace(constants.ChecksIcon + " Checks"),
+		strings.TrimSpace(constants.FileDiffIcon + " Files Changed"),
+		strings.TrimSpace(constants.DiffIcon + " Diff"),
+		strings.TrimSpace(constants.CodeReviewIcon + " Review"),
+	}
+}
 
 func NewModel(ctx *context.ProgramContext) Model {
+	tabs = initTabs()
 	c := carousel.New(
 		carousel.WithItems(tabs),
 		carousel.WithWidth(ctx.MainContentWidth),
@@ -119,8 +140,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch {
 		case key.Matches(keyMsg, keys.PRKeys.PrevSidebarTab):
 			m.carousel.MoveLeft()
+			cmd = tea.Batch(cmd, m.maybeFetchDiff())
 		case key.Matches(keyMsg, keys.PRKeys.NextSidebarTab):
 			m.carousel.MoveRight()
+			cmd = tea.Batch(cmd, m.maybeFetchDiff())
 		}
 	}
 
@@ -146,6 +169,10 @@ func (m Model) View() string {
 		body.WriteString(m.renderChecks())
 	case tabs[4]:
 		body.WriteString(m.renderChangedFiles())
+	case tabs[5]:
+		body.WriteString(m.renderDiffTab())
+	case tabs[6]:
+		body.WriteString(m.renderReviewTab())
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -193,13 +220,13 @@ func (m *Model) viewOverviewTab() string {
 	body.WriteString(m.renderSummary())
 	body.WriteString("\n\n")
 	body.WriteString(
-		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).Underline(true).Render(" Changes"),
+		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).Underline(true).Render(constants.FileDiffIcon + " Changes"),
 	)
 	body.WriteString("\n")
 	body.WriteString(m.renderChangesOverview())
 	body.WriteString("\n\n")
 	body.WriteString(
-		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).Underline(true).Render(" Checks"),
+		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).Underline(true).Render(constants.ChecksIcon + " Checks"),
 	)
 	body.WriteString("\n")
 	body.WriteString(m.renderChecksOverview())
@@ -258,7 +285,7 @@ func (m *Model) renderBranches() string {
 		" ",
 		lipgloss.NewStyle().
 			Foreground(m.ctx.Theme.SecondaryText).
-			Render(m.pr.Data.Primary.BaseRefName+"  "+m.pr.Data.Primary.HeadRefName))
+			Render(m.pr.Data.Primary.BaseRefName+" "+constants.BranchArrowIcon+" "+m.pr.Data.Primary.HeadRefName))
 }
 
 func (m *Model) renderStatusPill() string {
@@ -474,10 +501,7 @@ func (m *Model) renderRequestedReviewers() string {
 }
 
 func (m *Model) renderAuthor() string {
-	authorAssociation := m.pr.Data.Primary.AuthorAssociation
-	if authorAssociation == "" {
-		authorAssociation = "unknown role"
-	}
+	authorAssociation := cmp.Or(m.pr.Data.Primary.AuthorAssociation, "unknown role")
 	time := lipgloss.NewStyle().Render(utils.TimeElapsed(m.pr.Data.Primary.CreatedAt))
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		" by ",
@@ -499,7 +523,7 @@ func (m *Model) renderSummary() string {
 	body := htmlCommentRegex.ReplaceAllString(m.pr.Data.Enriched.Body, "")
 	body = lineCleanupRegex.ReplaceAllString(body, "")
 
-	desc := m.ctx.Styles.Common.MainTextStyle.Bold(true).Underline(true).Render(" Summary")
+	desc := m.ctx.Styles.Common.MainTextStyle.Bold(true).Underline(true).Render(constants.SummaryIcon + " Summary")
 	title := lipgloss.JoinVertical(
 		lipgloss.Left,
 		desc,
@@ -557,9 +581,14 @@ func (m *Model) SetSectionId(id int) {
 func (m *Model) SetRow(d *prrow.Data) {
 	if d == nil {
 		m.pr = nil
-	} else {
-		m.pr = &prrow.PullRequest{Ctx: m.ctx, Data: d}
+		m.resetDiff()
+		return
 	}
+
+	if m.pr == nil || m.pr.Data.Primary.Url != d.Primary.Url {
+		m.resetDiff()
+	}
+	m.pr = &prrow.PullRequest{Ctx: m.ctx, Data: d}
 }
 
 type EnrichedPrMsg struct {
@@ -599,6 +628,12 @@ func (m *Model) IsTextInputBoxFocused() bool {
 
 func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
 	m.ctx = ctx
+	// The model is constructed before the config is read; rebuild the tab
+	// labels in case the configured icon style changed them.
+	if newTabs := initTabs(); !slices.Equal(tabs, newTabs) {
+		tabs = newTabs
+		m.carousel.SetItems(tabs)
+	}
 	m.editor.UpdateProgramContext(ctx)
 	m.carousel.SetStyles(
 		carousel.Styles{

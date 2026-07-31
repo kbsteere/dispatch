@@ -5,7 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 func TestSetNotificationSubject(t *testing.T) {

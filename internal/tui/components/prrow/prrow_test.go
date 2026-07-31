@@ -9,11 +9,12 @@ import (
 	graphql "github.com/cli/shurcooL-graphql"
 	checks "github.com/dlvhdr/x/gh-checks"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
 )
 
 func TestGetStatusChecksRollup(t *testing.T) {
@@ -312,4 +313,55 @@ func TestRenderLabels(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRenderClaudeReviewStatus(t *testing.T) {
+	url := "https://github.com/chainguard-dev/stereo/pull/1"
+	newPr := func(reviews map[string]*context.ClaudeReview) *PullRequest {
+		return &PullRequest{
+			Data: &Data{Primary: &data.PullRequestData{Url: url}},
+			Ctx:  &context.ProgramContext{Theme: *theme.DefaultTheme, ClaudeReviews: reviews},
+		}
+	}
+
+	t.Run("no review renders empty", func(t *testing.T) {
+		got := newPr(map[string]*context.ClaudeReview{}).renderClaudeReviewStatus()
+		if strings.TrimSpace(got) != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("nil store renders empty", func(t *testing.T) {
+		got := newPr(nil).renderClaudeReviewStatus()
+		if strings.TrimSpace(got) != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("done renders success icon", func(t *testing.T) {
+		pr := newPr(map[string]*context.ClaudeReview{
+			url: {State: context.ClaudeReviewDone, SessionId: "s"},
+		})
+		if got := pr.renderClaudeReviewStatus(); !strings.Contains(got, constants.SuccessIcon) {
+			t.Errorf("got %q, want it to contain %q", got, constants.SuccessIcon)
+		}
+	})
+
+	t.Run("failed renders failure icon", func(t *testing.T) {
+		pr := newPr(map[string]*context.ClaudeReview{
+			url: {State: context.ClaudeReviewFailed},
+		})
+		if got := pr.renderClaudeReviewStatus(); !strings.Contains(got, constants.FailureIcon) {
+			t.Errorf("got %q, want it to contain %q", got, constants.FailureIcon)
+		}
+	})
+
+	t.Run("review for another PR renders empty", func(t *testing.T) {
+		pr := newPr(map[string]*context.ClaudeReview{
+			"https://github.com/other/repo/pull/2": {State: context.ClaudeReviewDone},
+		})
+		if got := pr.renderClaudeReviewStatus(); strings.TrimSpace(got) != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
 }

@@ -6,22 +6,22 @@ import { Aside, LinkCard, CardGrid } from "@astrojs/starlight/components";
 
 `dash` has extensive configuration options.
 
-- Modify the default config which is usually under `$HOME/.config/gh-dash/config.yml`.
+- Modify the default config which is usually under `$HOME/.config/dispatch/config.yml`.
 - Use the [`--config`][01] flag to specify a different configuration file.
-- Create a `.gh-dash.yml` file in a repo for project specific configuration.
+- Create a `.dispatch.yml` file in a repo for project specific configuration.
 
 <details>
   <summary>Give me more details!</summary>
   Using the following logic:
 1. If `$GH_DASH_CONFIG` is a non-empty string, `dash` will use this file for
    its configuration.
-2. If `$GH_DASH_CONFIG` isn't set and you're in a git repository, it will look for `.gh-dash.yml` or `.gh-dash.yaml`
+2. If `$GH_DASH_CONFIG` isn't set and you're in a git repository, it will look for `.dispatch.yml` or `.dispatch.yaml`
    in the repository root.
 3. If neither of the above applies, then:
-  - If `$XDG_CONFIG_HOME` is a non-empty string, the default path is `$XDG_CONFIG_HOME/gh-dash/config.yml`.
+  - If `$XDG_CONFIG_HOME` is a non-empty string, the default path is `$XDG_CONFIG_HOME/dispatch/config.yml`.
   - If `$XDG_CONFIG_HOME` isn't set, then:
-    - On Linux and macOS systems, the default path is `$HOME/.config/gh-dash/config.yml`.
-    - On Windows systems, the default path is `%USERPROFILE%\.config\gh-dash\config.yml`.
+    - On Linux and macOS systems, the default path is `$HOME/.config/dispatch/config.yml`.
+    - On Windows systems, the default path is `%USERPROFILE%\.config\dispatch\config.yml`.
 
 </details>
 

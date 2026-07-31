@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"regexp"
+	"strings"
 	"text/template"
 	"time"
 
@@ -13,16 +15,16 @@ import (
 	"charm.land/lipgloss/v2"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/shell"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/notificationrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/markdown"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/shell"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/notificationrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/markdown"
 )
 
 func (m *Model) getCurrSection() section.Section {
@@ -172,7 +174,7 @@ func (m *Model) executeKeybinding(key string) tea.Cmd {
 
 // resolveTemplateInput builds the input map for a keybinding command template.
 // It merges context-specific data and resolves RepoPath via the repoPaths config mapping.
-// ctxRepoPath is the path of the repo gh-dash was started from (may be empty).
+// ctxRepoPath is the path of the repo dispatch was started from (may be empty).
 func resolveTemplateInput(
 	contextData *map[string]any,
 	repoPaths map[string]string,
@@ -203,7 +205,35 @@ func resolveTemplateInput(
 		input["RepoPath"] = ctxRepoPath
 	}
 
+	// Shell-quote every string value so remote-controlled data (branch names,
+	// issue titles, authors) cannot inject shell metacharacters when the
+	// rendered command is executed via `sh -c`. text/template performs no
+	// escaping of its own. Values that are already shell-safe pass through
+	// unquoted so common templates keep working unchanged.
+	for k, v := range input {
+		if s, ok := v.(string); ok {
+			input[k] = shellQuote(s)
+		}
+	}
+
 	return input
+}
+
+// shellSafe matches values that need no quoting to be safe in a POSIX shell.
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9@%+=:,./_-]+$`)
+
+// shellQuote returns s quoted for safe interpolation into a POSIX shell
+// command string, following the same rules as Python's shlex.quote: shell-safe
+// values are returned unchanged, and everything else is wrapped in single
+// quotes with embedded single quotes escaped as '\”.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if shellSafe.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // runCustomCommand executes a user-defined command.

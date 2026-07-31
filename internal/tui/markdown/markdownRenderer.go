@@ -6,7 +6,8 @@ import (
 	"charm.land/glamour/v2/styles"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
 )
 
 var (
@@ -19,6 +20,12 @@ func InitializeMarkdownStyle(ctx *context.ProgramContext) {
 		log.Debugf("InitializeMarkdownStyle: keeping existing bubbletea style")
 		return
 	}
+
+	// The package-level style config captures icon values at package init;
+	// refresh them so the configured icon style is reflected.
+	CustomDarkStyleConfig.Link.Format = constants.MarkdownLinkIcon
+	CustomDarkStyleConfig.Image.Format = constants.MarkdownImageIcon
+	CustomDarkStyleConfig.ImageText.Format = constants.MarkdownLinkIcon
 
 	hasDarkBackground := true
 	backgroundSource := "default"

@@ -9,11 +9,11 @@ import (
 	"charm.land/log/v2"
 	gitm "github.com/aymanbagabas/git-module"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
 )
 
 type UpdatePRMsg struct {
@@ -381,8 +381,12 @@ func (m *Model) onRefreshPrsMsg() []tea.Cmd {
 }
 
 func (m *Model) OpenGithub() tea.Cmd {
+	branches := m.getFilteredBranches()
 	row := m.CurrRow()
-	b := m.getFilteredBranches()[row]
+	if row < 0 || row >= len(branches) {
+		return nil
+	}
+	b := branches[row]
 	return tasks.OpenBranchPR(m.Ctx, tasks.SectionIdentifier{Id: 0, Type: SectionType}, b.Data.Name)
 }
 

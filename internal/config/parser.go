@@ -21,7 +21,7 @@ import (
 	"github.com/knadh/koanf/v2"
 	yamlmarshaller "gopkg.in/yaml.v3"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 var hexColorRegex = regexp.MustCompile(`^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$`)
@@ -31,7 +31,11 @@ var conf = koanf.Conf{
 	StrictMerge: true,
 }
 
-const DashDir = "gh-dash"
+const DashDir = "dispatch"
+
+// LegacyDashDir is the pre-rename config directory; existing configs there
+// keep working until one exists under DashDir.
+const LegacyDashDir = "gh-dash"
 
 const ConfigYmlFileName = "config.yml"
 
@@ -161,6 +165,7 @@ type PrsLayoutConfig struct {
 	ReviewStatus ColumnConfig `yaml:"reviewStatus,omitempty"`
 	State        ColumnConfig `yaml:"state,omitempty"`
 	Ci           ColumnConfig `yaml:"ci,omitempty"`
+	Claude       ColumnConfig `yaml:"claude,omitempty"`
 	Lines        ColumnConfig `yaml:"lines,omitempty"`
 	NumComments  ColumnConfig `yaml:"numComments,omitempty"`
 }
@@ -316,6 +321,12 @@ type ThemeConfig struct {
 	Icons  *IconThemeConfig  `yaml:"icons,omitempty"  validate:"omitempty"`
 }
 
+// Icon styles control how icons render: Nerd Font glyphs or plain Unicode.
+const (
+	IconStyleNerd = "nerd"
+	IconStyleText = "text"
+)
+
 type Config struct {
 	Include                  []string                     `yaml:"include,omitempty"`
 	PRSections               []PrsSectionConfig           `yaml:"prSections"`
@@ -329,6 +340,7 @@ type Config struct {
 	Pager                    Pager                        `yaml:"pager"`
 	ConfirmQuit              bool                         `yaml:"confirmQuit"`
 	ShowAuthorIcons          bool                         `yaml:"showAuthorIcons,omitempty"`
+	IconStyle                string                       `yaml:"iconStyle,omitempty"                            validate:"omitempty,oneof=nerd text"`
 	SmartFilteringAtLaunch   bool                         `yaml:"smartFilteringAtLaunch"                         default:"true"`
 	IncludeReadNotifications bool                         `yaml:"includeReadNotifications"                       default:"true"`
 }
@@ -497,6 +509,7 @@ func (parser ConfigParser) getDefaultConfig() Config {
 		},
 		ConfirmQuit:              false,
 		ShowAuthorIcons:          true,
+		IconStyle:                IconStyleNerd,
 		SmartFilteringAtLaunch:   true,
 		IncludeReadNotifications: true,
 	}
@@ -528,7 +541,7 @@ Create one under: %s
 Example of a config.yml file:
 %s
 
-For more info, go to https://github.com/dlvhdr/gh-dash
+For more info, go to https://github.com/kbsteere/dispatch
 press q to exit.
 
 Original error: %v`,
@@ -562,7 +575,7 @@ func (parser ConfigParser) createConfigFileIfMissing(
 		newConfigFile, err := os.OpenFile(
 			configFilePath,
 			os.O_RDWR|os.O_CREATE|os.O_EXCL,
-			0o666,
+			0o600,
 		)
 		if err != nil {
 			return err
@@ -586,12 +599,23 @@ func (parser ConfigParser) getGlobalConfigPathOrCreateIfMissing() (string, error
 	}
 
 	configFilePath := filepath.Join(configDir, DashDir, ConfigYmlFileName)
+
+	// Fall back to the legacy config location when the new one has no config
+	// yet, so existing setups keep working without migration.
+	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
+		legacyPath := filepath.Join(configDir, LegacyDashDir, ConfigYmlFileName)
+		if _, err := os.Stat(legacyPath); err == nil {
+			log.Debug("using legacy global config path", "path", legacyPath)
+			return legacyPath, nil
+		}
+	}
+
 	log.Debug("using global config path", "path", configFilePath)
 
 	// Ensure directory exists before attempting to create file
 	configDir = filepath.Dir(configFilePath)
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		if err = os.MkdirAll(configDir, os.ModePerm); err != nil {
+		if err = os.MkdirAll(configDir, 0o700); err != nil {
 			return "", configError{
 				parser:    parser,
 				configDir: configDir,
@@ -607,25 +631,48 @@ func (parser ConfigParser) getGlobalConfigPathOrCreateIfMissing() (string, error
 	return configFilePath, nil
 }
 
+// repoConfigTrusted reports whether the user has opted in to loading
+// auto-discovered repo-local config (.dispatch.yml at the repo root). Because
+// that config can define shell commands, it is trusted only when
+// DISPATCH_TRUST_REPO_CONFIG is set to a truthy value.
+func repoConfigTrusted() bool {
+	switch strings.ToLower(os.Getenv("DISPATCH_TRUST_REPO_CONFIG")) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func (parser ConfigParser) getProvidedConfigPath(location Location) string {
 	var userProvidedCfgPath string
 	// First try the provided --config flag
 	if location.ConfigFlag != "" {
 		userProvidedCfgPath = location.ConfigFlag
-	} else if cfg := os.Getenv("GH_DASH_CONFIG"); cfg != "" {
-		// then try the GH_DASH_CONFIG env var
+	} else if cfg := os.Getenv("DISPATCH_CONFIG"); cfg != "" {
+		// then try the DISPATCH_CONFIG env var
 		userProvidedCfgPath = cfg
-	} else if location.RepoPath != "" {
-		// Then try to see if we're currently in a git repo
-		basename := location.RepoPath + "/." + DashDir
-		repoConfigYml := basename + ".yml"
-		repoConfigYaml := basename + ".yaml"
-		if _, err := os.Stat(repoConfigYml); err == nil {
-			userProvidedCfgPath = repoConfigYml
-			log.Info("Using config at repo root", "path", repoConfigYml)
-		} else if _, err := os.Stat(repoConfigYaml); err == nil {
-			userProvidedCfgPath = repoConfigYaml
-			log.Info("Using config at repo root", "path", repoConfigYaml)
+	} else if location.RepoPath != "" && repoConfigTrusted() {
+		// Then try to see if we're currently in a git repo. Repo-local config
+		// is attacker-controlled when cloning untrusted repositories (it can
+		// define keybinding commands that run via the shell), so it is only
+		// honored when the user opts in via DISPATCH_TRUST_REPO_CONFIG.
+		// The legacy .gh-dash file name keeps working as a fallback.
+		for _, basename := range []string{
+			location.RepoPath + "/." + DashDir,
+			location.RepoPath + "/." + LegacyDashDir,
+		} {
+			repoConfigYml := basename + ".yml"
+			repoConfigYaml := basename + ".yaml"
+			if _, err := os.Stat(repoConfigYml); err == nil {
+				userProvidedCfgPath = repoConfigYml
+				log.Info("Using config at repo root", "path", repoConfigYml)
+				break
+			} else if _, err := os.Stat(repoConfigYaml); err == nil {
+				userProvidedCfgPath = repoConfigYaml
+				log.Info("Using config at repo root", "path", repoConfigYaml)
+				break
+			}
 		}
 	}
 

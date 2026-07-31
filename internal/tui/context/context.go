@@ -7,9 +7,10 @@ import (
 
 	gitm "github.com/aymanbagabas/git-module"
 	"github.com/cli/go-gh/v2/pkg/repository"
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/theme"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type State = int
@@ -54,6 +55,24 @@ type ProgramContext struct {
 	StartTask            func(task Task) tea.Cmd
 	Theme                theme.Theme
 	Styles               Styles
+	// ClaudeReviews tracks background Claude review runs keyed by PR URL.
+	// It's only accessed from the bubbletea update loop.
+	ClaudeReviews map[string]*ClaudeReview
+}
+
+type ClaudeReviewState int
+
+const (
+	ClaudeReviewRunning ClaudeReviewState = iota + 1
+	ClaudeReviewDone
+	ClaudeReviewFailed
+)
+
+type ClaudeReview struct {
+	State     ClaudeReviewState
+	Output    string
+	SessionId string
+	Err       error
 }
 
 func (ctx *ProgramContext) HasGHRepo() bool {
@@ -85,7 +104,7 @@ func (ctx *ProgramContext) GetViewSectionsConfig() []config.SectionConfig {
 		}
 	}
 
-	return append([]config.SectionConfig{{Title: ""}}, configs...)
+	return append([]config.SectionConfig{{Title: constants.SearchIcon}}, configs...)
 }
 
 func (ctx *ProgramContext) PreviewCursorPosition() tea.Position {

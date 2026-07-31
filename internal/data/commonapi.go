@@ -2,7 +2,6 @@ package data
 
 import (
 	"charm.land/log/v2"
-	gh "github.com/cli/go-gh/v2/pkg/api"
 	graphql "github.com/cli/shurcooL-graphql"
 )
 
@@ -16,21 +15,18 @@ type VersionResponse struct {
 
 func FetchLatestVersion() (VersionResponse, error) {
 	var queryResult VersionResponse
-	var err error
-	if client == nil {
-		client, err = gh.DefaultGraphQLClient()
-	}
+	c, err := defaultClient()
 	if err != nil {
 		return VersionResponse{}, err
 	}
 
 	variables := map[string]any{
 		"owner": graphql.String("dlvhdr"),
-		"name":  graphql.String("gh-dash"),
+		"name":  graphql.String("dispatch"),
 	}
 
 	log.Debug("Fetching latest version")
-	err = client.Query("LatestVersion", &queryResult, variables)
+	err = c.Query("LatestVersion", &queryResult, variables)
 	if err != nil {
 		return VersionResponse{}, err
 	}
@@ -60,10 +56,7 @@ type SponsorsResponse struct {
 
 func FetchSponsors() (SponsorsResponse, error) {
 	var queryResult SponsorsResponse
-	var err error
-	if client == nil {
-		client, err = gh.DefaultGraphQLClient()
-	}
+	c, err := defaultClient()
 	if err != nil {
 		return SponsorsResponse{}, err
 	}
@@ -73,7 +66,7 @@ func FetchSponsors() (SponsorsResponse, error) {
 	}
 
 	log.Debug("Fetching sponsors")
-	err = client.Query("Sponsors", &queryResult, variables)
+	err = c.Query("Sponsors", &queryResult, variables)
 	if err != nil {
 		return SponsorsResponse{}, err
 	}

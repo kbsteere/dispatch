@@ -1,16 +1,14 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"strings"
 )
 
 func (cfg Config) GetFullScreenDiffPagerEnv() []string {
-	diff := cfg.Pager.Diff
-	if diff == "" {
-		diff = "less"
-	}
+	diff := cmp.Or(cfg.Pager.Diff, "less")
 	if diff == "delta" {
 		diff = "delta --paging always"
 	}

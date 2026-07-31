@@ -7,9 +7,10 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
 	ghchecks "github.com/dlvhdr/x/gh-checks"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
 )
 
 type checkSectionStatus int
@@ -188,7 +189,7 @@ func (m *Model) viewClosedStatus() string {
 		BorderForeground(m.ctx.Theme.FaintBorder).
 		Width(w)
 	return box.Render(m.viewCheckCategory(
-		"",
+		constants.EmptyIcon,
 		"Closed with unmerged commits",
 		"This pull request is closed",
 		true,
@@ -423,7 +424,7 @@ func renderStatusContextName(statusContext data.StatusContext) string {
 func (sidebar *Model) renderChecks() string {
 	title := sidebar.ctx.Styles.Common.MainTextStyle.MarginBottom(1).
 		Underline(true).
-		Render(" All Checks")
+		Render(constants.ChecksIcon + " All Checks")
 
 	commits := sidebar.pr.Data.Enriched.Commits.Nodes
 	if len(commits) == 0 {

@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 type BranchKeyMap struct {
@@ -120,7 +120,7 @@ func rebindBranchKeys(keys []config.Keybinding) error {
 		case "updatePr":
 			key = &BranchKeys.UpdatePr
 		default:
-			return fmt.Errorf("unknown built-in branch key: '%s'", branchKey.Builtin)
+			return fmt.Errorf("unknown built-in branch key: %q", branchKey.Builtin)
 		}
 
 		key.SetKeys(branchKey.Key)

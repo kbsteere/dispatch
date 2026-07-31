@@ -5,7 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	log "charm.land/log/v2"
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 type CmpKeyMap struct {
@@ -76,7 +76,7 @@ func rebindCmpKeys(keys []config.Keybinding) error {
 		case "toggleSuggestions":
 			key = &CmpKeys.ToggleSuggestions
 		default:
-			return fmt.Errorf("unknown builtin: '%s'", cmpKey.Builtin)
+			return fmt.Errorf("unknown builtin: %q", cmpKey.Builtin)
 		}
 
 		key.SetKeys(cmpKey.Key)

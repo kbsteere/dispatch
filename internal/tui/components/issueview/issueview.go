@@ -1,6 +1,7 @@
 package issueview
 
 import (
+	"cmp"
 	"fmt"
 	"image/color"
 	"regexp"
@@ -10,19 +11,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/cmpcontroller"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/fuzzyselect"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/inputbox"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/issuerow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/issuessection"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/markdown"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/cmpcontroller"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/fuzzyselect"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/inputbox"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/issuerow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/issuessection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/tui/markdown"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 var (
@@ -180,10 +181,10 @@ func (m *Model) renderStatusPill() string {
 	switch m.issue.Data.State {
 	case "OPEN":
 		bgColor = m.ctx.Styles.Colors.OpenIssue.Dark
-		content = " Open"
+		content = constants.IssueOpenedIcon + " Open"
 	case "CLOSED":
 		bgColor = m.ctx.Styles.Colors.ClosedIssue.Dark
-		content = " Closed"
+		content = constants.IssueClosedIcon + " Closed"
 	}
 
 	return m.ctx.Styles.PrView.PillStyle.
@@ -193,10 +194,7 @@ func (m *Model) renderStatusPill() string {
 }
 
 func (m *Model) renderAuthor() string {
-	authorAssociation := m.issue.Data.AuthorAssociation
-	if authorAssociation == "" {
-		authorAssociation = "unknown role"
-	}
+	authorAssociation := cmp.Or(m.issue.Data.AuthorAssociation, "unknown role")
 	time := lipgloss.NewStyle().Render(utils.TimeElapsed(m.issue.Data.CreatedAt))
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		" by ",

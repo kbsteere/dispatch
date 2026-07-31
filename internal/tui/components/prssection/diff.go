@@ -3,7 +3,7 @@ package prssection
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
 )
 
 func (m Model) diff() tea.Cmd {

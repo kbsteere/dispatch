@@ -6,7 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 )
 
 // Model defines a state for the carousel widget.

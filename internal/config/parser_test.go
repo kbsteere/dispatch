@@ -16,14 +16,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/testutils"
+	"github.com/kbsteere/dispatch/v4/internal/tui/testutils"
 )
 
-// See https://www.gh-dash.dev/configuration/#_top
+// See https://gh-dash.dev/configuration (upstream)
 //  1. get default config file or create it if it's missing
-//     1.1. try GH_DASH_CONFIG
+//     1.1. try DISPATCH_CONFIG
 //     1.2. then check if we're in a git repo
-//     1.2.1. try both `.gh-dash.yml` and `.gh-dash.yaml`
+//     1.2.1. try both `.dispatch.yml` and `.dispatch.yaml` (or legacy `.gh-dash.*`)
 //     1.3. try to look under `XDG_CONFIG_HOME`
 //     1.4. if not, try with `os.UserHomeDir()`
 //     1.5. if still doesn't exist, create with defaults
@@ -60,7 +60,7 @@ func TestParser(t *testing.T) {
 		defer func() {
 			os.Unsetenv("XDG_CONFIG_HOME")
 		}()
-		t.Setenv("GH_DASH_CONFIG", "")
+		t.Setenv("DISPATCH_CONFIG", "")
 
 		parsed, err := ParseConfig(Location{})
 		testutils.AssertNoError(t, err)
@@ -84,7 +84,7 @@ func TestParser(t *testing.T) {
 		require.Equal(t, "#E2E1ED", parsed.Theme.Colors.Inline.Text.Primary.String())
 	})
 
-	t.Run("Should then try GH_DASH_CONFIG env var", func(t *testing.T) {
+	t.Run("Should then try DISPATCH_CONFIG env var", func(t *testing.T) {
 		clearXDGEnv := setXDGConfigHomeEnvVar(t, "testdata")
 		defer clearXDGEnv()
 		clearEnv := setupConfigEnvVar(t)
@@ -100,7 +100,21 @@ func TestParser(t *testing.T) {
 		require.Len(t, parsed.PRSections, 1)
 	})
 
-	t.Run("Should then try config in repo", func(t *testing.T) {
+	t.Run("Should then try config in repo when trusted", func(t *testing.T) {
+		clearXDGEnv := setXDGConfigHomeEnvVar(t, "testdata")
+		defer clearXDGEnv()
+		t.Setenv("DISPATCH_TRUST_REPO_CONFIG", "true")
+		cwd := Testwd(t)
+		parsed, err := ParseConfig(Location{
+			RepoPath:   path.Join(cwd, repoPath),
+			ConfigFlag: "",
+		})
+
+		testutils.AssertNoError(t, err)
+		require.Len(t, parsed.PRSections, 2)
+	})
+
+	t.Run("Should ignore repo config when not trusted", func(t *testing.T) {
 		clearXDGEnv := setXDGConfigHomeEnvVar(t, "testdata")
 		defer clearXDGEnv()
 		cwd := Testwd(t)
@@ -110,7 +124,9 @@ func TestParser(t *testing.T) {
 		})
 
 		testutils.AssertNoError(t, err)
-		require.Len(t, parsed.PRSections, 2)
+		// Falls back to the global config (3 sections) instead of the
+		// untrusted repo-local config (2 sections).
+		require.Len(t, parsed.PRSections, 3)
 	})
 
 	t.Run("Should then read global config", func(t *testing.T) {
@@ -261,8 +277,8 @@ func TestValidateColor(t *testing.T) {
 func setupConfigEnvVar(t *testing.T) func() {
 	t.Helper()
 	cwd := Testwd(t)
-	os.Setenv("GH_DASH_CONFIG", path.Join(cwd, "testdata/other-test-config.yml"))
+	os.Setenv("DISPATCH_CONFIG", path.Join(cwd, "testdata/other-test-config.yml"))
 	return func() {
-		os.Unsetenv("GH_DASH_CONFIG")
+		os.Unsetenv("DISPATCH_CONFIG")
 	}
 }

@@ -1,6 +1,7 @@
 package notificationssection
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
@@ -12,15 +13,15 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/notificationrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/notificationrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 const SectionType = "notification"
@@ -455,8 +456,8 @@ func GetSectionColumns(ctx *context.ProgramContext) []table.Column {
 			Align: func() *lipgloss.Position { p := lipgloss.Right; return &p }(),
 		},
 		{
-			Title: "󱦻    ",          // Trailing padding to center when right-aligned
-			Width: utils.IntPtr(12), // Updated at (e.g., "12mo ago")
+			Title: constants.UpdatedAtIcon + "    ", // Trailing padding to center when right-aligned
+			Width: utils.IntPtr(12),                 // Updated at (e.g., "12mo ago")
 			Align: func() *lipgloss.Position { p := lipgloss.Right; return &p }(),
 		},
 	}
@@ -977,9 +978,7 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 				}
 				count := countNewPRComments(pr, readAt)
 				actor, _ := data.FetchCommentAuthor(commentUrl)
-				if actor == "" {
-					actor = pr.Author.Login
-				}
+				actor = cmp.Or(actor, pr.Author.Login)
 				log.Debug(
 					"Got PR comment count",
 					"id",
@@ -1011,9 +1010,7 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 				}
 				count := countNewIssueComments(issue, readAt)
 				actor, _ := data.FetchCommentAuthor(commentUrl)
-				if actor == "" {
-					actor = issue.Author.Login
-				}
+				actor = cmp.Or(actor, issue.Author.Login)
 				log.Debug(
 					"Got Issue comment count",
 					"id",

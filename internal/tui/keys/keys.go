@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 // NotificationSubjectType indicates what type of content is being viewed in the notifications view
@@ -183,11 +183,11 @@ var Keys = &KeyMap{
 	),
 	NextSection: key.NewBinding(
 		key.WithKeys("right", "l"),
-		key.WithHelp("󰁔/l", "next section"),
+		key.WithHelp("â/l", "next section"),
 	),
 	PrevSection: key.NewBinding(
 		key.WithKeys("left", "h"),
-		key.WithHelp("󰁍/h", "previous section"),
+		key.WithHelp("â/h", "previous section"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
@@ -321,7 +321,7 @@ func rebindUniversal(universal []config.Keybinding) error {
 		case "quit":
 			key = &Keys.Quit
 		default:
-			return fmt.Errorf("unknown built-in universal key: '%s'", kb.Builtin)
+			return fmt.Errorf("unknown built-in universal key: %q", kb.Builtin)
 		}
 
 		key.SetKeys(kb.Key)

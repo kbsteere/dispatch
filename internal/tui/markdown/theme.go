@@ -1,6 +1,9 @@
 package markdown
 
-import "charm.land/glamour/v2/ansi"
+import (
+	"charm.land/glamour/v2/ansi"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+)
 
 // DarkStyleConfig is the default dark style.
 var CustomDarkStyleConfig = ansi.StyleConfig{
@@ -106,7 +109,7 @@ var CustomDarkStyleConfig = ansi.StyleConfig{
 		Underline:   boolPtr(false),
 		BlockPrefix: "",
 		BlockSuffix: "",
-		Format:      "",
+		Format:      constants.MarkdownLinkIcon,
 	},
 	LinkText: ansi.StylePrimitive{
 		Color: stringPtr("#666CA6"),
@@ -116,12 +119,12 @@ var CustomDarkStyleConfig = ansi.StyleConfig{
 		Underline: boolPtr(false),
 		Color:     stringPtr("#666CA6"),
 		Bold:      boolPtr(false),
-		Format:    "",
+		Format:    constants.MarkdownImageIcon,
 	},
 	ImageText: ansi.StylePrimitive{
 		Color:  stringPtr("#666CA6"),
 		Bold:   boolPtr(true),
-		Format: "",
+		Format: constants.MarkdownLinkIcon,
 	},
 	Code: ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{

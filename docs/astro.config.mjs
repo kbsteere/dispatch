@@ -6,12 +6,12 @@ import astroBrokenLinksChecker from "astro-broken-links-checker";
 
 import node from "@astrojs/node";
 
-const ogUrl = new URL("og.png", "https://gh-dash.dev/").href;
+const ogUrl = new URL("og.png", "https://dispatch.dev/").href;
 const ogImageAlt = "DASH Through Your GitHub";
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://gh-dash.dev",
+  site: "https://dispatch.dev",
   integrations: [
     astroBrokenLinksChecker({
       logFilePath: "broken-links.log",
@@ -46,7 +46,7 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/dlvhdr/gh-dash",
+          href: "https://github.com/kbsteere/dispatch",
         },
       ],
       sidebar: [

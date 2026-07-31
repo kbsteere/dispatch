@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 type NotificationKeyMap struct {
@@ -142,7 +142,7 @@ func rebindNotificationKeys(keys []config.Keybinding) error {
 		case "toggleSmartFiltering":
 			key = &NotificationKeys.ToggleSmartFiltering
 		default:
-			return fmt.Errorf("unknown built-in notification key: '%s'", notifKey.Builtin)
+			return fmt.Errorf("unknown built-in notification key: %q", notifKey.Builtin)
 		}
 
 		key.SetKeys(notifKey.Key)

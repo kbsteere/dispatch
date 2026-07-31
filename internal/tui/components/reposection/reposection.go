@@ -10,19 +10,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branch"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/search"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/branch"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/search"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 const SectionType = "repo"
@@ -263,7 +263,7 @@ func GetSectionColumns(
 	if !ctx.Config.Theme.Ui.Table.Compact {
 		return []table.Column{
 			{
-				Title:  "",
+				Title:  constants.BranchIcon,
 				Width:  utils.IntPtr(3),
 				Hidden: stateLayout.Hidden,
 			},
@@ -283,23 +283,23 @@ func GetSectionColumns(
 				Hidden: baseLayout.Hidden,
 			},
 			{
-				Title:  "󰯢",
+				Title:  constants.NumCommentsIcon,
 				Width:  utils.IntPtr(4),
 				Hidden: reviewStatusLayout.Hidden,
 			},
 			{
-				Title:  "",
+				Title:  constants.ChecksIcon,
 				Width:  &ctx.Styles.PrSection.CiCellWidth,
 				Grow:   new(bool),
 				Hidden: ciLayout.Hidden,
 			},
 			{
-				Title:  "",
+				Title:  constants.DiffIcon,
 				Width:  linesLayout.Width,
 				Hidden: linesLayout.Hidden,
 			},
 			{
-				Title:  "",
+				Title:  constants.StopwatchIcon,
 				Width:  updatedAtLayout.Width,
 				Hidden: updatedAtLayout.Hidden,
 			},
@@ -308,12 +308,12 @@ func GetSectionColumns(
 
 	return []table.Column{
 		{
-			Title:  "",
+			Title:  constants.BranchIcon,
 			Width:  utils.IntPtr(3),
 			Hidden: stateLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.RepoIcon,
 			Width:  repoLayout.Width,
 			Hidden: repoLayout.Hidden,
 		},
@@ -338,23 +338,23 @@ func GetSectionColumns(
 			Hidden: baseLayout.Hidden,
 		},
 		{
-			Title:  "󰯢",
+			Title:  constants.NumCommentsIcon,
 			Width:  utils.IntPtr(4),
 			Hidden: reviewStatusLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.ChecksIcon,
 			Width:  &ctx.Styles.PrSection.CiCellWidth,
 			Grow:   new(bool),
 			Hidden: ciLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.DiffIcon,
 			Width:  linesLayout.Width,
 			Hidden: linesLayout.Hidden,
 		},
 		{
-			Title:  "",
+			Title:  constants.StopwatchIcon,
 			Width:  updatedAtLayout.Width,
 			Hidden: updatedAtLayout.Hidden,
 		},
@@ -555,11 +555,11 @@ func (m *Model) SetIsLoading(val bool) {
 func (m *Model) GetPagerContent() string {
 	s := lipgloss.NewStyle().Background(m.Ctx.Styles.ListViewPort.PagerStyle.GetBackground())
 	mod := s.Foreground(lipgloss.Color("#e0af68")).Render(
-		fmt.Sprintf(" %d", len(m.repo.Status.Modified)))
+		fmt.Sprintf(constants.FileModifiedIcon+" %d", len(m.repo.Status.Modified)))
 	plus := s.Foreground(m.Ctx.Theme.SuccessText).Render(
-		fmt.Sprintf(" %d", len(m.repo.Status.Added)))
+		fmt.Sprintf(constants.DiffAddedIcon+" %d", len(m.repo.Status.Added)))
 	minus := s.Foreground(m.Ctx.Theme.ErrorText).Render(
-		fmt.Sprintf(" %d", len(m.repo.Status.Removed)))
+		fmt.Sprintf(constants.DiffRemovedIcon+" %d", len(m.repo.Status.Removed)))
 	spacer := s.Render(" ")
 	return m.Ctx.Styles.ListViewPort.PagerStyle.Render(
 		lipgloss.JoinHorizontal(lipgloss.Top, plus, spacer, minus, spacer, mod))

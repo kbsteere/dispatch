@@ -8,10 +8,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/cmpcontroller"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/fuzzyselect"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/inputbox"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/cmpcontroller"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/fuzzyselect"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/inputbox"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
 )
 
 type Model struct {
@@ -47,7 +48,7 @@ func NewModel(ctx *context.ProgramContext, opts SearchOptions) Model {
 			Blink: true,
 		},
 	})
-	ti.Prompt = fmt.Sprintf(" %s ", opts.Prefix)
+	ti.Prompt = fmt.Sprintf(constants.SearchIcon+" %s ", opts.Prefix)
 
 	ti.Blur()
 	ti.SetValue(opts.InitialValue)

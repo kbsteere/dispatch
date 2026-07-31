@@ -13,18 +13,18 @@ To use `dash`, follow these steps after you've [installed it][01]:
 1. Run
 
    ```bash
-   gh dash
+   dispatch
    ```
 
 2. Press <kbd>?</kbd> for help.
-3. Run `gh dash --help` for more info:
+3. Run `dispatch --help` for more info:
 
    ```bash
    Usage:
-     gh dash [flags]
+     dispatch [flags]
 
    Flags:
-     -c, --config string   use this configuration file (default lookup: a .gh-dash.yml file if inside a git repo, $GH_DASH_CONFIG env var, or if not set, $XDG_CONFIG_HOME/gh-dash/config.yml)
+     -c, --config string   use this configuration file (default lookup: a .dispatch.yml file if inside a git repo, $GH_DASH_CONFIG env var, or if not set, $XDG_CONFIG_HOME/dispatch/config.yml)
          --debug           passing this flag will allow writing debug output to debug.log
      -h, --help            help for Dash
    ```
@@ -37,12 +37,12 @@ Specify the path to a configuration file to use for the dashboard. If the config
 doesn't exist or is invalid, `dash` returns an error.
 
 ```bash
-gh dash --config path/to/configuration/file.yml
+dispatch --config path/to/configuration/file.yml
 ```
 
 | Aliases |  Type  | Default                                                                                                                   |
 | :------ | :----: | :------------------------------------------------------------------------------------------------------------------------ |
-| `-c`    | String | `.gh-dash.yml` file if inside a git repo, `$GH_DASH_CONFIG` env var, or if not set, `$XDG_CONFIG_HOME/gh-dash/config.yml` |
+| `-c`    | String | `.dispatch.yml` file if inside a git repo, `$GH_DASH_CONFIG` env var, or if not set, `$XDG_CONFIG_HOME/dispatch/config.yml` |
 
 If you don't specify this flag, `dash` uses the default configuration.
 If the file doesn't exist, `dash` will create it.
@@ -51,13 +51,13 @@ The location of the default configuration file depends on your system:
 
 1. If `$GH_DASH_CONFIG` is a non-empty string, `dash` will use this file for
    its configuration.
-2. If `$GH_DASH_CONFIG` isn't set and you're in a git repository, it will look for `.gh-dash.yml` or `.gh-dash.yaml`
+2. If `$GH_DASH_CONFIG` isn't set and you're in a git repository, it will look for `.dispatch.yml` or `.dispatch.yaml`
    in the repository root.
 3. If neither of the above applies, then:
-   - If `$XDG_CONFIG_HOME` is a non-empty string, the default path is `$XDG_CONFIG_HOME/gh-dash/config.yml`.
+   - If `$XDG_CONFIG_HOME` is a non-empty string, the default path is `$XDG_CONFIG_HOME/dispatch/config.yml`.
    - If `$XDG_CONFIG_HOME` isn't set, then:
-     - On Linux and macOS systems, the default path is `$HOME/.config/gh-dash/config.yml`.
-     - On Windows systems, the default path is `%USERPROFILE%\.config\gh-dash\config.yml`.
+     - On Linux and macOS systems, the default path is `$HOME/.config/dispatch/config.yml`.
+     - On Windows systems, the default path is `%USERPROFILE%\.config\dispatch\config.yml`.
 
 For more information about authoring configurations, see [Configuration][02].
 
@@ -67,7 +67,7 @@ Specify whether `dash` should write logs to the `debug.log` file in the current 
 default, `dash` doesn't output debug information.
 
 ```bash
-gh dash --debug
+dispatch --debug
 ```
 
 | Aliases |  Type   | Default |
@@ -82,7 +82,7 @@ Use this flag to display the help information for `dash` in the terminal. If you
 flag, `dash` ignores all other flags. It only displays the help information.
 
 ```bash
-gh dash --help
+dispatch --help
 ```
 
 | Aliases |  Type   | Default |
@@ -96,7 +96,7 @@ flag with the `--config` or `--debug` flags, `dash` ignores them. It only displa
 information.
 
 ```bash
-gh dash --version
+dispatch --version
 ```
 
 | Aliases |  Type   | Default |
@@ -106,7 +106,7 @@ gh dash --version
 When you use this flag, `dash` emits the following information:
 
 ```text
-gh-dash version <version>
+dispatch version <version>
 commit: <commit_sha>
 built at: <build_timestamp>
 built by: <build_user>
@@ -123,7 +123,7 @@ For example, the version information for the [v3.7.7 release][03] on Windows wit
 is:
 
 ```text
-gh-dash version 3.7.7
+dispatch version 3.7.7
 commit: 6ce3f89ab0d73dd88e359133699d1cf920f88699
 built at: 2023-04-15T08:42:16Z
 built by: goreleaser
@@ -145,5 +145,5 @@ For more information about the keybindings for the dashboard, see [Keybindings][
 
 [01]: /getting-started/
 [02]: /configuration/
-[03]: https://github.com/dlvhdr/gh-dash/releases/tag/v3.7.7
+[03]: https://github.com/kbsteere/dispatch/releases/tag/v3.7.7
 [04]: /getting-started/keybindings/

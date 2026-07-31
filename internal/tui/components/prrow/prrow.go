@@ -8,13 +8,13 @@ import (
 	"charm.land/lipgloss/v2/compat"
 	checks "github.com/dlvhdr/x/gh-checks"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type PullRequest struct {
@@ -72,7 +72,7 @@ func (pr *PullRequest) renderState() string {
 	mergeCellStyle := lipgloss.NewStyle()
 
 	if pr.Data.Primary == nil {
-		return mergeCellStyle.Foreground(pr.Ctx.Theme.SuccessText).Render("󰜛")
+		return mergeCellStyle.Foreground(pr.Ctx.Theme.SuccessText).Render(constants.BranchDeletedIcon)
 	}
 
 	switch pr.Data.Primary.State {
@@ -384,6 +384,29 @@ func (pr *PullRequest) RenderMergeStateStatus() string {
 	}
 }
 
+func (pr *PullRequest) renderClaudeReviewStatus() string {
+	if pr.Data.Primary == nil || pr.Ctx.ClaudeReviews == nil {
+		return ""
+	}
+
+	review, ok := pr.Ctx.ClaudeReviews[pr.Data.Primary.Url]
+	if !ok {
+		return ""
+	}
+
+	cellStyle := pr.getTextStyle()
+	switch review.State {
+	case context.ClaudeReviewRunning:
+		return cellStyle.Render(pr.Ctx.Styles.Common.WaitingGlyph)
+	case context.ClaudeReviewDone:
+		return cellStyle.Foreground(pr.Ctx.Theme.SuccessText).Render(constants.SuccessIcon)
+	case context.ClaudeReviewFailed:
+		return cellStyle.Foreground(pr.Ctx.Theme.ErrorText).Render(constants.FailureIcon)
+	default:
+		return ""
+	}
+}
+
 func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
 	if !pr.Ctx.Config.Theme.Ui.Table.Compact {
 		return table.Row{
@@ -395,6 +418,7 @@ func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
 			pr.renderNumComments(),
 			pr.renderReviewStatus(),
 			pr.renderCiStatus(),
+			pr.renderClaudeReviewStatus(),
 			pr.RenderLines(isSelected),
 			pr.renderUpdateAt(),
 			pr.renderCreatedAt(),
@@ -412,6 +436,7 @@ func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
 		pr.renderNumComments(),
 		pr.renderReviewStatus(),
 		pr.renderCiStatus(),
+		pr.renderClaudeReviewStatus(),
 		pr.RenderLines(isSelected),
 		pr.renderUpdateAt(),
 		pr.renderCreatedAt(),

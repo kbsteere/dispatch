@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 )
 
 // DiffPR opens a diff view for a PR using the gh CLI.

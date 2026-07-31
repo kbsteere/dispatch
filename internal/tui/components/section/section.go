@@ -15,15 +15,15 @@ import (
 	"github.com/go-sprout/sprout"
 	timeregistry "github.com/go-sprout/sprout/registry/time"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prompt"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/search"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prompt"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/search"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type BaseModel struct {
@@ -343,6 +343,26 @@ func (m *BaseModel) GetIsLoading() bool {
 	return m.IsLoading
 }
 
+// SetFetchError renders err in place of the table's empty state so failed
+// fetches aren't mistaken for empty results; a nil err restores the default
+// empty-state message.
+func (m *BaseModel) SetFetchError(err error) {
+	if err == nil {
+		m.Table.EmptyState = utils.StringPtr(m.Ctx.Styles.Section.EmptyStateStyle.Render(
+			fmt.Sprintf(
+				"No %s were found that match the given filters",
+				m.PluralForm,
+			),
+		))
+		return
+	}
+
+	m.Table.EmptyState = utils.StringPtr(lipgloss.NewStyle().
+		Foreground(m.Ctx.Theme.ErrorText).
+		Padding(1, 2).
+		Render(fmt.Sprintf("Failed fetching %s: %v (press r to retry)", m.PluralForm, err)))
+}
+
 func (m *BaseModel) SetIsSearching(val bool) tea.Cmd {
 	m.IsSearching = val
 	if val {
@@ -430,7 +450,7 @@ func (m *BaseModel) GetMainContent() string {
 
 			fmt.Sprintf(
 				"%s you can change the search query by pressing %s and submitting it with %s",
-				lipgloss.NewStyle().Bold(true).Render(" Tip:"),
+				lipgloss.NewStyle().Bold(true).Render(constants.TipIcon+" Tip:"),
 				m.Ctx.Styles.Section.KeyStyle.Render("/"),
 				m.Ctx.Styles.Section.KeyStyle.Render("Enter"),
 			),

@@ -117,6 +117,24 @@ func Clamp(mn, wanted, mx int) int {
 	return min(mx, max(mn, wanted))
 }
 
+// SanitizeText strips control characters from remote-sourced text so a crafted
+// value (e.g. a PR or issue title) cannot inject terminal escape sequences when
+// rendered. Newlines and tabs are turned into spaces so single-line rows are
+// not broken, and all other C0 controls (including ESC and carriage returns),
+// DEL, and C1 controls are dropped.
+func SanitizeText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return ' '
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
+			return -1
+		default:
+			return r
+		}
+	}, s)
+}
+
 // Remove all ANSI reset codes
 func RemoveReset(s string) string {
 	return strings.ReplaceAll(s, "\x1b[m", "")

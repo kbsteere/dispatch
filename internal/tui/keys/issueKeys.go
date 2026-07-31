@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	log "charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 type IssueKeyMap struct {
@@ -118,7 +118,7 @@ func rebindIssueKeys(keys []config.Keybinding) error {
 		case "viewPrs":
 			key = &IssueKeys.ViewPRs
 		default:
-			return fmt.Errorf("unknown built-in issue key: '%s'", issueKey.Builtin)
+			return fmt.Errorf("unknown built-in issue key: %q", issueKey.Builtin)
 		}
 
 		key.SetKeys(issueKey.Key)

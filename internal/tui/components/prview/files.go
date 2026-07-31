@@ -5,8 +5,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 func (m *Model) renderChangesOverview() string {
@@ -31,7 +32,7 @@ func (m *Model) renderChangesOverview() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			changes.Render(
 				lipgloss.JoinHorizontal(lipgloss.Top,
-					lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(" "),
+					lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(constants.FileDiffIcon+" "),
 					fmt.Sprintf("%d files changed", m.pr.Data.Enriched.Files.TotalCount),
 					" ",
 					m.pr.RenderLines(false)),
@@ -39,7 +40,7 @@ func (m *Model) renderChangesOverview() string {
 			commits.Render(
 				lipgloss.JoinHorizontal(
 					lipgloss.Top,
-					lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(" "),
+					lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(constants.CommitHistoryIcon+" "),
 					fmt.Sprintf("%d commits", m.pr.Data.Enriched.Commits.TotalCount),
 					" ",
 					lipgloss.NewStyle().
@@ -93,17 +94,17 @@ func (m *Model) renderFile(file data.ChangedFile) string {
 func (m *Model) renderChangeTypeIcon(changeType string) string {
 	switch changeType {
 	case "ADDED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.SuccessText).Render("")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.SuccessText).Render(constants.FileAddedIcon)
 	case "DELETED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.ErrorText).Render("")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.ErrorText).Render(constants.FileDeletedIcon)
 	case "RENAMED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render("")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render(constants.FileRenamedIcon)
 	case "COPIED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render("")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render(constants.FileCopiedIcon)
 	case "MODIFIED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render("")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render(constants.FileModifiedIcon)
 	case "CHANGED":
-		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render("")
+		return lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Render(constants.FileModifiedIcon)
 	default:
 		return ""
 	}

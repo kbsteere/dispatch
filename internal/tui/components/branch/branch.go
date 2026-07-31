@@ -6,13 +6,13 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type Branch struct {
@@ -35,14 +35,14 @@ func (b *Branch) renderReviewStatus() string {
 		reviewCellStyle = reviewCellStyle.Foreground(
 			b.Ctx.Theme.SuccessText,
 		)
-		return reviewCellStyle.Render("󰄬")
+		return reviewCellStyle.Render(constants.ApprovedIcon)
 	}
 
 	if b.PR.ReviewDecision == "CHANGES_REQUESTED" {
 		reviewCellStyle = reviewCellStyle.Foreground(
 			b.Ctx.Theme.ErrorText,
 		)
-		return reviewCellStyle.Render("")
+		return reviewCellStyle.Render(constants.ChangesRequestedIcon)
 	}
 
 	return reviewCellStyle.Render(b.Ctx.Styles.Common.WaitingGlyph)
@@ -52,7 +52,7 @@ func (b *Branch) renderState() string {
 	mergeCellStyle := lipgloss.NewStyle()
 
 	if b.PR == nil {
-		return mergeCellStyle.Foreground(b.Ctx.Theme.SuccessText).Render("󰜛")
+		return mergeCellStyle.Foreground(b.Ctx.Theme.SuccessText).Render(constants.BranchDeletedIcon)
 	}
 
 	switch b.PR.State {

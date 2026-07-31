@@ -7,13 +7,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/carousel"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/utils"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/carousel"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/utils"
 )
 
 type SectionTab struct {
@@ -151,27 +151,29 @@ func (m *Model) UpdateTabTitles() {
 }
 
 func (m *Model) viewLogo() string {
-	version := lipgloss.NewStyle().Foreground(m.ctx.Theme.SecondaryText).Render(m.ctx.Version)
+	radio := lipgloss.NewStyle().
+		Foreground(context.LogoColor).
+		Render("╷)))\n▐≡▌")
+	name := lipgloss.NewStyle().
+		Foreground(context.LogoColor).
+		Bold(true).
+		Render("Dispatch")
+	logo := lipgloss.JoinHorizontal(lipgloss.Bottom, radio, " ", name)
+
 	if m.latestVersion != "" && m.ctx.Version != "dev" && m.ctx.Version != m.latestVersion {
-		version = lipgloss.JoinVertical(
-			lipgloss.Left,
-			version,
+		logo = lipgloss.JoinVertical(
+			lipgloss.Right,
+			logo,
 			lipgloss.NewStyle().
 				Foreground(m.ctx.Styles.Colors.SuccessText).
-				Render(" Update available!"),
+				Render(constants.UpdateAvailableIcon+" Update available!"),
 		)
-	} else {
-		version = lipgloss.PlaceVertical(2, lipgloss.Bottom, version)
 	}
 
 	return lipgloss.NewStyle().
 		Padding(0, 1, 0, 2).
 		Height(2).
-		Render(lipgloss.JoinHorizontal(lipgloss.Bottom,
-			lipgloss.NewStyle().Foreground(context.LogoColor).Render(constants.Logo),
-			" ",
-			version,
-		))
+		Render(lipgloss.PlaceVertical(2, lipgloss.Bottom, logo))
 }
 
 func (m *Model) SetAllLoading() []tea.Cmd {

@@ -11,13 +11,17 @@ import (
 
 const (
 	defaultXDGStateDir = ".local/state"
-	dashDir            = "gh-dash"
+	dashDir            = "dispatch"
+	// legacyDashDir is the pre-rename state directory; existing state files
+	// there keep working until one exists under dashDir.
+	legacyDashDir = "gh-dash"
 )
 
 // NotificationIDStore is a generic store for persisting sets of notification IDs.
 // Used for bookmarks, done notifications, and similar features.
 type NotificationIDStore struct {
 	mu       sync.RWMutex
+	saveMu   sync.Mutex // serializes save() so concurrent async saves can't reorder
 	ids      map[string]bool
 	filePath string
 	name     string // for logging
@@ -48,7 +52,14 @@ func getStateFilePath(filename string) (string, error) {
 		}
 		stateDir = filepath.Join(homeDir, defaultXDGStateDir)
 	}
-	return filepath.Join(stateDir, dashDir, filename), nil
+	statePath := filepath.Join(stateDir, dashDir, filename)
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		legacyPath := filepath.Join(stateDir, legacyDashDir, filename)
+		if _, err := os.Stat(legacyPath); err == nil {
+			return legacyPath, nil
+		}
+	}
+	return statePath, nil
 }
 
 func (s *NotificationIDStore) load() error {
@@ -80,6 +91,12 @@ func (s *NotificationIDStore) load() error {
 }
 
 func (s *NotificationIDStore) save() error {
+	// Serialize saves so that concurrent async saves run to completion in turn
+	// and the last one always persists the latest in-memory state, rather than
+	// racing on the final rename.
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

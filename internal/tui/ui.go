@@ -22,31 +22,31 @@ import (
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	gitm "github.com/aymanbagabas/git-module"
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/data"
-	"github.com/dlvhdr/gh-dash/v4/internal/git"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branch"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branchsidebar"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/footer"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/issuessection"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/issueview"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/notificationrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/notificationssection"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/notificationview"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prrow"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prssection"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prview"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/reposection"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/sidebar"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tabs"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/markdown"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/theme"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/branch"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/branchsidebar"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/footer"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/issuessection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/issueview"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/notificationrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/notificationssection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/notificationview"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prssection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/prview"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/reposection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/sidebar"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tabs"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/tasks"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/tui/context"
+	"github.com/kbsteere/dispatch/v4/internal/tui/keys"
+	"github.com/kbsteere/dispatch/v4/internal/tui/markdown"
+	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
 )
 
 type Model struct {
@@ -103,6 +103,7 @@ func NewModel(location config.Location, repos Repositories) Model {
 		HasDarkBackground: true,
 		BackgroundSource:  "default",
 		Theme:             *theme.DefaultTheme,
+		ClaudeReviews:     map[string]*context.ClaudeReview{},
 	}
 
 	m.footer = footer.NewModel(m.ctx)
@@ -468,6 +469,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prView.SetSummaryViewMore()
 				m.syncSidebar()
 				return m, nil
+
+			case key.Matches(msg, keys.PRKeys.ClaudeReview):
+				if currRowData != nil {
+					reviewCmd := m.prView.StartReview()
+					m.resyncPrSectionRows()
+					m.sidebar.IsOpen = true
+					m.prView.GoToReviewTab()
+					m.syncMainContentDimensions()
+					m.syncSidebar()
+					return m, reviewCmd
+				}
+				return m, nil
+
+			case key.Matches(msg, keys.PRKeys.ClaudeSession):
+				return m, m.prView.OpenReviewSession()
 			}
 		case m.ctx.View == config.IssuesView:
 			switch {
@@ -740,12 +756,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prview.EnrichedPrMsg:
 		if msg.Err == nil {
 			m.prView.SetEnrichedPR(msg.Data)
-			m.prs[msg.Id].(*prssection.Model).EnrichPR(msg.Data)
+			if msg.Id >= 0 && msg.Id < len(m.prs) {
+				if prSection, ok := m.prs[msg.Id].(*prssection.Model); ok {
+					prSection.EnrichPR(msg.Data)
+				}
+			}
 			syncCmd := m.syncSidebar()
 			cmds = append(cmds, syncCmd)
 		} else {
 			log.Error("failed enriching pr", "err", msg.Err)
 		}
+
+	case prview.PrDiffMsg:
+		if msg.Err != nil {
+			log.Error("failed fetching pr diff", "err", msg.Err)
+		}
+		m.prView.SetDiff(msg)
+		cmds = append(cmds, m.syncSidebar())
+
+	case prview.PrReviewMsg:
+		if msg.Err != nil {
+			log.Error("claude review failed", "err", msg.Err)
+		}
+		m.prView.SetReview(msg)
+		m.resyncPrSectionRows()
+		cmds = append(cmds, m.syncSidebar())
 
 	case notificationPRFetchedMsg:
 		if msg.Err == nil {
@@ -1101,11 +1136,15 @@ func (m *Model) updateSection(id int, sType string, msg tea.Msg) (cmd tea.Cmd) {
 		}
 
 	case prssection.SectionType:
-		updatedSection, cmd = m.prs[id].Update(msg)
-		m.prs[id] = updatedSection
+		if id >= 0 && id < len(m.prs) && m.prs[id] != nil {
+			updatedSection, cmd = m.prs[id].Update(msg)
+			m.prs[id] = updatedSection
+		}
 	case issuessection.SectionType:
-		updatedSection, cmd = m.issues[id].Update(msg)
-		m.issues[id] = updatedSection
+		if id >= 0 && id < len(m.issues) && m.issues[id] != nil {
+			updatedSection, cmd = m.issues[id].Update(msg)
+			m.issues[id] = updatedSection
+		}
 	}
 
 	currSection := m.getCurrSection()
@@ -1206,6 +1245,16 @@ func (m *Model) syncMainContentDimensions() {
 		m.ctx.DynamicPreviewWidth = min(int(w), m.ctx.ScreenWidth)
 		m.ctx.MainContentWidth = m.ctx.ScreenWidth - m.ctx.DynamicPreviewWidth
 		m.ctx.DynamicPreviewHeight = 0
+	}
+}
+
+// resyncPrSectionRows rebuilds every PR section's table rows so row-level
+// state like the Claude review status column reflects the latest data.
+func (m *Model) resyncPrSectionRows() {
+	for _, s := range m.prs {
+		if prSection, ok := s.(*prssection.Model); ok {
+			prSection.Table.SetRows(prSection.BuildRows())
+		}
 	}
 }
 
@@ -1595,7 +1644,7 @@ func (m *Model) setCurrentViewSections(newSections []section.Section) {
 				0,
 				m.ctx,
 				config.PrsSectionConfig{
-					Title:   "",
+					Title:   constants.SearchSectionIcon,
 					Filters: "archived:false",
 				},
 				time.Now(),
@@ -1611,7 +1660,7 @@ func (m *Model) setCurrentViewSections(newSections []section.Section) {
 				0,
 				m.ctx,
 				config.IssuesSectionConfig{
-					Title:   "",
+					Title:   constants.SearchSectionIcon,
 					Filters: "",
 				},
 				time.Now(),
@@ -1791,7 +1840,7 @@ func (m *Model) renderRunningTask() string {
 		stats = lipgloss.NewStyle().
 			Foreground(m.ctx.Theme.FaintText).
 			Background(m.ctx.Theme.SelectedBackground).
-			Render(fmt.Sprintf("[ %d] ", numProcessing))
+			Render(fmt.Sprintf("["+constants.ProcessingIcon+" %d] ", numProcessing))
 	}
 
 	return lipgloss.NewStyle().

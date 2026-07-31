@@ -5,8 +5,8 @@ import (
 	"charm.land/lipgloss/v2/compat"
 	"charm.land/log/v2"
 
-	"github.com/dlvhdr/gh-dash/v4/internal/config"
-	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
+	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 )
 
 type Theme struct {
@@ -118,6 +118,18 @@ var DefaultTheme = &Theme{
 }
 
 func ParseTheme(cfg *config.Config) Theme {
+	if cfg.IconStyle == config.IconStyleText {
+		constants.ApplyTextIcons()
+		// DefaultTheme captured the Nerd Font role icons at package init;
+		// re-sync them with the swapped values.
+		DefaultTheme.NewContributorIcon = constants.NewContributorIcon
+		DefaultTheme.ContributorIcon = constants.ContributorIcon
+		DefaultTheme.CollaboratorIcon = constants.CollaboratorIcon
+		DefaultTheme.MemberIcon = constants.MemberIcon
+		DefaultTheme.OwnerIcon = constants.OwnerIcon
+		DefaultTheme.UnknownRoleIcon = constants.UnknownRoleIcon
+	}
+
 	_shimColor := func(color config.Color, fallback compat.AdaptiveColor) compat.AdaptiveColor {
 		if color == "" {
 			return fallback
