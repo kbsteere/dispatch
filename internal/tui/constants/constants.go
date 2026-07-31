@@ -46,7 +46,6 @@ var (
 	CodeReviewIcon     = ""          // nf-cod-code_review
 	CommentIcon        = ""          // nf-fa-commenting_o
 	CommentsIcon       = ""          // nf-fa-comments_o
-	DonateIcon         = "\U000F10F1" // nf-md-hand_coin
 	DraftIcon          = ""          // nf-cod-git_pull_request_draft
 	CommitIcon         = ""          // nf-oct-git_commit
 	VerticalCommitIcon = "\U000F0718" // nf-md-source_commit
@@ -143,7 +142,6 @@ func ApplyTextIcons() {
 	CodeReviewIcon = ""
 	CommentIcon = "»"
 	CommentsIcon = "»"
-	DonateIcon = "♥"
 	DraftIcon = "◐"
 	CommitIcon = "•"
 	VerticalCommitIcon = "•"

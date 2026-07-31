@@ -28,7 +28,6 @@ func TestApplyTextIconsLeavesNoPrivateUseGlyphs(t *testing.T) {
 		"CodeReviewIcon":       CodeReviewIcon,
 		"CommentIcon":          CommentIcon,
 		"CommentsIcon":         CommentsIcon,
-		"DonateIcon":           DonateIcon,
 		"DraftIcon":            DraftIcon,
 		"CommitIcon":           CommitIcon,
 		"VerticalCommitIcon":   VerticalCommitIcon,

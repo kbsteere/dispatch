@@ -8,7 +8,6 @@ import (
 	bbHelp "charm.land/bubbles/v2/help"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"
-	zone "github.com/lrstanley/bubblezone/v2"
 
 	"github.com/kbsteere/dispatch/v4/internal/config"
 	"github.com/kbsteere/dispatch/v4/internal/git"
@@ -55,12 +54,6 @@ func (m Model) View() string {
 			Foreground(m.ctx.Theme.SelectedBackground).
 			Padding(0, 1).
 			Render("? help")
-		donationIndicator := zone.Mark("donate", lipgloss.NewStyle().
-			Background(m.ctx.Theme.SelectedBackground).
-			Foreground(m.ctx.Theme.WarningText).
-			Padding(0, 1).
-			Underline(true).
-			Render(fmt.Sprintf("%s donate", constants.DonateIcon)))
 		viewSwitcher := m.renderViewSwitcher(m.ctx)
 		leftSection := ""
 		if m.leftSection != nil {
@@ -82,12 +75,12 @@ func (m Model) View() string {
 							lipgloss.Width(rightSection)-
 							lipgloss.Width(
 								helpIndicator,
-							)-lipgloss.Width(donationIndicator),
+							),
 					)))
 
 		footer = m.ctx.Styles.Common.FooterStyle.
 			Render(lipgloss.JoinHorizontal(lipgloss.Top, viewSwitcher, leftSection, spacing,
-				rightSection, donationIndicator, helpIndicator))
+				rightSection, helpIndicator))
 	}
 
 	if m.ShowAll {
