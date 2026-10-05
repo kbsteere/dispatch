@@ -88,6 +88,7 @@ type SectionConfig struct {
 	Filters string
 	Limit   *int      `yaml:"limit,omitempty"`
 	Type    *ViewType `yaml:"type,omitempty"`
+	Urls    []string  `yaml:"-"`
 }
 
 type PrsSectionConfig struct {
@@ -96,6 +97,9 @@ type PrsSectionConfig struct {
 	Limit   *int            `yaml:"limit,omitempty"`
 	Layout  PrsLayoutConfig `yaml:"layout,omitempty"`
 	Type    *ViewType       `yaml:"type,omitempty"`
+	// Urls, when set, lists the section's PRs directly instead of searching.
+	// It is never read from config files.
+	Urls []string `yaml:"-"`
 }
 
 type IssuesSectionConfig struct {
