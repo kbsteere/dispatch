@@ -1,0 +1,319 @@
+package reviewing
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestWithMarker(t *testing.T) {
+	assert.Equal(t, "body\n\n"+Marker, WithMarker("body"))
+	assert.Equal(t, Marker, WithMarker(""))
+	assert.Equal(t, Marker, WithMarker("   "))
+}
+
+func TestFoldComments(t *testing.T) {
+	p := ReviewPayload{CommitID: "c", Event: "COMMENT", Body: "",
+		Comments: []ReviewComment{{Path: "bots/kev/main.go", Line: 12, Side: "RIGHT", Body: "nil map write panics\n\n" + Marker}}}
+	got := FoldComments(p)
+	assert.Empty(t, got.Comments)
+	assert.Equal(t, "**`bots/kev/main.go:12`**\nnil map write panics", got.Body)
+}
+
+func TestPREvents(t *testing.T) {
+	d := PRDetail{
+		Comments: []Comment{{Author: "dnegreira", CreatedAt: t0}},
+		Reviews:  []Review{{Author: "kbsteere", SubmittedAt: t0.Add(time.Minute)}, {Author: "x", State: "PENDING"}},
+		Threads:  []Thread{{IsResolved: true, ResolvedBy: "powersj", Comments: []Comment{{Author: "powersj", CreatedAt: t0.Add(2 * time.Minute)}}}},
+	}
+	events, resolved := d.Events()
+	assert.Equal(t, []Event{
+		{At: t0, Kind: "c", Login: "dnegreira"},
+		{At: t0.Add(time.Minute), Kind: "r", Login: "kbsteere"},
+		{At: t0.Add(2 * time.Minute), Kind: "t", Login: "powersj"},
+	}, events)
+	assert.Equal(t, []string{"powersj"}, resolved)
+}
+
+// toServer sends every request to the test server regardless of the host
+// go-gh built the URL for.
+type toServer struct{ target *url.URL }
+
+func (s toServer) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.URL.Scheme = s.target.Scheme
+	r.URL.Host = s.target.Host
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+type gqlRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+// fakeGH serves GraphQL at /graphql and REST everywhere else.
+func fakeGH(t *testing.T, gql func(gqlRequest) string, rest http.HandlerFunc) (GitHub, *int) {
+	t.Helper()
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Path == "/graphql" {
+			var req gqlRequest
+			b, _ := io.ReadAll(r.Body)
+			require.NoError(t, json.Unmarshal(b, &req))
+			_, _ = w.Write([]byte(gql(req)))
+			return
+		}
+		rest(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	opts := api.ClientOptions{Host: "github.com", AuthToken: "x", Transport: toServer{u}, LogIgnoreEnv: true}
+	gqlc, err := api.NewGraphQLClient(opts)
+	require.NoError(t, err)
+	restc, err := api.NewRESTClient(opts)
+	require.NoError(t, err)
+	return NewGitHub(gqlc, restc), &hits
+}
+
+func noGQL(t *testing.T) func(gqlRequest) string {
+	return func(gqlRequest) string { t.Fatal("unexpected GraphQL request"); return "" }
+}
+
+func noREST(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected REST request %s", r.URL) }
+}
+
+func TestPostReviewSendsPinnedCommitAndMarker(t *testing.T) {
+	var got ReviewPayload
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/repos/chainguard-dev/mono/pulls/62436/reviews", r.URL.Path)
+		b, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(b, &got))
+		_, _ = w.Write([]byte(`{"id":1,"html_url":"https://github.com/chainguard-dev/mono/pull/62436#pullrequestreview-3311"}`))
+	})
+	sha := strings.Repeat("a", 40)
+	u, err := gh.PostReview(context.Background(), monoKey, ReviewPayload{CommitID: sha, Event: "APPROVE"})
+	require.NoError(t, err)
+	assert.Contains(t, u, "pullrequestreview-3311")
+	assert.Equal(t, sha, got.CommitID)
+	assert.Equal(t, "APPROVE", got.Event)
+	assert.Equal(t, Marker, got.Body, "approval has no visible text")
+}
+
+func TestPostReviewMarksInlineComments(t *testing.T) {
+	var got ReviewPayload
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(b, &got))
+		_, _ = w.Write([]byte(`{"html_url":"u"}`))
+	})
+	_, err := gh.PostReview(context.Background(), monoKey, ReviewPayload{CommitID: strings.Repeat("a", 40), Event: "COMMENT",
+		Comments: []ReviewComment{{Path: "a.go", Line: 3, Body: "x"}}})
+	require.NoError(t, err)
+	require.Len(t, got.Comments, 1)
+	assert.Equal(t, "RIGHT", got.Comments[0].Side)
+	assert.Equal(t, "x\n\n"+Marker, got.Comments[0].Body)
+}
+
+func TestPostReviewFoldsOn422(t *testing.T) {
+	calls := 0
+	var last ReviewPayload
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		b, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(b, &last))
+		if len(last.Comments) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Unprocessable Entity","errors":["Line could not be resolved"],"status":"422"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"html_url":"u"}`))
+	})
+	_, err := gh.PostReview(context.Background(), monoKey, ReviewPayload{CommitID: strings.Repeat("a", 40), Event: "COMMENT",
+		Comments: []ReviewComment{{Path: "a.go", Line: 999, Body: "x"}}})
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls)
+	assert.Empty(t, last.Comments)
+	assert.Equal(t, "**`a.go:999`**\nx\n\n"+Marker, last.Body)
+}
+
+func TestPostReviewOtherErrorsFail(t *testing.T) {
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	})
+	_, err := gh.PostReview(context.Background(), monoKey, ReviewPayload{CommitID: strings.Repeat("a", 40), Event: "APPROVE"})
+	assert.Error(t, err)
+}
+
+const searchPage1 = `{"data":{"rateLimit":{"cost":1,"remaining":4023,"resetAt":"2026-10-05T16:11:29Z"},"search":{"pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29yOjEwMA=="},"nodes":[
+ {"id":"PR_kwDOA1","number":1234,"updatedAt":"2026-10-05T15:00:00Z","repository":{"name":"stereo","owner":{"login":"chainguard-dev"}}},
+ {"id":"PR_kwDOA2","number":7,"updatedAt":"2026-10-05T15:01:00Z","repository":{"name":"..","owner":{"login":"chainguard-dev"}}},
+ {}
+]}}}`
+
+func TestSearch(t *testing.T) {
+	var queries []string
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		queries = append(queries, r.Variables["q"].(string))
+		return searchPage1
+	}, noREST(t))
+	hits, rl, err := gh.Search(context.Background(), "is:open draft:false repo:chainguard-dev/stereo author:dnegreira", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"is:pr is:open draft:false repo:chainguard-dev/stereo author:dnegreira"}, queries, "maxPages stops pagination")
+	assert.Equal(t, []SearchHit{{Key: PRKey{"chainguard-dev", "stereo", 1234}, NodeID: "PR_kwDOA1", UpdatedAt: "2026-10-05T15:00:00Z"}}, hits,
+		"invalid repo names and non-PR nodes are dropped")
+	assert.Equal(t, RateLimit{Cost: 1, Remaining: 4023, ResetAt: time.Date(2026, 10, 5, 16, 11, 29, 0, time.UTC)}, rl)
+}
+
+const detailResp = `{"data":{"rateLimit":{"cost":1,"remaining":4000,"resetAt":"2026-10-05T16:11:29Z"},"node":{
+ "id":"PR_kwDOA1","number":1234,"state":"OPEN","isDraft":false,"title":"kev: bump","body":"Fixes CVE-2026-1234","updatedAt":"2026-10-05T15:00:00Z","mergeable":"MERGEABLE",
+ "author":null,
+ "headRefOid":"1111111111111111111111111111111111111111","baseRefName":"main","baseRefOid":"2222222222222222222222222222222222222222",
+ "repository":{"name":"stereo","owner":{"login":"chainguard-dev"}},
+ "files":{"nodes":[{"path":"kev.yaml"}]},
+ "comments":{"nodes":[{"id":"IC_1","body":"ptal","createdAt":"2026-10-05T14:00:00Z","author":{"login":"dnegreira"}}]},
+ "reviews":{"nodes":[{"state":"CHANGES_REQUESTED","body":"","submittedAt":"2026-10-05T14:30:00Z","author":{"login":"powersj"},"commit":{"oid":"1111111111111111111111111111111111111111"}}]},
+ "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":true,"isOutdated":false,"path":"kev.yaml","line":4,"resolvedBy":{"login":"powersj"},
+   "comments":{"nodes":[{"id":"PRRC_1","body":"epoch not bumped","createdAt":"2026-10-05T14:31:00Z","author":{"login":"powersj"}}]}}]},
+ "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+   {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true,"checkSuite":{"app":{"databaseId":15368}}},
+   {"__typename":"StatusContext","context":"ci/legacy","state":"PENDING","isRequired":false}
+ ]}}}}]}
+}}}`
+
+func TestDetails(t *testing.T) {
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		require.Equal(t, "PR_kwDOA1", r.Variables["id"])
+		require.Contains(t, r.Query, "isRequired(pullRequestId: $id)")
+		return detailResp
+	}, noREST(t))
+	ds, rl, err := gh.Details(context.Background(), []string{"PR_kwDOA1"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, rl.Cost)
+	require.Len(t, ds, 1)
+	d := ds[0]
+	assert.Equal(t, PRKey{"chainguard-dev", "stereo", 1234}, d.Key)
+	assert.Equal(t, "ghost", d.Author)
+	assert.Equal(t, "1111111111111111111111111111111111111111", d.HeadOID)
+	assert.Equal(t, "main", d.BaseRef)
+	assert.Equal(t, []string{"kev.yaml"}, d.Files)
+	require.Len(t, d.Threads, 1)
+	assert.Equal(t, Thread{ID: "PRRT_1", IsResolved: true, ResolvedBy: "powersj", Path: "kev.yaml", Line: 4,
+		Comments: []Comment{{ID: "PRRC_1", Author: "powersj", Body: "epoch not bumped", CreatedAt: time.Date(2026, 10, 5, 14, 31, 0, 0, time.UTC)}}}, d.Threads[0])
+	assert.Equal(t, []Review{{Author: "powersj", State: "CHANGES_REQUESTED", CommitOID: "1111111111111111111111111111111111111111", SubmittedAt: time.Date(2026, 10, 5, 14, 30, 0, 0, time.UTC)}}, d.Reviews)
+	assert.Equal(t, []CheckNode{
+		{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS", IsRequired: true, AppID: 15368},
+		{Typename: "StatusContext", Name: "ci/legacy", State: "PENDING"},
+	}, d.Checks)
+}
+
+func TestDetailsSkipsInvalidRepo(t *testing.T) {
+	gh, _ := fakeGH(t, func(gqlRequest) string {
+		return strings.Replace(detailResp, `"name":"stereo"`, `"name":".."`, 1)
+	}, noREST(t))
+	ds, _, err := gh.Details(context.Background(), []string{"PR_kwDOA1"})
+	require.NoError(t, err)
+	assert.Empty(t, ds)
+}
+
+func TestRequiredContexts(t *testing.T) {
+	gh, hits := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/chainguard-dev/mono/rules/branches/main":
+			_, _ = w.Write([]byte(`[{"type":"pull_request"},{"type":"required_status_checks","parameters":{"required_status_checks":[
+				{"context":"check-go-complete","integration_id":15368},{"context":"lint"}]}}]`))
+		case "/repos/chainguard-dev/mono/branches/main/protection/required_status_checks":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Branch not protected"}`))
+		default:
+			t.Fatalf("unexpected %s", r.URL.Path)
+		}
+	})
+	req, err := gh.RequiredContexts(context.Background(), monoKey, "main")
+	require.NoError(t, err)
+	assert.Equal(t, RequiredContexts{"check-go-complete": {15368}, "lint": nil}, req)
+	first := *hits
+
+	again, err := gh.RequiredContexts(context.Background(), monoKey, "main")
+	require.NoError(t, err)
+	assert.Equal(t, req, again)
+	assert.Equal(t, first, *hits, "second call is served from cache")
+}
+
+func TestRequiredContextsClassicProtection(t *testing.T) {
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/chainguard-dev/stereo/rules/branches/main":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/chainguard-dev/stereo/branches/main/protection/required_status_checks":
+			_, _ = w.Write([]byte(`{"strict":false,"contexts":["build"],"checks":[{"context":"build","app_id":-1}]}`))
+		}
+	})
+	req, err := gh.RequiredContexts(context.Background(), PRKey{"chainguard-dev", "stereo", 1}, "main")
+	require.NoError(t, err)
+	assert.Equal(t, RequiredContexts{"build": nil}, req)
+}
+
+func TestReplyAndResolveThread(t *testing.T) {
+	var reqs []gqlRequest
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		reqs = append(reqs, r)
+		if strings.Contains(r.Query, "addPullRequestReviewThreadReply") {
+			return `{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"PRRC_9"}}}}`
+		}
+		return `{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}`
+	}, noREST(t))
+	id, err := gh.ReplyThread(context.Background(), "PRRT_1", "The loop still never exits when ctx is cancelled: `run` ignores `ctx.Done()`.")
+	require.NoError(t, err)
+	assert.Equal(t, "PRRC_9", id)
+	require.NoError(t, gh.ResolveThread(context.Background(), "PRRT_1"))
+	require.Len(t, reqs, 2)
+	assert.Equal(t, "PRRT_1", reqs[0].Variables["id"])
+	assert.True(t, strings.HasSuffix(reqs[0].Variables["b"].(string), Marker))
+	assert.Equal(t, "PRRT_1", reqs[1].Variables["id"])
+}
+
+func TestReviewThreadIDs(t *testing.T) {
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		return `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+			{"id":"PRRT_a","comments":{"nodes":[{"pullRequestReview":{"databaseId":3311}}]}},
+			{"id":"PRRT_b","comments":{"nodes":[{"pullRequestReview":{"databaseId":42}}]}},
+			{"id":"PRRT_c","comments":{"nodes":[{"pullRequestReview":{"databaseId":3311}}]}}
+		]}}}}}`
+	}, noREST(t))
+	ids, err := gh.ReviewThreadIDs(context.Background(), monoKey, "https://github.com/chainguard-dev/mono/pull/62436#pullrequestreview-3311")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"PRRT_a", "PRRT_c"}, ids)
+
+	_, err = gh.ReviewThreadIDs(context.Background(), monoKey, "https://github.com/chainguard-dev/mono/pull/62436")
+	assert.Error(t, err)
+}
+
+func TestViewerAndResolve(t *testing.T) {
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		if strings.Contains(r.Query, "viewer") {
+			return `{"data":{"viewer":{"login":"kbsteere"}}}`
+		}
+		return `{"data":{"repository":{"pullRequest":{"id":"PR_kwDO88"}}}}`
+	}, noREST(t))
+	v, err := gh.Viewer(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "kbsteere", v)
+	id, err := gh.Resolve(context.Background(), PRKey{"chainguard-dev", "omnibump", 88})
+	require.NoError(t, err)
+	assert.Equal(t, "PR_kwDO88", id)
+}

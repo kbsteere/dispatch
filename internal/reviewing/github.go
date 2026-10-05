@@ -1,0 +1,706 @@
+package reviewing
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
+)
+
+// Marker is a hidden HTML comment carried by everything dispatch posts, so
+// its own threads can be recognised.
+const Marker = "<!-- dispatch -->"
+
+const requiredContextsTTL = 15 * time.Minute
+
+type RateLimit struct {
+	Cost      int
+	Remaining int
+	ResetAt   time.Time
+}
+
+type SearchHit struct {
+	Key       PRKey
+	NodeID    string
+	UpdatedAt string
+}
+
+type Comment struct {
+	ID        string
+	Author    string
+	Body      string
+	CreatedAt time.Time
+}
+
+type Review struct {
+	Author      string
+	State       string
+	CommitOID   string
+	Body        string
+	SubmittedAt time.Time
+}
+
+type Thread struct {
+	ID         string
+	IsResolved bool
+	IsOutdated bool
+	ResolvedBy string
+	Path       string
+	Line       int
+	Comments   []Comment
+}
+
+// PRDetail is everything a review pass reads about a PR from GitHub.
+type PRDetail struct {
+	Key       PRKey
+	NodeID    string
+	State     string
+	Author    string
+	Title     string
+	Body      string
+	IsDraft   bool
+	HeadOID   string
+	BaseRef   string
+	BaseOID   string
+	Mergeable string
+	UpdatedAt string
+	Files     []string
+	Comments  []Comment
+	Reviews   []Review
+	Threads   []Thread
+	Checks    []CheckNode
+}
+
+// Events lists the PR's activity and who resolved each resolved thread.
+func (d PRDetail) Events() ([]Event, []string) {
+	var events []Event
+	var resolved []string
+	for _, c := range d.Comments {
+		events = append(events, Event{At: c.CreatedAt, Kind: "c", Login: c.Author})
+	}
+	for _, r := range d.Reviews {
+		if !r.SubmittedAt.IsZero() {
+			events = append(events, Event{At: r.SubmittedAt, Kind: "r", Login: r.Author})
+		}
+	}
+	for _, t := range d.Threads {
+		if t.IsResolved {
+			resolved = append(resolved, t.ResolvedBy)
+		}
+		for _, c := range t.Comments {
+			events = append(events, Event{At: c.CreatedAt, Kind: "t", Login: c.Author})
+		}
+	}
+	return events, resolved
+}
+
+type ReviewComment struct {
+	Path      string `json:"path"`
+	Line      int    `json:"line"`
+	StartLine int    `json:"start_line,omitempty"`
+	Side      string `json:"side"`
+	Body      string `json:"body"`
+}
+
+type ReviewPayload struct {
+	CommitID string          `json:"commit_id"`
+	Event    string          `json:"event"`
+	Body     string          `json:"body"`
+	Comments []ReviewComment `json:"comments"`
+}
+
+// GitHub is the GitHub access the engine needs.
+type GitHub interface {
+	Viewer(ctx context.Context) (string, error)
+	Search(ctx context.Context, query string, maxPages int) ([]SearchHit, RateLimit, error)
+	Details(ctx context.Context, nodeIDs []string) ([]PRDetail, RateLimit, error)
+	Resolve(ctx context.Context, k PRKey) (string, error)
+	RequiredContexts(ctx context.Context, k PRKey, branch string) (RequiredContexts, error)
+	PostReview(ctx context.Context, k PRKey, p ReviewPayload) (string, error)
+	ReplyThread(ctx context.Context, threadID, body string) (string, error)
+	ResolveThread(ctx context.Context, threadID string) error
+	ReviewThreadIDs(ctx context.Context, k PRKey, reviewURL string) ([]string, error)
+}
+
+// WithMarker appends the hidden dispatch marker to a body.
+func WithMarker(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Marker
+	}
+	return body + "\n\n" + Marker
+}
+
+// FoldComments moves inline comments into the review body, for when GitHub
+// rejects their line anchors.
+func FoldComments(p ReviewPayload) ReviewPayload {
+	var parts []string
+	if b := strings.TrimSpace(strings.ReplaceAll(p.Body, Marker, "")); b != "" {
+		parts = append(parts, b)
+	}
+	for _, c := range p.Comments {
+		parts = append(parts, fmt.Sprintf("**`%s:%d`**\n%s", c.Path, c.Line, strings.TrimSpace(strings.ReplaceAll(c.Body, Marker, ""))))
+	}
+	p.Body = strings.Join(parts, "\n\n")
+	p.Comments = nil
+	return p
+}
+
+type cachedContexts struct {
+	at  time.Time
+	req RequiredContexts
+}
+
+type ghClient struct {
+	gql  *api.GraphQLClient
+	rest *api.RESTClient
+	now  func() time.Time
+
+	mu       sync.Mutex
+	reqCache map[string]cachedContexts
+}
+
+// NewGitHub wraps go-gh clients.
+func NewGitHub(gql *api.GraphQLClient, rest *api.RESTClient) GitHub {
+	return &ghClient{gql: gql, rest: rest, now: time.Now, reqCache: map[string]cachedContexts{}}
+}
+
+// DefaultGitHub uses gh's configured authentication. Construction errors
+// are returned from every call.
+func DefaultGitHub() GitHub {
+	gql, err := api.DefaultGraphQLClient()
+	if err != nil {
+		return failingGitHub{err}
+	}
+	rest, err := api.DefaultRESTClient()
+	if err != nil {
+		return failingGitHub{err}
+	}
+	return NewGitHub(gql, rest)
+}
+
+type rateLimitJSON struct {
+	Cost      int       `json:"cost"`
+	Remaining int       `json:"remaining"`
+	ResetAt   time.Time `json:"resetAt"`
+}
+
+func (r rateLimitJSON) toRateLimit() RateLimit {
+	return RateLimit{Cost: r.Cost, Remaining: r.Remaining, ResetAt: r.ResetAt}
+}
+
+type loginJSON struct {
+	Login string `json:"login"`
+}
+
+func loginOf(l *loginJSON) string {
+	if l == nil || l.Login == "" {
+		return "ghost"
+	}
+	return l.Login
+}
+
+type repoJSON struct {
+	Name  string    `json:"name"`
+	Owner loginJSON `json:"owner"`
+}
+
+const viewerQuery = `query { viewer { login } }`
+
+func (g *ghClient) Viewer(ctx context.Context) (string, error) {
+	var resp struct {
+		Viewer loginJSON `json:"viewer"`
+	}
+	if err := g.gql.DoWithContext(ctx, viewerQuery, nil, &resp); err != nil {
+		return "", err
+	}
+	return resp.Viewer.Login, nil
+}
+
+const searchQuery = `query($q: String!, $after: String) {
+  rateLimit { cost remaining resetAt }
+  search(type: ISSUE, first: 100, after: $after, query: $q) {
+    pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest { id number updatedAt repository { name owner { login } } } }
+  }
+}`
+
+func (g *ghClient) Search(ctx context.Context, query string, maxPages int) ([]SearchHit, RateLimit, error) {
+	var hits []SearchHit
+	var rl RateLimit
+	var after *string
+	for page := 0; page < maxPages; page++ {
+		var resp struct {
+			RateLimit rateLimitJSON `json:"rateLimit"`
+			Search    struct {
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+				Nodes []struct {
+					ID         string   `json:"id"`
+					Number     int      `json:"number"`
+					UpdatedAt  string   `json:"updatedAt"`
+					Repository repoJSON `json:"repository"`
+				} `json:"nodes"`
+			} `json:"search"`
+		}
+		vars := map[string]any{"q": "is:pr " + query, "after": after}
+		if err := g.gql.DoWithContext(ctx, searchQuery, vars, &resp); err != nil {
+			return hits, rl, err
+		}
+		cost := rl.Cost + resp.RateLimit.Cost
+		rl = resp.RateLimit.toRateLimit()
+		rl.Cost = cost
+		for _, n := range resp.Search.Nodes {
+			if n.ID == "" || n.Number <= 0 || !ValidName(n.Repository.Owner.Login) || !ValidName(n.Repository.Name) {
+				continue
+			}
+			hits = append(hits, SearchHit{
+				Key:       PRKey{Owner: n.Repository.Owner.Login, Repo: n.Repository.Name, Number: n.Number},
+				NodeID:    n.ID,
+				UpdatedAt: n.UpdatedAt,
+			})
+		}
+		if !resp.Search.PageInfo.HasNextPage {
+			break
+		}
+		cursor := resp.Search.PageInfo.EndCursor
+		after = &cursor
+	}
+	return hits, rl, nil
+}
+
+const detailQuery = `query($id: ID!) {
+  rateLimit { cost remaining resetAt }
+  node(id: $id) { ... on PullRequest {
+    id number state isDraft title body updatedAt mergeable
+    author { login }
+    headRefOid baseRefName baseRefOid
+    repository { name owner { login } }
+    files(first: 100) { nodes { path } }
+    comments(last: 50) { nodes { id body createdAt author { login } } }
+    reviews(last: 50) { nodes { state body submittedAt author { login } commit { oid } } }
+    reviewThreads(last: 100) { nodes {
+      id isResolved isOutdated path line resolvedBy { login }
+      comments(first: 20) { nodes { id body createdAt author { login } } }
+    } }
+    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+      __typename
+      ... on CheckRun { name status conclusion isRequired(pullRequestId: $id) checkSuite { app { databaseId } } }
+      ... on StatusContext { context state isRequired(pullRequestId: $id) }
+    } } } } } }
+  } }
+}`
+
+type commentJSON struct {
+	ID        string     `json:"id"`
+	Body      string     `json:"body"`
+	CreatedAt time.Time  `json:"createdAt"`
+	Author    *loginJSON `json:"author"`
+}
+
+func (c commentJSON) toComment() Comment {
+	return Comment{ID: c.ID, Author: loginOf(c.Author), Body: c.Body, CreatedAt: c.CreatedAt}
+}
+
+type detailJSON struct {
+	ID         string     `json:"id"`
+	Number     int        `json:"number"`
+	State      string     `json:"state"`
+	IsDraft    bool       `json:"isDraft"`
+	Title      string     `json:"title"`
+	Body       string     `json:"body"`
+	UpdatedAt  string     `json:"updatedAt"`
+	Mergeable  string     `json:"mergeable"`
+	Author     *loginJSON `json:"author"`
+	HeadRefOid string     `json:"headRefOid"`
+	BaseRef    string     `json:"baseRefName"`
+	BaseRefOid string     `json:"baseRefOid"`
+	Repository repoJSON   `json:"repository"`
+	Files      struct {
+		Nodes []struct {
+			Path string `json:"path"`
+		} `json:"nodes"`
+	} `json:"files"`
+	Comments struct {
+		Nodes []commentJSON `json:"nodes"`
+	} `json:"comments"`
+	Reviews struct {
+		Nodes []struct {
+			State       string     `json:"state"`
+			Body        string     `json:"body"`
+			SubmittedAt *time.Time `json:"submittedAt"`
+			Author      *loginJSON `json:"author"`
+			Commit      *struct {
+				Oid string `json:"oid"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"reviews"`
+	ReviewThreads struct {
+		Nodes []struct {
+			ID         string     `json:"id"`
+			IsResolved bool       `json:"isResolved"`
+			IsOutdated bool       `json:"isOutdated"`
+			Path       string     `json:"path"`
+			Line       int        `json:"line"`
+			ResolvedBy *loginJSON `json:"resolvedBy"`
+			Comments   struct {
+				Nodes []commentJSON `json:"nodes"`
+			} `json:"comments"`
+		} `json:"nodes"`
+	} `json:"reviewThreads"`
+	Commits struct {
+		Nodes []struct {
+			Commit struct {
+				StatusCheckRollup *struct {
+					Contexts struct {
+						Nodes []struct {
+							Typename   string `json:"__typename"`
+							Name       string `json:"name"`
+							Context    string `json:"context"`
+							Status     string `json:"status"`
+							Conclusion string `json:"conclusion"`
+							State      string `json:"state"`
+							IsRequired bool   `json:"isRequired"`
+							CheckSuite *struct {
+								App *struct {
+									DatabaseID int `json:"databaseId"`
+								} `json:"app"`
+							} `json:"checkSuite"`
+						} `json:"nodes"`
+					} `json:"contexts"`
+				} `json:"statusCheckRollup"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commits"`
+}
+
+func (n detailJSON) toDetail() PRDetail {
+	d := PRDetail{
+		Key:       PRKey{Owner: n.Repository.Owner.Login, Repo: n.Repository.Name, Number: n.Number},
+		NodeID:    n.ID,
+		State:     n.State,
+		Author:    loginOf(n.Author),
+		Title:     n.Title,
+		Body:      n.Body,
+		IsDraft:   n.IsDraft,
+		HeadOID:   n.HeadRefOid,
+		BaseRef:   n.BaseRef,
+		BaseOID:   n.BaseRefOid,
+		Mergeable: n.Mergeable,
+		UpdatedAt: n.UpdatedAt,
+	}
+	for _, f := range n.Files.Nodes {
+		d.Files = append(d.Files, f.Path)
+	}
+	for _, c := range n.Comments.Nodes {
+		d.Comments = append(d.Comments, c.toComment())
+	}
+	for _, r := range n.Reviews.Nodes {
+		rv := Review{Author: loginOf(r.Author), State: r.State, Body: r.Body}
+		if r.SubmittedAt != nil {
+			rv.SubmittedAt = *r.SubmittedAt
+		}
+		if r.Commit != nil {
+			rv.CommitOID = r.Commit.Oid
+		}
+		d.Reviews = append(d.Reviews, rv)
+	}
+	for _, t := range n.ReviewThreads.Nodes {
+		th := Thread{ID: t.ID, IsResolved: t.IsResolved, IsOutdated: t.IsOutdated, Path: t.Path, Line: t.Line}
+		if t.ResolvedBy != nil {
+			th.ResolvedBy = t.ResolvedBy.Login
+		}
+		for _, c := range t.Comments.Nodes {
+			th.Comments = append(th.Comments, c.toComment())
+		}
+		d.Threads = append(d.Threads, th)
+	}
+	for _, c := range n.Commits.Nodes {
+		if c.Commit.StatusCheckRollup == nil {
+			continue
+		}
+		for _, x := range c.Commit.StatusCheckRollup.Contexts.Nodes {
+			node := CheckNode{Typename: x.Typename, Name: x.Name, Status: x.Status, Conclusion: x.Conclusion, State: x.State, IsRequired: x.IsRequired}
+			if x.Typename == "StatusContext" {
+				node.Name = x.Context
+			}
+			if x.CheckSuite != nil && x.CheckSuite.App != nil {
+				node.AppID = x.CheckSuite.App.DatabaseID
+			}
+			d.Checks = append(d.Checks, node)
+		}
+	}
+	return d
+}
+
+// Details fetches each PR separately because isRequired needs the PR's id.
+func (g *ghClient) Details(ctx context.Context, nodeIDs []string) ([]PRDetail, RateLimit, error) {
+	var out []PRDetail
+	var rl RateLimit
+	for _, id := range nodeIDs {
+		var resp struct {
+			RateLimit rateLimitJSON `json:"rateLimit"`
+			Node      *detailJSON   `json:"node"`
+		}
+		if err := g.gql.DoWithContext(ctx, detailQuery, map[string]any{"id": id}, &resp); err != nil {
+			return out, rl, err
+		}
+		cost := rl.Cost + resp.RateLimit.Cost
+		rl = resp.RateLimit.toRateLimit()
+		rl.Cost = cost
+		if resp.Node == nil || resp.Node.ID == "" {
+			continue
+		}
+		d := resp.Node.toDetail()
+		if !ValidName(d.Key.Owner) || !ValidName(d.Key.Repo) || d.Key.Number <= 0 {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out, rl, nil
+}
+
+const resolvePRQuery = `query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) { id } } }`
+
+func (g *ghClient) Resolve(ctx context.Context, k PRKey) (string, error) {
+	var resp struct {
+		Repository struct {
+			PullRequest *struct {
+				ID string `json:"id"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	}
+	if err := g.gql.DoWithContext(ctx, resolvePRQuery, map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number}, &resp); err != nil {
+		return "", err
+	}
+	if resp.Repository.PullRequest == nil {
+		return "", fmt.Errorf("%s not found", k)
+	}
+	return resp.Repository.PullRequest.ID, nil
+}
+
+func isStatus(err error, codes ...int) bool {
+	var httpErr *api.HTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	for _, c := range codes {
+		if httpErr.StatusCode == c {
+			return true
+		}
+	}
+	return false
+}
+
+// RequiredContexts unions the required status checks from rulesets and
+// classic branch protection. Either source may be unreadable.
+func (g *ghClient) RequiredContexts(ctx context.Context, k PRKey, branch string) (RequiredContexts, error) {
+	cacheKey := k.NameWithOwner() + ":" + branch
+	g.mu.Lock()
+	if c, ok := g.reqCache[cacheKey]; ok && g.now().Sub(c.at) < requiredContextsTTL {
+		g.mu.Unlock()
+		return c.req, nil
+	}
+	g.mu.Unlock()
+
+	req := RequiredContexts{}
+	add := func(name string, app *int) {
+		if name == "" {
+			return
+		}
+		if app == nil || *app == -1 {
+			req[name] = nil
+			return
+		}
+		if cur, ok := req[name]; ok && cur == nil {
+			return
+		}
+		req[name] = append(req[name], *app)
+	}
+
+	b := url.PathEscape(branch)
+	var rules []struct {
+		Type       string `json:"type"`
+		Parameters struct {
+			RequiredStatusChecks []struct {
+				Context       string `json:"context"`
+				IntegrationID *int   `json:"integration_id"`
+			} `json:"required_status_checks"`
+		} `json:"parameters"`
+	}
+	err := g.rest.DoWithContext(ctx, http.MethodGet, fmt.Sprintf("repos/%s/%s/rules/branches/%s?per_page=100", k.Owner, k.Repo, b), nil, &rules)
+	if err != nil && !isStatus(err, http.StatusForbidden, http.StatusNotFound) {
+		return nil, err
+	}
+	for _, r := range rules {
+		if r.Type != "required_status_checks" {
+			continue
+		}
+		for _, c := range r.Parameters.RequiredStatusChecks {
+			add(c.Context, c.IntegrationID)
+		}
+	}
+
+	var prot struct {
+		Contexts []string `json:"contexts"`
+		Checks   []struct {
+			Context string `json:"context"`
+			AppID   *int   `json:"app_id"`
+		} `json:"checks"`
+	}
+	err = g.rest.DoWithContext(ctx, http.MethodGet, fmt.Sprintf("repos/%s/%s/branches/%s/protection/required_status_checks", k.Owner, k.Repo, b), nil, &prot)
+	if err != nil && !isStatus(err, http.StatusForbidden, http.StatusNotFound) {
+		return nil, err
+	}
+	if len(prot.Checks) > 0 {
+		for _, c := range prot.Checks {
+			add(c.Context, c.AppID)
+		}
+	} else {
+		for _, c := range prot.Contexts {
+			add(c, nil)
+		}
+	}
+
+	g.mu.Lock()
+	g.reqCache[cacheKey] = cachedContexts{at: g.now(), req: req}
+	g.mu.Unlock()
+	return req, nil
+}
+
+func (g *ghClient) PostReview(ctx context.Context, k PRKey, p ReviewPayload) (string, error) {
+	p.Body = WithMarker(p.Body)
+	comments := make([]ReviewComment, len(p.Comments))
+	for i, c := range p.Comments {
+		c.Side = "RIGHT"
+		c.Body = WithMarker(c.Body)
+		comments[i] = c
+	}
+	p.Comments = comments
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/reviews", k.Owner, k.Repo, k.Number)
+	var resp struct {
+		HTMLURL string `json:"html_url"`
+	}
+	err := g.postJSON(ctx, path, p, &resp)
+	if err != nil && len(p.Comments) > 0 && isStatus(err, http.StatusUnprocessableEntity) {
+		folded := FoldComments(p)
+		folded.Body = WithMarker(folded.Body)
+		err = g.postJSON(ctx, path, folded, &resp)
+	}
+	if err != nil {
+		return "", fmt.Errorf("posting review on %s: %w", k, err)
+	}
+	return resp.HTMLURL, nil
+}
+
+func (g *ghClient) postJSON(ctx context.Context, path string, body, out any) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	return g.rest.DoWithContext(ctx, http.MethodPost, path, bytes.NewReader(b), out)
+}
+
+const replyMutation = `mutation($id: ID!, $b: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $id, body: $b}) { comment { id } } }`
+
+func (g *ghClient) ReplyThread(ctx context.Context, threadID, body string) (string, error) {
+	var resp struct {
+		Reply struct {
+			Comment struct {
+				ID string `json:"id"`
+			} `json:"comment"`
+		} `json:"addPullRequestReviewThreadReply"`
+	}
+	if err := g.gql.DoWithContext(ctx, replyMutation, map[string]any{"id": threadID, "b": WithMarker(body)}, &resp); err != nil {
+		return "", err
+	}
+	return resp.Reply.Comment.ID, nil
+}
+
+const resolveMutation = `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`
+
+func (g *ghClient) ResolveThread(ctx context.Context, threadID string) error {
+	var resp json.RawMessage
+	return g.gql.DoWithContext(ctx, resolveMutation, map[string]any{"id": threadID}, &resp)
+}
+
+var reviewIDRe = regexp.MustCompile(`#pullrequestreview-(\d+)$`)
+
+const reviewThreadsQuery = `query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) {
+  reviewThreads(last: 100) { nodes { id comments(first: 1) { nodes { pullRequestReview { databaseId } } } } }
+} } }`
+
+// ReviewThreadIDs returns the threads opened by the review at reviewURL.
+func (g *ghClient) ReviewThreadIDs(ctx context.Context, k PRKey, reviewURL string) ([]string, error) {
+	m := reviewIDRe.FindStringSubmatch(reviewURL)
+	if m == nil {
+		return nil, fmt.Errorf("no review id in %q", reviewURL)
+	}
+	reviewID, _ := strconv.Atoi(m[1])
+	var resp struct {
+		Repository struct {
+			PullRequest struct {
+				ReviewThreads struct {
+					Nodes []struct {
+						ID       string `json:"id"`
+						Comments struct {
+							Nodes []struct {
+								PullRequestReview *struct {
+									DatabaseID int `json:"databaseId"`
+								} `json:"pullRequestReview"`
+							} `json:"nodes"`
+						} `json:"comments"`
+					} `json:"nodes"`
+				} `json:"reviewThreads"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	}
+	if err := g.gql.DoWithContext(ctx, reviewThreadsQuery, map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number}, &resp); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, t := range resp.Repository.PullRequest.ReviewThreads.Nodes {
+		if len(t.Comments.Nodes) == 0 || t.Comments.Nodes[0].PullRequestReview == nil {
+			continue
+		}
+		if t.Comments.Nodes[0].PullRequestReview.DatabaseID == reviewID {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids, nil
+}
+
+// failingGitHub reports a client construction error from every call.
+type failingGitHub struct{ err error }
+
+func (f failingGitHub) Viewer(context.Context) (string, error) { return "", f.err }
+func (f failingGitHub) Search(context.Context, string, int) ([]SearchHit, RateLimit, error) {
+	return nil, RateLimit{}, f.err
+}
+func (f failingGitHub) Details(context.Context, []string) ([]PRDetail, RateLimit, error) {
+	return nil, RateLimit{}, f.err
+}
+func (f failingGitHub) Resolve(context.Context, PRKey) (string, error) { return "", f.err }
+func (f failingGitHub) RequiredContexts(context.Context, PRKey, string) (RequiredContexts, error) {
+	return nil, f.err
+}
+func (f failingGitHub) PostReview(context.Context, PRKey, ReviewPayload) (string, error) {
+	return "", f.err
+}
+func (f failingGitHub) ReplyThread(context.Context, string, string) (string, error) { return "", f.err }
+func (f failingGitHub) ResolveThread(context.Context, string) error             { return f.err }
+func (f failingGitHub) ReviewThreadIDs(context.Context, PRKey, string) ([]string, error) {
+	return nil, f.err
+}
