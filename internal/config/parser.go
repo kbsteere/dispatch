@@ -344,9 +344,9 @@ type Config struct {
 	Pager                    Pager                        `yaml:"pager"`
 	ConfirmQuit              bool                         `yaml:"confirmQuit"`
 	ShowAuthorIcons          bool                         `yaml:"showAuthorIcons,omitempty"`
-	IconStyle                string                       `yaml:"iconStyle,omitempty"                            validate:"omitempty,oneof=nerd text"`
-	SmartFilteringAtLaunch   bool                         `yaml:"smartFilteringAtLaunch"                         default:"true"`
-	IncludeReadNotifications bool                         `yaml:"includeReadNotifications"                       default:"true"`
+	IconStyle                string                       `yaml:"iconStyle,omitempty"       validate:"omitempty,oneof=nerd text"`
+	SmartFilteringAtLaunch   bool                         `yaml:"smartFilteringAtLaunch"                                         default:"true"`
+	IncludeReadNotifications bool                         `yaml:"includeReadNotifications"                                       default:"true"`
 	ReviewingFor             ReviewingForConfig           `yaml:"reviewingFor,omitempty"`
 }
 

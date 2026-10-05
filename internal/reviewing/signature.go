@@ -58,7 +58,12 @@ func ActivityDigest(events []Event, resolvedBy []string, ignore map[string]bool)
 	}
 	key := "-"
 	if newest != nil {
-		key = fmt.Sprintf("%s:%s:%s", newest.At.UTC().Format(time.RFC3339), newest.Kind, newest.Login)
+		key = fmt.Sprintf(
+			"%s:%s:%s",
+			newest.At.UTC().Format(time.RFC3339),
+			newest.Kind,
+			newest.Login,
+		)
 	}
 	sum := sha1.Sum([]byte(fmt.Sprintf("%s\nresolved:%d", key, resolved)))
 	return hex.EncodeToString(sum[:])[:12]
@@ -89,7 +94,8 @@ func NeedsReview(st *PRState, sig Signature, now time.Time) Trigger {
 		return TriggerChange
 	}
 	if sig.Head != rs.Head {
-		if st.HeadSeen != nil && st.HeadSeen.OID == sig.Head && now.Sub(st.HeadSeen.At) < HeadSettle {
+		if st.HeadSeen != nil && st.HeadSeen.OID == sig.Head &&
+			now.Sub(st.HeadSeen.At) < HeadSettle {
 			return TriggerNone
 		}
 		return TriggerChange

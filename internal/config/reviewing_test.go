@@ -66,24 +66,50 @@ func TestReviewingForAbsentIsEmpty(t *testing.T) {
 }
 
 func TestReviewingForSearchFilter(t *testing.T) {
-	w := ReviewWatch{Authors: []string{"tcnghia", "powersj"}, Scopes: []string{"repo:chainguard-dev/mono", "repo:chainguard-dev/stereo"}}
-	assert.Equal(t,
+	w := ReviewWatch{
+		Authors: []string{"tcnghia", "powersj"},
+		Scopes:  []string{"repo:chainguard-dev/mono", "repo:chainguard-dev/stereo"},
+	}
+	assert.Equal(
+		t,
 		"is:open draft:false archived:false repo:chainguard-dev/mono repo:chainguard-dev/stereo author:tcnghia author:powersj",
-		w.SearchFilter())
+		w.SearchFilter(),
+	)
 }
 
 func TestReviewingForValidation(t *testing.T) {
 	tests := map[string]struct{ body, rule string }{
-		"bad name":        {"reviewingFor:\n  watches:\n    - name: ../x\n      authors: [a]\n      scopes: [repo:o/r]\n", "'watchname' tag"},
-		"no authors":      {"reviewingFor:\n  watches:\n    - name: w\n      authors: []\n      scopes: [repo:o/r]\n", "'authors' failed on the 'min' tag"},
-		"bad scope":       {"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [mono]\n", "'reviewscope' tag"},
-		"short interval":  {"reviewingFor:\n  limits:\n    pollInterval: 30s\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n", "'pollInterval' failed on the 'min' tag"},
-		"negative budget": {"reviewingFor:\n  limits:\n    maxBudgetUsd: -1\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n", "'maxBudgetUsd' failed on the 'gt' tag"},
-		"duplicate names": {"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n    - name: w\n      authors: [b]\n      scopes: [repo:o/r]\n", "'unique' tag"},
+		"bad name": {
+			"reviewingFor:\n  watches:\n    - name: ../x\n      authors: [a]\n      scopes: [repo:o/r]\n",
+			"'watchname' tag",
+		},
+		"no authors": {
+			"reviewingFor:\n  watches:\n    - name: w\n      authors: []\n      scopes: [repo:o/r]\n",
+			"'authors' failed on the 'min' tag",
+		},
+		"bad scope": {
+			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [mono]\n",
+			"'reviewscope' tag",
+		},
+		"short interval": {
+			"reviewingFor:\n  limits:\n    pollInterval: 30s\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n",
+			"'pollInterval' failed on the 'min' tag",
+		},
+		"negative budget": {
+			"reviewingFor:\n  limits:\n    maxBudgetUsd: -1\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n",
+			"'maxBudgetUsd' failed on the 'gt' tag",
+		},
+		"duplicate names": {
+			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n    - name: w\n      authors: [b]\n      scopes: [repo:o/r]\n",
+			"'unique' tag",
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := parseReviewingYAML(t, "prSections:\n  - title: x\n    filters: is:open\n"+tt.body)
+			_, err := parseReviewingYAML(
+				t,
+				"prSections:\n  - title: x\n    filters: is:open\n"+tt.body,
+			)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.rule)
 		})

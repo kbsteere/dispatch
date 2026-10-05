@@ -35,16 +35,26 @@ func newReviewHarness(t *testing.T, mode string, watch func(*config.ReviewWatch)
 	k := PRKey{"chainguard-dev", "mono", 7}
 	d := detail(7, head)
 	d.Key, d.NodeID, d.Files, d.BaseOID = k, "N7", []string{"kev.go"}, base
-	gh := &fakeGitHub{viewer: "kbsteere", details: map[string]PRDetail{"N7": d},
-		threadRefs: []ThreadRef{{ID: "PRRT_new", Path: "kev.go", Line: 1}}}
+	gh := &fakeGitHub{
+		viewer: "kbsteere", details: map[string]PRDetail{"N7": d},
+		threadRefs: []ThreadRef{{ID: "PRRT_new", Path: "kev.go", Line: 1}},
+	}
 
-	w := config.ReviewWatch{Name: "sustaining-automation", Authors: []string{"dnegreira"}, Scopes: []string{"repo:chainguard-dev/mono"}}
+	w := config.ReviewWatch{
+		Name:    "sustaining-automation",
+		Authors: []string{"dnegreira"},
+		Scopes:  []string{"repo:chainguard-dev/mono"},
+	}
 	if watch != nil {
 		watch(&w)
 	}
 	h := &reviewHarness{gh: gh, head: head, now: t0}
 	e, err := NewEngine(Deps{
-		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(), GitHub: gh, Claude: fakeClaudeBin(t),
+		Watch:      w,
+		Limits:     config.DefaultReviewingLimits(),
+		StateRoot:  t.TempDir(),
+		GitHub:     gh,
+		Claude:     fakeClaudeBin(t),
 		LookupPath: func(name string) (string, bool) { return clone, name == "chainguard-dev/mono" },
 		Now:        func() time.Time { return h.now },
 	})
@@ -73,7 +83,12 @@ func TestReviewCleanApprovesWithEmptyBody(t *testing.T) {
 	assert.Equal(t, ActionApprove, out.Posted)
 
 	require.Len(t, h.gh.posted, 1)
-	assert.Equal(t, ReviewPayload{CommitID: h.head, Event: "APPROVE"}, h.gh.posted[0], "no body, no comments")
+	assert.Equal(
+		t,
+		ReviewPayload{CommitID: h.head, Event: "APPROVE"},
+		h.gh.posted[0],
+		"no body, no comments",
+	)
 	st := h.state(t)
 	assert.Equal(t, StatusApproved, st.Status)
 	assert.Equal(t, h.head, st.ApprovedHead)
@@ -151,7 +166,17 @@ func TestReviewResolvesOwnThreadSilently(t *testing.T) {
 	h := newReviewHarness(t, "resolve", nil)
 	_, _ = h.e.update(h.job.Key, func(st *PRState) {
 		st.OurThreads = []string{"PRRT_1"}
-		st.Ledger = []Finding{{ID: "f1", ThreadID: "PRRT_1", Path: "kev.go", Line: 1, Blocking: true, Summary: "doc comment", Status: FindingOutstanding}}
+		st.Ledger = []Finding{
+			{
+				ID:       "f1",
+				ThreadID: "PRRT_1",
+				Path:     "kev.go",
+				Line:     1,
+				Blocking: true,
+				Summary:  "doc comment",
+				Status:   FindingOutstanding,
+			},
+		}
 		sig := Signature{Head: strings.Repeat("9", 40)}
 		st.ReviewedSig = &sig
 	})
@@ -169,29 +194,61 @@ func TestReviewResolvesOwnThreadSilently(t *testing.T) {
 func TestReviewNeverResolvesOthersThread(t *testing.T) {
 	h := newReviewHarness(t, "resolve", nil)
 	_, _ = h.e.update(h.job.Key, func(st *PRState) {
-		st.Ledger = []Finding{{ID: "f1", ThreadID: "PRRT_powersj", Path: "kev.go", Line: 1, Blocking: true, Status: FindingOutstanding}}
+		st.Ledger = []Finding{
+			{
+				ID:       "f1",
+				ThreadID: "PRRT_powersj",
+				Path:     "kev.go",
+				Line:     1,
+				Blocking: true,
+				Status:   FindingOutstanding,
+			},
+		}
 	})
 	out := h.e.Review(context.Background(), h.job)
 	require.NoError(t, out.Err)
 	assert.Empty(t, h.gh.resolved)
-	assert.Equal(t, FindingAddressed, h.state(t).Ledger[0].Status, "the agreed finding no longer holds the approval")
+	assert.Equal(
+		t,
+		FindingAddressed,
+		h.state(t).Ledger[0].Status,
+		"the agreed finding no longer holds the approval",
+	)
 }
 
 func TestReviewRepliesOnceToPushback(t *testing.T) {
 	h := newReviewHarness(t, "pushback", nil)
 	_, _ = h.e.update(h.job.Key, func(st *PRState) {
 		st.OurThreads = []string{"PRRT_1"}
-		st.Ledger = []Finding{{ID: "f1", ThreadID: "PRRT_1", Path: "kev.go", Line: 1, Blocking: true, Status: FindingOutstanding}}
+		st.Ledger = []Finding{
+			{
+				ID:       "f1",
+				ThreadID: "PRRT_1",
+				Path:     "kev.go",
+				Line:     1,
+				Blocking: true,
+				Status:   FindingOutstanding,
+			},
+		}
 	})
 	out := h.e.Review(context.Background(), h.job)
 	require.NoError(t, out.Err)
-	assert.Equal(t, map[string]string{"PRRT_1": "`run` still ignores `ctx.Done()`, so cancelling the watch leaks the goroutine."}, h.gh.replies)
+	assert.Equal(
+		t,
+		map[string]string{
+			"PRRT_1": "`run` still ignores `ctx.Done()`, so cancelling the watch leaks the goroutine.",
+		},
+		h.gh.replies,
+	)
 	assert.Empty(t, h.gh.posted, "outstanding blocking item: nothing new to post")
 	assert.Equal(t, StatusChangesRequested, h.state(t).Status)
 	assert.True(t, h.state(t).Ledger[0].Replied)
 
 	h.gh.replies = nil
-	_, _ = h.e.update(h.job.Key, func(st *PRState) { st.Claim = &Claim{Since: h.now, Head: h.head} })
+	_, _ = h.e.update(
+		h.job.Key,
+		func(st *PRState) { st.Claim = &Claim{Since: h.now, Head: h.head} },
+	)
 	h.e.Review(context.Background(), h.job)
 	assert.Empty(t, h.gh.replies, "never replies twice")
 }
@@ -226,7 +283,12 @@ func TestReviewDropsFindingsOutsideTheDiff(t *testing.T) {
 	require.NoError(t, out.Err)
 	assert.Contains(t, out.Note, "not-in-pr.go:3")
 	require.Len(t, h.gh.posted, 1)
-	assert.Equal(t, "APPROVE", h.gh.posted[0].Event, "unknown ledger ids and paths outside the PR are ignored")
+	assert.Equal(
+		t,
+		"APPROVE",
+		h.gh.posted[0].Event,
+		"unknown ledger ids and paths outside the PR are ignored",
+	)
 }
 
 func TestReviewHeadMovedDiscards(t *testing.T) {
@@ -268,13 +330,19 @@ func TestReviewSupersededResultIsDropped(t *testing.T) {
 	h := newReviewHarness(t, "finding", nil)
 	// A poll released the claim (new push) while claude was running.
 	h.e.d.Claude = filepath.Join(t.TempDir(), "claude")
-	require.NoError(t, os.WriteFile(h.e.d.Claude, []byte("#!/usr/bin/env bash\ncat >/dev/null\nsleep 1\n"+
-		"printf '[{\"type\":\"result\",\"subtype\":\"success\",\"num_turns\":1,\"total_cost_usd\":0.5,\"session_id\":\"x\",\"structured_output\":{\"findings\":[],\"ledger\":[],\"agreed_threads\":[],\"design_refs\":\"\",\"note\":\"\"}}]'\n"), 0o755))
+	require.NoError(
+		t,
+		os.WriteFile(h.e.d.Claude, []byte("#!/usr/bin/env bash\ncat >/dev/null\nsleep 1\n"+
+			"printf '[{\"type\":\"result\",\"subtype\":\"success\",\"num_turns\":1,\"total_cost_usd\":0.5,\"session_id\":\"x\",\"structured_output\":{\"findings\":[],\"ledger\":[],\"agreed_threads\":[],\"design_refs\":\"\",\"note\":\"\"}}]'\n"), 0o755),
+	)
 	released := make(chan struct{})
 	go func() {
 		defer close(released)
 		for range 500 {
-			if st, err := h.e.load(h.job.Key); err == nil && st.Claim != nil && st.Claim.SessionID != "" {
+			if st, err := h.e.load(
+				h.job.Key,
+			); err == nil && st.Claim != nil &&
+				st.Claim.SessionID != "" {
 				_, _ = h.e.update(h.job.Key, func(s *PRState) { s.Claim = nil })
 				return
 			}
@@ -285,5 +353,10 @@ func TestReviewSupersededResultIsDropped(t *testing.T) {
 	<-released
 	assert.Equal(t, "superseded", out.Note)
 	assert.Empty(t, h.gh.posted)
-	assert.Equal(t, 0.5, h.e.store.Spend(Day(h.now)), "spend is recorded even when the result is dropped")
+	assert.Equal(
+		t,
+		0.5,
+		h.e.store.Spend(Day(h.now)),
+		"spend is recorded even when the result is dropped",
+	)
 }

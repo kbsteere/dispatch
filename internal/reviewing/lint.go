@@ -21,17 +21,37 @@ var (
 		{regexp.MustCompile(`(?i)\blgtm\b`), "says LGTM"},
 		{regexp.MustCompile(`(?i)\blooks good\b`), "says looks good"},
 		{regexp.MustCompile(`(?i)\bno issues( found)?\b`), "reports no issues"},
-		{regexp.MustCompile(`(?i)\b(i|we)('ve| have)? (verified|checked|confirmed|reviewed|looked at|applied)\b`), "narrates what was checked"},
-		{regexp.MustCompile(`(?i)\bverified (at|in|against) (the )?(code ?base|commit|head|repo)`), "narrates verification"},
+		{
+			regexp.MustCompile(
+				`(?i)\b(i|we)('ve| have)? (verified|checked|confirmed|reviewed|looked at|applied)\b`,
+			),
+			"narrates what was checked",
+		},
+		{
+			regexp.MustCompile(
+				`(?i)\bverified (at|in|against) (the )?(code ?base|commit|head|repo)`,
+			),
+			"narrates verification",
+		},
 		{regexp.MustCompile(`(?i)\bverified at\b`), "narrates verification"},
 		{regexp.MustCompile(`(?i)\bconfirmed at\b`), "narrates verification"},
 		{regexp.MustCompile(`(?i)\bfixed at\b`), "narrates verification"},
 		{regexp.MustCompile(`(?i)\bseconding\b`), "seconds another reviewer"},
 		{regexp.MustCompile(`(?i)\bconforms to\b`), "reports design conformance"},
 		{regexp.MustCompile(`(?i)\bno design doc\b`), "reports design search"},
-		{regexp.MustCompile(`(?i)\b(standards|skills) applied\b|\bapplied (the )?[a-z-]+-(standards|review)\b`), "lists skills applied"},
+		{
+			regexp.MustCompile(
+				`(?i)\b(standards|skills) applied\b|\bapplied (the )?[a-z-]+-(standards|review)\b`,
+			),
+			"lists skills applied",
+		},
 		{regexp.MustCompile(`(?i)\b\d+ (non-)?blocking\b`), "summarises finding counts"},
-		{regexp.MustCompile(`(?i)\b(great|nice|excellent) (work|job|catch|change)\b|\bgood catch\b|\bwell done\b`), "praise"},
+		{
+			regexp.MustCompile(
+				`(?i)\b(great|nice|excellent) (work|job|catch|change)\b|\bgood catch\b|\bwell done\b`,
+			),
+			"praise",
+		},
 		{regexp.MustCompile(`(?i)\bdesign check\b`), "narrates design check"},
 	}
 )

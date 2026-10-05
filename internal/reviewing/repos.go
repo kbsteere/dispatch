@@ -40,7 +40,8 @@ func ResolveLocalRepo(path string) (LocalRepo, error) {
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return LocalRepo{}, fmt.Errorf("%s is not a directory", path)
 	}
-	out, err := exec.Command("git", "-C", path, "rev-parse", "--is-bare-repository", "--show-toplevel").Output()
+	out, err := exec.Command("git", "-C", path, "rev-parse", "--is-bare-repository", "--show-toplevel").
+		Output()
 	if err != nil {
 		// rev-parse fails on --show-toplevel inside a bare repo; ask again
 		// for bareness alone.

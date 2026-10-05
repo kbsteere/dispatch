@@ -22,9 +22,24 @@ func TestStoreRoundTrip(t *testing.T) {
 	assert.Equal(t, PRState{Key: monoKey}, st, "missing file yields a fresh state")
 
 	st.Status = StatusWaitingOnCI
-	st.Ledger = []Finding{{ID: "f1", ThreadID: "PRRT_1", Path: "bots/kev/main.go", Line: 12, Blocking: true, Summary: "nil deref", Status: FindingOutstanding}}
+	st.Ledger = []Finding{
+		{
+			ID:       "f1",
+			ThreadID: "PRRT_1",
+			Path:     "bots/kev/main.go",
+			Line:     12,
+			Blocking: true,
+			Summary:  "nil deref",
+			Status:   FindingOutstanding,
+		},
+	}
 	st.ReviewsByDay = map[string]int{"2026-10-05": 2}
-	st.Claim = &Claim{SessionID: "s1", PID: 42, Since: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC), Head: "h"}
+	st.Claim = &Claim{
+		SessionID: "s1",
+		PID:       42,
+		Since:     time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC),
+		Head:      "h",
+	}
 	require.NoError(t, s.SavePR(st))
 
 	got, err := s.LoadPR(monoKey)
@@ -118,7 +133,11 @@ func TestDraftPath(t *testing.T) {
 	s, err := OpenStore(t.TempDir(), "w")
 	require.NoError(t, err)
 	p := s.DraftPath(monoKey, time.Unix(1791219000, 0))
-	assert.Equal(t, filepath.Join(string(s), "drafts", "chainguard-dev__mono__62436__1791219000.json"), p)
+	assert.Equal(
+		t,
+		filepath.Join(string(s), "drafts", "chainguard-dev__mono__62436__1791219000.json"),
+		p,
+	)
 }
 
 func TestDay(t *testing.T) {

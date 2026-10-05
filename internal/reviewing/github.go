@@ -149,7 +149,15 @@ func FoldComments(p ReviewPayload) ReviewPayload {
 		parts = append(parts, b)
 	}
 	for _, c := range p.Comments {
-		parts = append(parts, fmt.Sprintf("**`%s:%d`**\n%s", c.Path, c.Line, strings.TrimSpace(strings.ReplaceAll(c.Body, Marker, ""))))
+		parts = append(
+			parts,
+			fmt.Sprintf(
+				"**`%s:%d`**\n%s",
+				c.Path,
+				c.Line,
+				strings.TrimSpace(strings.ReplaceAll(c.Body, Marker, "")),
+			),
+		)
 	}
 	p.Body = strings.Join(parts, "\n\n")
 	p.Comments = nil
@@ -196,7 +204,7 @@ type rateLimitJSON struct {
 }
 
 func (r rateLimitJSON) toRateLimit() RateLimit {
-	return RateLimit{Cost: r.Cost, Remaining: r.Remaining, ResetAt: r.ResetAt}
+	return RateLimit(r)
 }
 
 type loginJSON struct {
@@ -235,7 +243,11 @@ const searchQuery = `query($q: String!, $after: String) {
   }
 }`
 
-func (g *ghClient) Search(ctx context.Context, query string, maxPages int) ([]SearchHit, RateLimit, error) {
+func (g *ghClient) Search(
+	ctx context.Context,
+	query string,
+	maxPages int,
+) ([]SearchHit, RateLimit, error) {
 	var hits []SearchHit
 	var rl RateLimit
 	var after *string
@@ -263,11 +275,16 @@ func (g *ghClient) Search(ctx context.Context, query string, maxPages int) ([]Se
 		rl = resp.RateLimit.toRateLimit()
 		rl.Cost = cost
 		for _, n := range resp.Search.Nodes {
-			if n.ID == "" || n.Number <= 0 || !ValidName(n.Repository.Owner.Login) || !ValidName(n.Repository.Name) {
+			if n.ID == "" || n.Number <= 0 || !ValidName(n.Repository.Owner.Login) ||
+				!ValidName(n.Repository.Name) {
 				continue
 			}
 			hits = append(hits, SearchHit{
-				Key:       PRKey{Owner: n.Repository.Owner.Login, Repo: n.Repository.Name, Number: n.Number},
+				Key: PRKey{
+					Owner:  n.Repository.Owner.Login,
+					Repo:   n.Repository.Name,
+					Number: n.Number,
+				},
 				NodeID:    n.ID,
 				UpdatedAt: n.UpdatedAt,
 			})
@@ -388,7 +405,11 @@ type detailJSON struct {
 
 func (n detailJSON) toDetail() PRDetail {
 	d := PRDetail{
-		Key:       PRKey{Owner: n.Repository.Owner.Login, Repo: n.Repository.Name, Number: n.Number},
+		Key: PRKey{
+			Owner:  n.Repository.Owner.Login,
+			Repo:   n.Repository.Name,
+			Number: n.Number,
+		},
 		NodeID:    n.ID,
 		State:     n.State,
 		Author:    loginOf(n.Author),
@@ -418,7 +439,13 @@ func (n detailJSON) toDetail() PRDetail {
 		d.Reviews = append(d.Reviews, rv)
 	}
 	for _, t := range n.ReviewThreads.Nodes {
-		th := Thread{ID: t.ID, IsResolved: t.IsResolved, IsOutdated: t.IsOutdated, Path: t.Path, Line: t.Line}
+		th := Thread{
+			ID:         t.ID,
+			IsResolved: t.IsResolved,
+			IsOutdated: t.IsOutdated,
+			Path:       t.Path,
+			Line:       t.Line,
+		}
 		if t.ResolvedBy != nil {
 			th.ResolvedBy = t.ResolvedBy.Login
 		}
@@ -432,7 +459,14 @@ func (n detailJSON) toDetail() PRDetail {
 			continue
 		}
 		for _, x := range c.Commit.StatusCheckRollup.Contexts.Nodes {
-			node := CheckNode{Typename: x.Typename, Name: x.Name, Status: x.Status, Conclusion: x.Conclusion, State: x.State, IsRequired: x.IsRequired}
+			node := CheckNode{
+				Typename:   x.Typename,
+				Name:       x.Name,
+				Status:     x.Status,
+				Conclusion: x.Conclusion,
+				State:      x.State,
+				IsRequired: x.IsRequired,
+			}
 			if x.Typename == "StatusContext" {
 				node.Name = x.Context
 			}
@@ -454,7 +488,12 @@ func (g *ghClient) Details(ctx context.Context, nodeIDs []string) ([]PRDetail, R
 			RateLimit rateLimitJSON `json:"rateLimit"`
 			Node      *detailJSON   `json:"node"`
 		}
-		if err := g.gql.DoWithContext(ctx, detailQuery, map[string]any{"id": id}, &resp); err != nil {
+		if err := g.gql.DoWithContext(
+			ctx,
+			detailQuery,
+			map[string]any{"id": id},
+			&resp,
+		); err != nil {
 			return out, rl, err
 		}
 		cost := rl.Cost + resp.RateLimit.Cost
@@ -482,7 +521,12 @@ func (g *ghClient) Resolve(ctx context.Context, k PRKey) (string, error) {
 			} `json:"pullRequest"`
 		} `json:"repository"`
 	}
-	if err := g.gql.DoWithContext(ctx, resolvePRQuery, map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number}, &resp); err != nil {
+	if err := g.gql.DoWithContext(
+		ctx,
+		resolvePRQuery,
+		map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number},
+		&resp,
+	); err != nil {
 		return "", err
 	}
 	if resp.Repository.PullRequest == nil {
@@ -506,7 +550,11 @@ func isStatus(err error, codes ...int) bool {
 
 // RequiredContexts unions the required status checks from rulesets and
 // classic branch protection. Either source may be unreadable.
-func (g *ghClient) RequiredContexts(ctx context.Context, k PRKey, branch string) (RequiredContexts, error) {
+func (g *ghClient) RequiredContexts(
+	ctx context.Context,
+	k PRKey,
+	branch string,
+) (RequiredContexts, error) {
 	cacheKey := k.NameWithOwner() + ":" + branch
 	g.mu.Lock()
 	if c, ok := g.reqCache[cacheKey]; ok && g.now().Sub(c.at) < requiredContextsTTL {
@@ -540,7 +588,13 @@ func (g *ghClient) RequiredContexts(ctx context.Context, k PRKey, branch string)
 			} `json:"required_status_checks"`
 		} `json:"parameters"`
 	}
-	err := g.rest.DoWithContext(ctx, http.MethodGet, fmt.Sprintf("repos/%s/%s/rules/branches/%s?per_page=100", k.Owner, k.Repo, b), nil, &rules)
+	err := g.rest.DoWithContext(
+		ctx,
+		http.MethodGet,
+		fmt.Sprintf("repos/%s/%s/rules/branches/%s?per_page=100", k.Owner, k.Repo, b),
+		nil,
+		&rules,
+	)
 	if err != nil && !isStatus(err, http.StatusForbidden, http.StatusNotFound) {
 		return nil, err
 	}
@@ -560,7 +614,18 @@ func (g *ghClient) RequiredContexts(ctx context.Context, k PRKey, branch string)
 			AppID   *int   `json:"app_id"`
 		} `json:"checks"`
 	}
-	err = g.rest.DoWithContext(ctx, http.MethodGet, fmt.Sprintf("repos/%s/%s/branches/%s/protection/required_status_checks", k.Owner, k.Repo, b), nil, &prot)
+	err = g.rest.DoWithContext(
+		ctx,
+		http.MethodGet,
+		fmt.Sprintf(
+			"repos/%s/%s/branches/%s/protection/required_status_checks",
+			k.Owner,
+			k.Repo,
+			b,
+		),
+		nil,
+		&prot,
+	)
 	if err != nil && !isStatus(err, http.StatusForbidden, http.StatusNotFound) {
 		return nil, err
 	}
@@ -623,7 +688,12 @@ func (g *ghClient) ReplyThread(ctx context.Context, threadID, body string) (stri
 			} `json:"comment"`
 		} `json:"addPullRequestReviewThreadReply"`
 	}
-	if err := g.gql.DoWithContext(ctx, replyMutation, map[string]any{"id": threadID, "b": WithMarker(body)}, &resp); err != nil {
+	if err := g.gql.DoWithContext(
+		ctx,
+		replyMutation,
+		map[string]any{"id": threadID, "b": WithMarker(body)},
+		&resp,
+	); err != nil {
 		return "", err
 	}
 	return resp.Reply.Comment.ID, nil
@@ -650,7 +720,11 @@ type ThreadRef struct {
 }
 
 // ReviewThreads returns the threads opened by the review at reviewURL.
-func (g *ghClient) ReviewThreads(ctx context.Context, k PRKey, reviewURL string) ([]ThreadRef, error) {
+func (g *ghClient) ReviewThreads(
+	ctx context.Context,
+	k PRKey,
+	reviewURL string,
+) ([]ThreadRef, error) {
 	m := reviewIDRe.FindStringSubmatch(reviewURL)
 	if m == nil {
 		return nil, fmt.Errorf("no review id in %q", reviewURL)
@@ -676,7 +750,12 @@ func (g *ghClient) ReviewThreads(ctx context.Context, k PRKey, reviewURL string)
 			} `json:"pullRequest"`
 		} `json:"repository"`
 	}
-	if err := g.gql.DoWithContext(ctx, reviewThreadsQuery, map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number}, &resp); err != nil {
+	if err := g.gql.DoWithContext(
+		ctx,
+		reviewThreadsQuery,
+		map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number},
+		&resp,
+	); err != nil {
 		return nil, err
 	}
 	var refs []ThreadRef
@@ -698,6 +777,7 @@ func (f failingGitHub) Viewer(context.Context) (string, error) { return "", f.er
 func (f failingGitHub) Search(context.Context, string, int) ([]SearchHit, RateLimit, error) {
 	return nil, RateLimit{}, f.err
 }
+
 func (f failingGitHub) Details(context.Context, []string) ([]PRDetail, RateLimit, error) {
 	return nil, RateLimit{}, f.err
 }
@@ -705,11 +785,19 @@ func (f failingGitHub) Resolve(context.Context, PRKey) (string, error) { return 
 func (f failingGitHub) RequiredContexts(context.Context, PRKey, string) (RequiredContexts, error) {
 	return nil, f.err
 }
+
 func (f failingGitHub) PostReview(context.Context, PRKey, ReviewPayload) (string, error) {
 	return "", f.err
 }
-func (f failingGitHub) ReplyThread(context.Context, string, string) (string, error) { return "", f.err }
-func (f failingGitHub) ResolveThread(context.Context, string) error             { return f.err }
+
+func (f failingGitHub) ReplyThread(
+	context.Context,
+	string,
+	string,
+) (string, error) {
+	return "", f.err
+}
+func (f failingGitHub) ResolveThread(context.Context, string) error { return f.err }
 func (f failingGitHub) ReviewThreads(context.Context, PRKey, string) ([]ThreadRef, error) {
 	return nil, f.err
 }

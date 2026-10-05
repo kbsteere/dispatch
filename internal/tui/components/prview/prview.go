@@ -227,13 +227,17 @@ func (m *Model) viewOverviewTab() string {
 	body.WriteString(m.renderSummary())
 	body.WriteString("\n\n")
 	body.WriteString(
-		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).Underline(true).Render(constants.FileDiffIcon + " Changes"),
+		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).
+			Underline(true).
+			Render(constants.FileDiffIcon + " Changes"),
 	)
 	body.WriteString("\n")
 	body.WriteString(m.renderChangesOverview())
 	body.WriteString("\n\n")
 	body.WriteString(
-		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).Underline(true).Render(constants.ChecksIcon + " Checks"),
+		m.ctx.Styles.Common.MainTextStyle.MarginBottom(1).
+			Underline(true).
+			Render(constants.ChecksIcon + " Checks"),
 	)
 	body.WriteString("\n")
 	body.WriteString(m.renderChecksOverview())
@@ -292,7 +296,8 @@ func (m *Model) renderBranches() string {
 		" ",
 		lipgloss.NewStyle().
 			Foreground(m.ctx.Theme.SecondaryText).
-			Render(m.pr.Data.Primary.BaseRefName+" "+constants.BranchArrowIcon+" "+m.pr.Data.Primary.HeadRefName))
+			Render(m.pr.Data.Primary.BaseRefName+" "+constants.BranchArrowIcon+" "+m.pr.Data.Primary.HeadRefName),
+	)
 }
 
 func (m *Model) renderStatusPill() string {
@@ -530,7 +535,9 @@ func (m *Model) renderSummary() string {
 	body := htmlCommentRegex.ReplaceAllString(m.pr.Data.Enriched.Body, "")
 	body = lineCleanupRegex.ReplaceAllString(body, "")
 
-	desc := m.ctx.Styles.Common.MainTextStyle.Bold(true).Underline(true).Render(constants.SummaryIcon + " Summary")
+	desc := m.ctx.Styles.Common.MainTextStyle.Bold(true).
+		Underline(true).
+		Render(constants.SummaryIcon + " Summary")
 	title := lipgloss.JoinVertical(
 		lipgloss.Left,
 		desc,

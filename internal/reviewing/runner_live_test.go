@@ -34,7 +34,12 @@ func TestLiveClaudeSandbox(t *testing.T) {
 	res, err := r.Wait()
 	require.NoError(t, err)
 	require.NoError(t, res.Err())
-	assert.Contains(t, strings.ToLower(string(res.Structured)), "feature", "allowed git command ran")
+	assert.Contains(
+		t,
+		strings.ToLower(string(res.Structured)),
+		"feature",
+		"allowed git command ran",
+	)
 	_, statErr := os.Stat(canary)
 	assert.True(t, os.IsNotExist(statErr), "touch must be denied")
 }

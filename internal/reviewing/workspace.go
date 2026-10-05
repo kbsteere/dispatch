@@ -22,14 +22,24 @@ func gitCmd(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return out, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return out, fmt.Errorf(
+			"git %s: %w: %s",
+			strings.Join(args, " "),
+			err,
+			strings.TrimSpace(string(out)),
+		)
 	}
 	return out, nil
 }
 
 // EnsureLocalRepo returns the configured local copy of k's repo, or a
 // blobless bare clone kept under stateRoot when none is configured.
-func EnsureLocalRepo(ctx context.Context, stateRoot string, k PRKey, lookup func(string) (string, bool)) (LocalRepo, error) {
+func EnsureLocalRepo(
+	ctx context.Context,
+	stateRoot string,
+	k PRKey,
+	lookup func(string) (string, bool),
+) (LocalRepo, error) {
 	if !ValidName(k.Owner) || !ValidName(k.Repo) {
 		return LocalRepo{}, fmt.Errorf("invalid repo %s", k.NameWithOwner())
 	}
@@ -44,7 +54,16 @@ func EnsureLocalRepo(ctx context.Context, stateRoot string, k PRKey, lookup func
 			return LocalRepo{}, err
 		}
 		url := fmt.Sprintf("https://github.com/%s/%s.git", k.Owner, k.Repo)
-		cmd := exec.CommandContext(ctx, "git", "clone", "--bare", "--filter=blob:none", "--", url, dir)
+		cmd := exec.CommandContext(
+			ctx,
+			"git",
+			"clone",
+			"--bare",
+			"--filter=blob:none",
+			"--",
+			url,
+			dir,
+		)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return LocalRepo{}, fmt.Errorf("cloning %s: %w: %s", url, err, out)
@@ -56,7 +75,8 @@ func EnsureLocalRepo(ctx context.Context, stateRoot string, k PRKey, lookup func
 // FetchPR fetches the PR head to refs/dispatch/N/head and its base branch to
 // refs/dispatch/N/base without touching any working tree.
 func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string) error {
-	if baseRef == "" || !branchRe.MatchString(baseRef) || strings.HasPrefix(baseRef, "-") || strings.Contains(baseRef, "..") {
+	if baseRef == "" || !branchRe.MatchString(baseRef) || strings.HasPrefix(baseRef, "-") ||
+		strings.Contains(baseRef, "..") {
 		return fmt.Errorf("invalid base ref %q", baseRef)
 	}
 	if k.Number <= 0 {
@@ -131,7 +151,17 @@ func (p *Pool) Acquire(ctx context.Context, head string) (string, func(), error)
 		}
 	} else {
 		if err = os.MkdirAll(p.dir, 0o700); err == nil {
-			_, err = gitCmd(ctx, p.repo.GitDir, "worktree", "add", "--quiet", "--detach", "--force", slot, head)
+			_, err = gitCmd(
+				ctx,
+				p.repo.GitDir,
+				"worktree",
+				"add",
+				"--quiet",
+				"--detach",
+				"--force",
+				slot,
+				head,
+			)
 		}
 	}
 	if err != nil {

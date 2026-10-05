@@ -368,8 +368,13 @@ func TestRenderClaudeReviewStatus(t *testing.T) {
 
 	t.Run("watched PR shows its watch status", func(t *testing.T) {
 		pr := newPr(nil)
-		pr.Ctx.WatchPRs = map[string]reviewing.PRState{url: {Status: reviewing.StatusChangesRequested}}
-		if got := pr.renderClaudeReviewStatus(); !strings.Contains(got, constants.ChangesRequestedIcon) {
+		pr.Ctx.WatchPRs = map[string]reviewing.PRState{
+			url: {Status: reviewing.StatusChangesRequested},
+		}
+		if got := pr.renderClaudeReviewStatus(); !strings.Contains(
+			got,
+			constants.ChangesRequestedIcon,
+		) {
 			t.Errorf("got %q, want it to contain %q", got, constants.ChangesRequestedIcon)
 		}
 	})

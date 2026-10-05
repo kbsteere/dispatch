@@ -7,7 +7,14 @@ import (
 )
 
 func cleanSnap() Snapshot {
-	return Snapshot{State: "OPEN", Author: "dnegreira", Viewer: "kbsteere", Mergeable: "MERGEABLE", Head: "h2", RequiredCI: "SUCCESS"}
+	return Snapshot{
+		State:      "OPEN",
+		Author:     "dnegreira",
+		Viewer:     "kbsteere",
+		Mergeable:  "MERGEABLE",
+		Head:       "h2",
+		RequiredCI: "SUCCESS",
+	}
 }
 
 func TestDecide(t *testing.T) {
@@ -19,23 +26,125 @@ func TestDecide(t *testing.T) {
 		wantStatus Status
 	}{
 		{"all clear approves", nil, Tally{}, ActionApprove, StatusApproved},
-		{"already approved at head posts nothing", func(s *Snapshot) { s.ApprovedHead = "h2" }, Tally{}, ActionNone, StatusApproved},
-		{"approved older head re-approves", func(s *Snapshot) { s.ApprovedHead = "h1" }, Tally{}, ActionApprove, StatusApproved},
-		{"new blocking finding comments", nil, Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1}, ActionComment, StatusChangesRequested},
-		{"new nit only comments", nil, Tally{NewFindings: 1, OutstandingNonBlocking: 1}, ActionComment, StatusWaitingOnAuthor},
-		{"blocking after own approval withdraws", func(s *Snapshot) { s.ApprovedHead = "h1" }, Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1}, ActionRequestChanges, StatusChangesRequested},
-		{"nit after own approval only comments", func(s *Snapshot) { s.ApprovedHead = "h1" }, Tally{NewFindings: 1, OutstandingNonBlocking: 1}, ActionComment, StatusWaitingOnAuthor},
-		{"outstanding old blocking, nothing new", nil, Tally{OutstandingBlocking: 1}, ActionNone, StatusChangesRequested},
-		{"outstanding old nit, nothing new", nil, Tally{OutstandingNonBlocking: 1}, ActionNone, StatusWaitingOnAuthor},
-		{"ci pending waits", func(s *Snapshot) { s.RequiredCI = "PENDING" }, Tally{}, ActionNone, StatusWaitingOnCI},
-		{"ci failing waits", func(s *Snapshot) { s.RequiredCI = "FAILURE" }, Tally{}, ActionNone, StatusWaitingOnCI},
-		{"conflict waits on author", func(s *Snapshot) { s.Mergeable = "CONFLICTING" }, Tally{}, ActionNone, StatusWaitingOnAuthor},
-		{"own PR never approves", func(s *Snapshot) { s.Author = "kbsteere" }, Tally{}, ActionNone, StatusWaitingOnAuthor},
-		{"own PR with blocking comments, never request changes", func(s *Snapshot) { s.Author = "kbsteere"; s.ApprovedHead = "h1" }, Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1}, ActionComment, StatusChangesRequested},
-		{"draft never approves", func(s *Snapshot) { s.IsDraft = true }, Tally{}, ActionNone, StatusWaitingOnAuthor},
-		{"closed never approves", func(s *Snapshot) { s.State = "MERGED" }, Tally{}, ActionNone, StatusWaitingOnAuthor},
-		{"others still block after approval", func(s *Snapshot) { s.OthersRequestChanges = true }, Tally{}, ActionApprove, StatusWaitingOnOthers},
-		{"unknown ci state never approves", func(s *Snapshot) { s.RequiredCI = "" }, Tally{}, ActionNone, StatusWaitingOnCI},
+		{
+			"already approved at head posts nothing",
+			func(s *Snapshot) { s.ApprovedHead = "h2" },
+			Tally{},
+			ActionNone,
+			StatusApproved,
+		},
+		{
+			"approved older head re-approves",
+			func(s *Snapshot) { s.ApprovedHead = "h1" },
+			Tally{},
+			ActionApprove,
+			StatusApproved,
+		},
+		{
+			"new blocking finding comments",
+			nil,
+			Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1},
+			ActionComment,
+			StatusChangesRequested,
+		},
+		{
+			"new nit only comments",
+			nil,
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionComment,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"blocking after own approval withdraws",
+			func(s *Snapshot) { s.ApprovedHead = "h1" },
+			Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1},
+			ActionRequestChanges,
+			StatusChangesRequested,
+		},
+		{
+			"nit after own approval only comments",
+			func(s *Snapshot) { s.ApprovedHead = "h1" },
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionComment,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"outstanding old blocking, nothing new",
+			nil,
+			Tally{OutstandingBlocking: 1},
+			ActionNone,
+			StatusChangesRequested,
+		},
+		{
+			"outstanding old nit, nothing new",
+			nil,
+			Tally{OutstandingNonBlocking: 1},
+			ActionNone,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"ci pending waits",
+			func(s *Snapshot) { s.RequiredCI = "PENDING" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnCI,
+		},
+		{
+			"ci failing waits",
+			func(s *Snapshot) { s.RequiredCI = "FAILURE" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnCI,
+		},
+		{
+			"conflict waits on author",
+			func(s *Snapshot) { s.Mergeable = "CONFLICTING" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"own PR never approves",
+			func(s *Snapshot) { s.Author = "kbsteere" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"own PR with blocking comments, never request changes",
+			func(s *Snapshot) { s.Author = "kbsteere"; s.ApprovedHead = "h1" },
+			Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1},
+			ActionComment,
+			StatusChangesRequested,
+		},
+		{
+			"draft never approves",
+			func(s *Snapshot) { s.IsDraft = true },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"closed never approves",
+			func(s *Snapshot) { s.State = "MERGED" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"others still block after approval",
+			func(s *Snapshot) { s.OthersRequestChanges = true },
+			Tally{},
+			ActionApprove,
+			StatusWaitingOnOthers,
+		},
+		{
+			"unknown ci state never approves",
+			func(s *Snapshot) { s.RequiredCI = "" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnCI,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

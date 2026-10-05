@@ -85,14 +85,23 @@ func (e *Engine) pool(k PRKey, repo LocalRepo) *Pool {
 	if p, ok := e.pools[name]; ok {
 		return p
 	}
-	p := NewPool(repo, filepath.Join(e.d.StateRoot, "worktrees", fmt.Sprintf("%s__%s", k.Owner, k.Repo)), e.d.Limits.MaxInFlight)
+	p := NewPool(
+		repo,
+		filepath.Join(e.d.StateRoot, "worktrees", fmt.Sprintf("%s__%s", k.Owner, k.Repo)),
+		e.d.Limits.MaxInFlight,
+	)
 	e.pools[name] = p
 	return p
 }
 
 // runSession builds the prompt and runs claude. It returns the session id
 // once the process started, so spend can be recorded even on failure.
-func (e *Engine) runSession(ctx context.Context, job Job, repo LocalRepo, slot, mergeBase string) (RunResult, string, error) {
+func (e *Engine) runSession(
+	ctx context.Context,
+	job Job,
+	repo LocalRepo,
+	slot, mergeBase string,
+) (RunResult, string, error) {
 	st, _ := e.load(job.Key)
 	viewer, _ := e.ensureViewer(ctx)
 	in := PromptInput{
@@ -114,9 +123,15 @@ func (e *Engine) runSession(ctx context.Context, job Job, repo LocalRepo, slot, 
 		return RunResult{}, "", err
 	}
 	run, err := Start(ctx, RunSpec{
-		Binary: e.d.Claude, SessionID: sessionID, Prompt: BuildPrompt(in), Schema: ReviewSchema, CWD: cwd,
-		AddDirs: append([]string{slot}, in.ContextDirs...), MaxTurns: maxTurns,
-		MaxBudgetUSD: e.d.Limits.MaxBudgetUsd, Timeout: e.d.Limits.RunTimeout,
+		Binary:       e.d.Claude,
+		SessionID:    sessionID,
+		Prompt:       BuildPrompt(in),
+		Schema:       ReviewSchema,
+		CWD:          cwd,
+		AddDirs:      append([]string{slot}, in.ContextDirs...),
+		MaxTurns:     maxTurns,
+		MaxBudgetUSD: e.d.Limits.MaxBudgetUsd,
+		Timeout:      e.d.Limits.RunTimeout,
 	})
 	if err != nil {
 		return RunResult{}, "", err
@@ -170,7 +185,13 @@ func (e *Engine) recordRun(k PRKey, sessionID string, res RunResult, err error) 
 		outcome = err.Error()
 	}
 	_, _ = e.update(k, func(st *PRState) {
-		st.LastRun = &RunRecord{SessionID: sessionID, Turns: res.Turns, CostUSD: res.CostUSD, Outcome: outcome, At: now}
+		st.LastRun = &RunRecord{
+			SessionID: sessionID,
+			Turns:     res.Turns,
+			CostUSD:   res.CostUSD,
+			Outcome:   outcome,
+			At:        now,
+		}
 		if st.ReviewsByDay == nil {
 			st.ReviewsByDay = map[string]int{}
 		}
@@ -217,7 +238,10 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 			dropped = append(dropped, fmt.Sprintf("%s:%d", f.Path, f.Line))
 			continue
 		}
-		draft.Comments = append(draft.Comments, ReviewComment{Path: f.Path, Line: f.Line, StartLine: f.StartLine, Body: f.Body})
+		draft.Comments = append(
+			draft.Comments,
+			ReviewComment{Path: f.Path, Line: f.Line, StartLine: f.StartLine, Body: f.Body},
+		)
 		draft.Findings = append(draft.Findings, Finding{
 			ID: nextFindingID(append(st.Ledger, draft.Findings...)), Path: f.Path, Line: f.Line,
 			Blocking: f.Blocking, Summary: summarize(f.Body), Status: FindingOutstanding,
@@ -229,7 +253,11 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 	}
 	for _, u := range review.Ledger {
 		f, ok := known[u.ID]
-		if !ok || !slices.Contains([]string{FindingAddressed, FindingAnswered, FindingOutstanding}, u.Status) {
+		if !ok ||
+			!slices.Contains(
+				[]string{FindingAddressed, FindingAnswered, FindingOutstanding},
+				u.Status,
+			) {
 			continue
 		}
 		draft.Ledger = append(draft.Ledger, u)
@@ -239,7 +267,10 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		if u.Status == FindingAddressed || u.Status == FindingAnswered {
 			draft.Resolve = append(draft.Resolve, f.ThreadID)
 		} else if strings.TrimSpace(u.Reply) != "" && !f.Replied {
-			draft.Replies = append(draft.Replies, heldReply{ThreadID: f.ThreadID, FindingID: f.ID, Body: u.Reply})
+			draft.Replies = append(
+				draft.Replies,
+				heldReply{ThreadID: f.ThreadID, FindingID: f.ID, Body: u.Reply},
+			)
 		}
 	}
 	threads := map[string]Thread{}
@@ -248,16 +279,27 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 	}
 	for _, id := range review.AgreedThreads {
 		t, ok := threads[id]
-		if !ok || ourThreads[id] || slices.ContainsFunc(st.Ledger, func(f Finding) bool { return f.ThreadID == id }) || len(t.Comments) == 0 {
+		if !ok || ourThreads[id] ||
+			slices.ContainsFunc(st.Ledger, func(f Finding) bool { return f.ThreadID == id }) ||
+			len(t.Comments) == 0 {
 			continue
 		}
 		draft.Findings = append(draft.Findings, Finding{
-			ID: nextFindingID(append(st.Ledger, draft.Findings...)), ThreadID: id, Path: t.Path, Line: t.Line,
-			Blocking: true, Summary: summarize(t.Comments[0].Body), Status: FindingOutstanding,
+			ID: nextFindingID(
+				append(st.Ledger, draft.Findings...),
+			),
+			ThreadID: id,
+			Path:     t.Path,
+			Line:     t.Line,
+			Blocking: true,
+			Summary:  summarize(t.Comments[0].Body),
+			Status:   FindingOutstanding,
 		})
 	}
 	if len(dropped) > 0 {
-		out.Note = strings.TrimSpace(out.Note + " (dropped findings outside the diff: " + strings.Join(dropped, ", ") + ")")
+		out.Note = strings.TrimSpace(
+			out.Note + " (dropped findings outside the diff: " + strings.Join(dropped, ", ") + ")",
+		)
 	}
 
 	for _, c := range draft.Comments {
@@ -281,9 +323,15 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 
 	tally, ledger := tallyFor(st.Ledger, draft)
 	snap := Snapshot{
-		State: fresh[0].State, IsDraft: fresh[0].IsDraft, Author: fresh[0].Author, Viewer: viewer,
-		Mergeable: fresh[0].Mergeable, Head: fresh[0].HeadOID, RequiredCI: sig.CI,
-		ApprovedHead: st.ApprovedHead, OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
+		State:                fresh[0].State,
+		IsDraft:              fresh[0].IsDraft,
+		Author:               fresh[0].Author,
+		Viewer:               viewer,
+		Mergeable:            fresh[0].Mergeable,
+		Head:                 fresh[0].HeadOID,
+		RequiredCI:           sig.CI,
+		ApprovedHead:         st.ApprovedHead,
+		OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
 	}
 	action, status := Decide(snap, tally)
 	draft.Event = string(action)
@@ -361,7 +409,8 @@ func tallyFor(ledger []Finding, draft heldDraft) (Tally, []Finding) {
 func othersRequestChanges(reviews []Review, viewer string) bool {
 	latest := map[string]Review{}
 	for _, r := range reviews {
-		if r.Author == viewer || r.SubmittedAt.IsZero() || (r.State != "APPROVED" && r.State != "CHANGES_REQUESTED" && r.State != "DISMISSED") {
+		if r.Author == viewer || r.SubmittedAt.IsZero() ||
+			(r.State != "APPROVED" && r.State != "CHANGES_REQUESTED" && r.State != "DISMISSED") {
 			continue
 		}
 		if cur, ok := latest[r.Author]; !ok || r.SubmittedAt.After(cur.SubmittedAt) {
@@ -379,7 +428,12 @@ func othersRequestChanges(reviews []Review, viewer string) bool {
 // post performs a draft's GitHub writes: resolves, one-time replies, then
 // the review. It returns the ledger with thread ids filled in and the
 // threads the review opened.
-func (e *Engine) post(ctx context.Context, k PRKey, draft heldDraft, ledger []Finding) ([]Finding, []string, error) {
+func (e *Engine) post(
+	ctx context.Context,
+	k PRKey,
+	draft heldDraft,
+	ledger []Finding,
+) ([]Finding, []string, error) {
 	for _, id := range draft.Resolve {
 		if err := e.d.GitHub.ResolveThread(ctx, id); err != nil {
 			return ledger, nil, err
@@ -417,7 +471,8 @@ func (e *Engine) post(ctx context.Context, k PRKey, draft heldDraft, ledger []Fi
 	for _, ref := range refs {
 		ours = append(ours, ref.ID)
 		for i := range ledger {
-			if ledger[i].ThreadID == "" && ledger[i].Path == ref.Path && ledger[i].Line == ref.Line {
+			if ledger[i].ThreadID == "" && ledger[i].Path == ref.Path &&
+				ledger[i].Line == ref.Line {
 				ledger[i].ThreadID = ref.ID
 				break
 			}
@@ -463,7 +518,11 @@ func (e *Engine) PostHeld(ctx context.Context, k PRKey) error {
 		reasons = append(reasons, LintBody(r.Body)...)
 	}
 	if len(reasons) > 0 {
-		return fmt.Errorf("held review still fails the tone check (%s); edit %s", strings.Join(reasons, "; "), st.HeldDraft)
+		return fmt.Errorf(
+			"held review still fails the tone check (%s); edit %s",
+			strings.Join(reasons, "; "),
+			st.HeldDraft,
+		)
 	}
 	fresh, _, err := e.d.GitHub.Details(ctx, []string{st.NodeID})
 	if err != nil {

@@ -69,7 +69,10 @@ func TestResolveReviewDir(t *testing.T) {
 		if err := os.MkdirAll(plain, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		got := resolveReviewDir("chainguard-dev/plain", map[string]string{"chainguard-dev/plain": plain})
+		got := resolveReviewDir(
+			"chainguard-dev/plain",
+			map[string]string{"chainguard-dev/plain": plain},
+		)
 		if got != home {
 			t.Errorf("got %q, want home %q", got, home)
 		}

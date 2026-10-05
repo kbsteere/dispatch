@@ -16,7 +16,10 @@ func prOrigin(t *testing.T) (origin, head string) {
 	t.Helper()
 	origin = newOrigin(t)
 	gitT(t, origin, "checkout", "-q", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(origin, "kev.go"), []byte("package kev\n"), 0o644))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(origin, "kev.go"), []byte("package kev\n"), 0o644),
+	)
 	gitT(t, origin, "add", ".")
 	gitT(t, origin, "commit", "-q", "-m", "feature")
 	head = strings.TrimSpace(gitT(t, origin, "rev-parse", "HEAD"))
@@ -65,7 +68,12 @@ func TestFetchPRAndPool(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "untracked files are cleaned between uses")
 	release2()
 
-	assert.Equal(t, userBranch, strings.TrimSpace(gitT(t, clone, "rev-parse", "--abbrev-ref", "HEAD")), "user checkout untouched")
+	assert.Equal(
+		t,
+		userBranch,
+		strings.TrimSpace(gitT(t, clone, "rev-parse", "--abbrev-ref", "HEAD")),
+		"user checkout untouched",
+	)
 
 	require.NoError(t, pool.Prune(ctx))
 	_, err = os.Stat(slot)
@@ -79,7 +87,10 @@ func TestFetchPRIntoBareRepo(t *testing.T) {
 	gitT(t, filepath.Dir(bare), "clone", "-q", "--bare", origin, bare)
 	repo, err := ResolveLocalRepo(bare)
 	require.NoError(t, err)
-	require.NoError(t, FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "mono", 7}, "main"))
+	require.NoError(
+		t,
+		FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "mono", 7}, "main"),
+	)
 	assert.Equal(t, head, strings.TrimSpace(gitT(t, bare, "rev-parse", "refs/dispatch/7/head")))
 }
 
@@ -99,7 +110,10 @@ func TestPoolRejectsBadSHA(t *testing.T) {
 	pool := NewPool(repo, t.TempDir(), 1)
 	_, _, err = pool.Acquire(context.Background(), "--upload-pack=touch /tmp/x")
 	assert.Error(t, err)
-	slot, release, err := pool.Acquire(context.Background(), strings.TrimSpace(gitT(t, origin, "rev-parse", "main")))
+	slot, release, err := pool.Acquire(
+		context.Background(),
+		strings.TrimSpace(gitT(t, origin, "rev-parse", "main")),
+	)
 	require.NoError(t, err, "a failed acquire releases its slot")
 	assert.NotEmpty(t, slot)
 	release()
@@ -121,11 +135,20 @@ func TestShowFileAtBase(t *testing.T) {
 
 func TestEnsureLocalRepoPrefersRepoPaths(t *testing.T) {
 	origin, _ := prOrigin(t)
-	repo, err := EnsureLocalRepo(context.Background(), t.TempDir(), PRKey{"chainguard-dev", "mono", 7},
-		func(name string) (string, bool) { return origin, name == "chainguard-dev/mono" })
+	repo, err := EnsureLocalRepo(
+		context.Background(),
+		t.TempDir(),
+		PRKey{"chainguard-dev", "mono", 7},
+		func(name string) (string, bool) { return origin, name == "chainguard-dev/mono" },
+	)
 	require.NoError(t, err)
 	assert.Equal(t, origin, repo.GitDir)
 
-	_, err = EnsureLocalRepo(context.Background(), t.TempDir(), PRKey{"..", "mono", 7}, func(string) (string, bool) { return "", false })
+	_, err = EnsureLocalRepo(
+		context.Background(),
+		t.TempDir(),
+		PRKey{"..", "mono", 7},
+		func(string) (string, bool) { return "", false },
+	)
 	assert.Error(t, err)
 }

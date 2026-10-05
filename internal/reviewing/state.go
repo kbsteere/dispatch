@@ -246,7 +246,11 @@ func (s Store) Initialized() bool {
 }
 
 func (s Store) MarkInitialized() error {
-	return os.WriteFile(filepath.Join(string(s), "initialized"), []byte(time.Now().Format(time.RFC3339)), 0o600)
+	return os.WriteFile(
+		filepath.Join(string(s), "initialized"),
+		[]byte(time.Now().Format(time.RFC3339)),
+		0o600,
+	)
 }
 
 // DraftPath is where a dry-run or held review for k is written.

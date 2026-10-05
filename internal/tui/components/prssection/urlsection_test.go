@@ -15,7 +15,11 @@ func TestFetchUrlSectionUsesPerPRFetch(t *testing.T) {
 	orig := fetchPullRequestByURL
 	fetchPullRequestByURL = func(url string) (data.EnrichedPullRequestData, error) {
 		fetched = append(fetched, url)
-		return data.EnrichedPullRequestData{Url: url, Title: "omnibump: support gradle force", Number: 88}, nil
+		return data.EnrichedPullRequestData{
+			Url:    url,
+			Title:  "omnibump: support gradle force",
+			Number: 88,
+		}, nil
 	}
 	t.Cleanup(func() { fetchPullRequestByURL = orig })
 

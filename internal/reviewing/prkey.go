@@ -26,7 +26,9 @@ type PRKey struct {
 
 func (k PRKey) String() string        { return fmt.Sprintf("%s/%s#%d", k.Owner, k.Repo, k.Number) }
 func (k PRKey) NameWithOwner() string { return k.Owner + "/" + k.Repo }
-func (k PRKey) FileName() string      { return fmt.Sprintf("%s__%s__%d", k.Owner, k.Repo, k.Number) }
+
+func (k PRKey) FileName() string { return fmt.Sprintf("%s__%s__%d", k.Owner, k.Repo, k.Number) }
+
 func (k PRKey) URL() string {
 	return fmt.Sprintf("https://github.com/%s/%s/pull/%d", k.Owner, k.Repo, k.Number)
 }
@@ -48,7 +50,10 @@ func ParsePRRef(s string) (PRKey, error) {
 		m = urlRef.FindStringSubmatch(s)
 	}
 	if m == nil {
-		return PRKey{}, fmt.Errorf("not a PR reference: %q (want owner/repo#N or a github.com PR URL)", s)
+		return PRKey{}, fmt.Errorf(
+			"not a PR reference: %q (want owner/repo#N or a github.com PR URL)",
+			s,
+		)
 	}
 	n, err := strconv.Atoi(m[3])
 	if err != nil || n <= 0 {

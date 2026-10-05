@@ -12,7 +12,10 @@ var t0 = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 func TestActivityDigestIgnoresOwnActivity(t *testing.T) {
 	ignore := map[string]bool{"kbsteere": true}
 	before := []Event{{At: t0, Kind: "c", Login: "dnegreira"}}
-	after := append(append([]Event{}, before...), Event{At: t0.Add(time.Minute), Kind: "r", Login: "kbsteere"})
+	after := append(
+		append([]Event{}, before...),
+		Event{At: t0.Add(time.Minute), Kind: "r", Login: "kbsteere"},
+	)
 	assert.Equal(t, ActivityDigest(before, nil, ignore), ActivityDigest(after, nil, ignore))
 }
 
@@ -34,10 +37,30 @@ func TestActivityDigestChangesOnForeignEventAndResolution(t *testing.T) {
 	base := []Event{{At: t0, Kind: "c", Login: "dnegreira"}}
 	d0 := ActivityDigest(base, nil, ignore)
 	assert.Len(t, d0, 12)
-	assert.NotEqual(t, d0, ActivityDigest(append(append([]Event{}, base...), Event{At: t0.Add(time.Minute), Kind: "t", Login: "powersj"}), nil, ignore))
+	assert.NotEqual(
+		t,
+		d0,
+		ActivityDigest(
+			append(
+				append([]Event{}, base...),
+				Event{At: t0.Add(time.Minute), Kind: "t", Login: "powersj"},
+			),
+			nil,
+			ignore,
+		),
+	)
 	assert.NotEqual(t, d0, ActivityDigest(base, []string{"dnegreira"}, ignore))
-	assert.Equal(t, d0, ActivityDigest(base, []string{"kbsteere"}, ignore), "our own resolutions are ignored")
-	assert.Equal(t, ActivityDigest(nil, nil, ignore), ActivityDigest([]Event{{At: t0, Kind: "c", Login: "kbsteere"}}, nil, ignore))
+	assert.Equal(
+		t,
+		d0,
+		ActivityDigest(base, []string{"kbsteere"}, ignore),
+		"our own resolutions are ignored",
+	)
+	assert.Equal(
+		t,
+		ActivityDigest(nil, nil, ignore),
+		ActivityDigest([]Event{{At: t0, Kind: "c", Login: "kbsteere"}}, nil, ignore),
+	)
 }
 
 func TestNeedsReview(t *testing.T) {
@@ -67,7 +90,11 @@ func TestNeedsReview(t *testing.T) {
 	})
 	t.Run("foreign activity", func(t *testing.T) {
 		st := &PRState{ReviewedSig: &sig}
-		assert.Equal(t, TriggerChange, NeedsReview(st, Signature{Head: "h1", Digest: "d2", CI: "SUCCESS"}, t0))
+		assert.Equal(
+			t,
+			TriggerChange,
+			NeedsReview(st, Signature{Head: "h1", Digest: "d2", CI: "SUCCESS"}, t0),
+		)
 	})
 	t.Run("ci wake only when parked on ci, stable, and cooled down", func(t *testing.T) {
 		reviewed := Signature{Head: "h1", Digest: "d1", CI: "PENDING"}
@@ -94,7 +121,11 @@ func TestNeedsReview(t *testing.T) {
 		st := &PRState{ReviewedSig: &reviewed, Status: StatusWaitingOnCI}
 		ObserveCI(st, "PENDING")
 		ObserveCI(st, "PENDING")
-		assert.Equal(t, TriggerNone, NeedsReview(st, Signature{Head: "h1", Digest: "d1", CI: "PENDING"}, t0))
+		assert.Equal(
+			t,
+			TriggerNone,
+			NeedsReview(st, Signature{Head: "h1", Digest: "d1", CI: "PENDING"}, t0),
+		)
 	})
 	t.Run("ci flapping resets stability", func(t *testing.T) {
 		reviewed := Signature{Head: "h1", Digest: "d1", CI: "PENDING"}
@@ -102,6 +133,10 @@ func TestNeedsReview(t *testing.T) {
 		ObserveCI(st, "FAILURE")
 		ObserveCI(st, "PENDING")
 		ObserveCI(st, "FAILURE")
-		assert.Equal(t, TriggerNone, NeedsReview(st, Signature{Head: "h1", Digest: "d1", CI: "FAILURE"}, t0))
+		assert.Equal(
+			t,
+			TriggerNone,
+			NeedsReview(st, Signature{Head: "h1", Digest: "d1", CI: "FAILURE"}, t0),
+		)
 	})
 }

@@ -58,7 +58,13 @@ func renderWatchBlock(st reviewing.PRState, width int) string {
 		b.WriteString(" · added by hand")
 	}
 	if r := st.LastRun; r != nil {
-		fmt.Fprintf(&b, " · last run %d turns · $%.2f · session %s", r.Turns, r.CostUSD, clean(r.SessionID))
+		fmt.Fprintf(
+			&b,
+			" · last run %d turns · $%.2f · session %s",
+			r.Turns,
+			r.CostUSD,
+			clean(r.SessionID),
+		)
 	}
 	b.WriteString("\n")
 	if st.Note != "" {
@@ -89,7 +95,11 @@ func renderWatchBlock(st reviewing.PRState, width int) string {
 		}
 	}
 	if st.HeldDraft != "" {
-		fmt.Fprintf(&b, "\nHeld review: %s\nEdit it if needed, then press S to send it.\n", clean(st.HeldDraft))
+		fmt.Fprintf(
+			&b,
+			"\nHeld review: %s\nEdit it if needed, then press S to send it.\n",
+			clean(st.HeldDraft),
+		)
 	}
 	return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(b.String())
 }

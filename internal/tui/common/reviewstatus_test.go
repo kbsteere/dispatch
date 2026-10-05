@@ -11,7 +11,11 @@ import (
 
 func TestReviewStatusGlyph(t *testing.T) {
 	assert.Equal(t, constants.SuccessIcon, ReviewStatusGlyph(reviewing.StatusApproved))
-	assert.Equal(t, constants.ChangesRequestedIcon, ReviewStatusGlyph(reviewing.StatusChangesRequested))
+	assert.Equal(
+		t,
+		constants.ChangesRequestedIcon,
+		ReviewStatusGlyph(reviewing.StatusChangesRequested),
+	)
 	assert.Equal(t, constants.ActionRequiredIcon, ReviewStatusGlyph(reviewing.StatusNeedsAttention))
 	assert.Equal(t, constants.FailureIcon, ReviewStatusGlyph(reviewing.StatusFailed))
 	assert.Equal(t, "", ReviewStatusGlyph(reviewing.StatusBaseline), "baselined PRs show nothing")

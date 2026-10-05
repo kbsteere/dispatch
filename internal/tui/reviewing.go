@@ -48,8 +48,12 @@ func newReviewers(cfg *config.Config) reviewers {
 	var out reviewers
 	for _, w := range cfg.ReviewingFor.Watches {
 		e, err := reviewing.NewEngine(reviewing.Deps{
-			Watch: w, Limits: cfg.ReviewingFor.LimitsFor(w), StateRoot: reviewing.DefaultStateRoot(),
-			GitHub: reviewing.DefaultGitHub(), LookupPath: lookup, ContextDirs: contextDirs(cfg.RepoPaths),
+			Watch:       w,
+			Limits:      cfg.ReviewingFor.LimitsFor(w),
+			StateRoot:   reviewing.DefaultStateRoot(),
+			GitHub:      reviewing.DefaultGitHub(),
+			LookupPath:  lookup,
+			ContextDirs: contextDirs(cfg.RepoPaths),
 		})
 		if err != nil {
 			log.Error("opening review watch", "watch", w.Name, "err", err)
@@ -161,19 +165,43 @@ func footerText(statuses []reviewing.WatchStatus) string {
 		if s.Paused != "" {
 			state = "paused: " + s.Paused
 		}
-		parts = append(parts, fmt.Sprintf("%s · %d reviewing · $%.2f today · %s", s.Name, s.InFlight, s.SpentToday, state))
+		parts = append(
+			parts,
+			fmt.Sprintf(
+				"%s · %d reviewing · $%.2f today · %s",
+				s.Name,
+				s.InFlight,
+				s.SpentToday,
+				state,
+			),
+		)
 	}
 	return strings.Join(parts, " │ ")
 }
 
 // ReviewingSections are the PR sections for each watch: its search, plus a
 // section listing PRs added by hand when there are any.
-func ReviewingSections(cfg config.ReviewingForConfig, pinned map[string][]string) []config.PrsSectionConfig {
+func ReviewingSections(
+	cfg config.ReviewingForConfig,
+	pinned map[string][]string,
+) []config.PrsSectionConfig {
 	var out []config.PrsSectionConfig
 	for _, w := range cfg.Watches {
-		out = append(out, config.PrsSectionConfig{Title: reviewingSectionPrefix + w.Name, Filters: w.SearchFilter()})
+		out = append(
+			out,
+			config.PrsSectionConfig{
+				Title:   reviewingSectionPrefix + w.Name,
+				Filters: w.SearchFilter(),
+			},
+		)
 		if urls := pinned[w.Name]; len(urls) > 0 {
-			out = append(out, config.PrsSectionConfig{Title: reviewingSectionPrefix + w.Name + " · added", Urls: urls})
+			out = append(
+				out,
+				config.PrsSectionConfig{
+					Title: reviewingSectionPrefix + w.Name + " · added",
+					Urls:  urls,
+				},
+			)
 		}
 	}
 	return out
@@ -248,12 +276,22 @@ func (m *Model) toggleFollow(row data.RowData) tea.Cmd {
 			if err := e.Unpin(k); err != nil {
 				return reviewActionMsg{err: err}
 			}
-			return reviewActionMsg{note: fmt.Sprintf("Removed %s from %s", k, e.Name()), refresh: true}
+			return reviewActionMsg{
+				note:    fmt.Sprintf("Removed %s from %s", k, e.Name()),
+				refresh: true,
+			}
 		}
 		if err := e.Pin(context.Background(), k); err != nil {
 			return reviewActionMsg{err: err}
 		}
-		return reviewActionMsg{note: fmt.Sprintf("Added %s to %s; it will be reviewed on the next poll", k, e.Name()), refresh: true}
+		return reviewActionMsg{
+			note: fmt.Sprintf(
+				"Added %s to %s; it will be reviewed on the next poll",
+				k,
+				e.Name(),
+			),
+			refresh: true,
+		}
 	}
 }
 
@@ -271,7 +309,14 @@ func (m *Model) addRef(ref string) tea.Cmd {
 		if err := e.Pin(context.Background(), k); err != nil {
 			return reviewActionMsg{err: err}
 		}
-		return reviewActionMsg{note: fmt.Sprintf("Added %s to %s; it will be reviewed on the next poll", k, e.Name()), refresh: true}
+		return reviewActionMsg{
+			note: fmt.Sprintf(
+				"Added %s to %s; it will be reviewed on the next poll",
+				k,
+				e.Name(),
+			),
+			refresh: true,
+		}
 	}
 }
 
@@ -324,7 +369,9 @@ func (m *Model) reviewNow(row data.RowData) tea.Cmd {
 	e := m.engineFor(k)
 	if e == nil {
 		return func() tea.Msg {
-			return reviewActionMsg{err: fmt.Errorf("%s is not in a review watch; press f to add it", k)}
+			return reviewActionMsg{
+				err: fmt.Errorf("%s is not in a review watch; press f to add it", k),
+			}
 		}
 	}
 	if err := e.Force(k); err != nil {

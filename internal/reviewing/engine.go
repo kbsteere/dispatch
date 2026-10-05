@@ -92,7 +92,13 @@ func NewEngine(d Deps) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{d: d, store: store, inflight: map[PRKey]*Run{}, claimed: map[PRKey]bool{}, pools: map[string]*Pool{}}
+	e := &Engine{
+		d:        d,
+		store:    store,
+		inflight: map[PRKey]*Run{},
+		claimed:  map[PRKey]bool{},
+		pools:    map[string]*Pool{},
+	}
 	unlock, err := store.Lock()
 	if errors.Is(err, ErrLocked) {
 		e.readOnly = true
@@ -235,7 +241,14 @@ func (e *Engine) Status() WatchStatus {
 	if e.readOnly {
 		paused = "read-only"
 	}
-	return WatchStatus{Name: e.d.Watch.Name, InFlight: len(e.claimed), SpentToday: e.store.Spend(Day(e.d.Now())), Mode: mode, Paused: paused, Err: e.lastErr}
+	return WatchStatus{
+		Name:       e.d.Watch.Name,
+		InFlight:   len(e.claimed),
+		SpentToday: e.store.Spend(Day(e.d.Now())),
+		Mode:       mode,
+		Paused:     paused,
+		Err:        e.lastErr,
+	}
 }
 
 // States returns every PR the watch knows about.
@@ -326,7 +339,12 @@ func (e *Engine) signature(ctx context.Context, d PRDetail, viewer string) Signa
 	}
 	events, resolved := d.Events()
 	req, _ := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef)
-	return Signature{Head: d.HeadOID, Draft: d.IsDraft, Digest: ActivityDigest(events, resolved, ignore), CI: RequiredState(d.Checks, req)}
+	return Signature{
+		Head:   d.HeadOID,
+		Draft:  d.IsDraft,
+		Digest: ActivityDigest(events, resolved, ignore),
+		CI:     RequiredState(d.Checks, req),
+	}
 }
 
 // needsDetail reports whether a PR must be re-read even though its
@@ -435,7 +453,13 @@ func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
 
 // evaluate records what a poll saw for one PR and claims a pass when one
 // is due.
-func (e *Engine) evaluate(ctx context.Context, d PRDetail, viewer string, now time.Time, initialized bool) (Job, bool) {
+func (e *Engine) evaluate(
+	ctx context.Context,
+	d PRDetail,
+	viewer string,
+	now time.Time,
+	initialized bool,
+) (Job, bool) {
 	lim := e.d.Limits
 	sig := e.signature(ctx, d, viewer)
 
@@ -478,7 +502,14 @@ func (e *Engine) evaluate(ctx context.Context, d PRDetail, viewer string, now ti
 }
 
 // claimLocked decides whether to claim a pass. e.mu must be held.
-func (e *Engine) claimLocked(st *PRState, d PRDetail, sig Signature, now time.Time, initialized bool, lim config.ReviewingLimits) (Job, bool) {
+func (e *Engine) claimLocked(
+	st *PRState,
+	d PRDetail,
+	sig Signature,
+	now time.Time,
+	initialized bool,
+	lim config.ReviewingLimits,
+) (Job, bool) {
 	if claimLive(*st, now) {
 		return Job{}, false
 	}
@@ -527,7 +558,8 @@ func (e *Engine) claimLocked(st *PRState, d PRDetail, sig Signature, now time.Ti
 // file, so nothing is reposted.
 func rebuildFromMarkers(st *PRState, d PRDetail, viewer string, sig Signature) {
 	for _, t := range d.Threads {
-		if len(t.Comments) == 0 || t.Comments[0].Author != viewer || !strings.Contains(t.Comments[0].Body, Marker) {
+		if len(t.Comments) == 0 || t.Comments[0].Author != viewer ||
+			!strings.Contains(t.Comments[0].Body, Marker) {
 			continue
 		}
 		st.OurThreads = append(st.OurThreads, t.ID)
@@ -536,8 +568,15 @@ func rebuildFromMarkers(st *PRState, d PRDetail, viewer string, sig Signature) {
 			status = FindingAddressed
 		}
 		st.Ledger = append(st.Ledger, Finding{
-			ID: nextFindingID(st.Ledger), ThreadID: t.ID, Path: t.Path, Line: t.Line, Blocking: true,
-			Summary: summarize(t.Comments[0].Body), Status: status,
+			ID: nextFindingID(
+				st.Ledger,
+			),
+			ThreadID: t.ID,
+			Path:     t.Path,
+			Line:     t.Line,
+			Blocking: true,
+			Summary:  summarize(t.Comments[0].Body),
+			Status:   status,
 		})
 	}
 	st.ReviewedSig = &sig

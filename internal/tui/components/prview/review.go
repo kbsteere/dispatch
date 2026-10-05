@@ -34,13 +34,24 @@ type PrReviewMsg struct {
 // approve commands the allowlist would deny. The prompt goes over stdin.
 func manualReviewArgs() []string {
 	return []string{
-		"-p", "--output-format", "json",
-		"--setting-sources", "local",
-		"--tools", "Read,Grep,Glob,Bash",
-		"--permission-mode", "dontAsk",
+		"-p",
+		"--output-format",
+		"json",
+		"--setting-sources",
+		"local",
+		"--tools",
+		"Read,Grep,Glob,Bash",
+		"--permission-mode",
+		"dontAsk",
 		"--allowedTools",
-		"Bash(git show:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git grep:*)", "Bash(git blame:*)",
-		"Bash(git ls-tree:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
+		"Bash(git show:*)",
+		"Bash(git log:*)",
+		"Bash(git diff:*)",
+		"Bash(git grep:*)",
+		"Bash(git blame:*)",
+		"Bash(git ls-tree:*)",
+		"Bash(gh pr view:*)",
+		"Bash(gh pr diff:*)",
 	}
 }
 

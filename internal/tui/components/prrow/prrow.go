@@ -73,7 +73,8 @@ func (pr *PullRequest) renderState() string {
 	mergeCellStyle := lipgloss.NewStyle()
 
 	if pr.Data.Primary == nil {
-		return mergeCellStyle.Foreground(pr.Ctx.Theme.SuccessText).Render(constants.BranchDeletedIcon)
+		return mergeCellStyle.Foreground(pr.Ctx.Theme.SuccessText).
+			Render(constants.BranchDeletedIcon)
 	}
 
 	switch pr.Data.Primary.State {

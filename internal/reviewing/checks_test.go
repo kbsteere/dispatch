@@ -7,7 +7,14 @@ import (
 )
 
 func checkRun(name, status, conclusion string, app int, required bool) CheckNode {
-	return CheckNode{Typename: "CheckRun", Name: name, Status: status, Conclusion: conclusion, AppID: app, IsRequired: required}
+	return CheckNode{
+		Typename:   "CheckRun",
+		Name:       name,
+		Status:     status,
+		Conclusion: conclusion,
+		AppID:      app,
+		IsRequired: required,
+	}
 }
 
 func TestRequiredState(t *testing.T) {
@@ -17,12 +24,42 @@ func TestRequiredState(t *testing.T) {
 		req   RequiredContexts
 		want  string
 	}{
-		{"no required checks", []CheckNode{checkRun("lint", "COMPLETED", "FAILURE", 1, false)}, nil, "SUCCESS"},
-		{"required success", []CheckNode{checkRun("build", "COMPLETED", "SUCCESS", 1, true)}, nil, "SUCCESS"},
-		{"required pending", []CheckNode{checkRun("build", "IN_PROGRESS", "", 1, true)}, nil, "PENDING"},
-		{"required failure", []CheckNode{checkRun("build", "COMPLETED", "FAILURE", 1, true)}, nil, "FAILURE"},
-		{"required cancelled", []CheckNode{checkRun("build", "COMPLETED", "CANCELLED", 1, true)}, nil, "FAILURE"},
-		{"skipped counts as pass", []CheckNode{checkRun("build", "COMPLETED", "SKIPPED", 1, true)}, nil, "SUCCESS"},
+		{
+			"no required checks",
+			[]CheckNode{checkRun("lint", "COMPLETED", "FAILURE", 1, false)},
+			nil,
+			"SUCCESS",
+		},
+		{
+			"required success",
+			[]CheckNode{checkRun("build", "COMPLETED", "SUCCESS", 1, true)},
+			nil,
+			"SUCCESS",
+		},
+		{
+			"required pending",
+			[]CheckNode{checkRun("build", "IN_PROGRESS", "", 1, true)},
+			nil,
+			"PENDING",
+		},
+		{
+			"required failure",
+			[]CheckNode{checkRun("build", "COMPLETED", "FAILURE", 1, true)},
+			nil,
+			"FAILURE",
+		},
+		{
+			"required cancelled",
+			[]CheckNode{checkRun("build", "COMPLETED", "CANCELLED", 1, true)},
+			nil,
+			"FAILURE",
+		},
+		{
+			"skipped counts as pass",
+			[]CheckNode{checkRun("build", "COMPLETED", "SKIPPED", 1, true)},
+			nil,
+			"SUCCESS",
+		},
 		{
 			// mono's check-go-complete is created after its shards finish;
 			// a required context missing from the head is pending.
@@ -45,25 +82,35 @@ func TestRequiredState(t *testing.T) {
 		},
 		{
 			"worst run wins among re-runs",
-			[]CheckNode{checkRun("build", "COMPLETED", "SUCCESS", 1, true), checkRun("build", "COMPLETED", "FAILURE", 1, true)},
+			[]CheckNode{
+				checkRun("build", "COMPLETED", "SUCCESS", 1, true),
+				checkRun("build", "COMPLETED", "FAILURE", 1, true),
+			},
 			nil,
 			"FAILURE",
 		},
 		{
 			"approval gate ignored",
-			[]CheckNode{checkRun("doc-approval", "COMPLETED", "FAILURE", 1, true), checkRun("build", "COMPLETED", "SUCCESS", 1, true)},
+			[]CheckNode{
+				checkRun("doc-approval", "COMPLETED", "FAILURE", 1, true),
+				checkRun("build", "COMPLETED", "SUCCESS", 1, true),
+			},
 			nil,
 			"SUCCESS",
 		},
 		{
 			"status context pending",
-			[]CheckNode{{Typename: "StatusContext", Name: "ci/legacy", State: "PENDING", IsRequired: true}},
+			[]CheckNode{
+				{Typename: "StatusContext", Name: "ci/legacy", State: "PENDING", IsRequired: true},
+			},
 			nil,
 			"PENDING",
 		},
 		{
 			"status context error is failure",
-			[]CheckNode{{Typename: "StatusContext", Name: "ci/legacy", State: "ERROR", IsRequired: true}},
+			[]CheckNode{
+				{Typename: "StatusContext", Name: "ci/legacy", State: "ERROR", IsRequired: true},
+			},
 			nil,
 			"FAILURE",
 		},

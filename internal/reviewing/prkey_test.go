@@ -14,8 +14,14 @@ func TestParsePRRef(t *testing.T) {
 		wantErr bool
 	}{
 		{in: "chainguard-dev/mono#62436", want: PRKey{"chainguard-dev", "mono", 62436}},
-		{in: "https://github.com/chainguard-dev/stereo/pull/1234", want: PRKey{"chainguard-dev", "stereo", 1234}},
-		{in: "https://github.com/chainguard-dev/omnibump/pull/88/files", want: PRKey{"chainguard-dev", "omnibump", 88}},
+		{
+			in:   "https://github.com/chainguard-dev/stereo/pull/1234",
+			want: PRKey{"chainguard-dev", "stereo", 1234},
+		},
+		{
+			in:   "https://github.com/chainguard-dev/omnibump/pull/88/files",
+			want: PRKey{"chainguard-dev", "omnibump", 88},
+		},
 		{in: "  chainguard-dev/mono#7 ", want: PRKey{"chainguard-dev", "mono", 7}},
 		{in: "chainguard-dev/mono", wantErr: true},
 		{in: "chainguard-dev/mono#0", wantErr: true},

@@ -23,7 +23,9 @@ var gitReadCmds = []string{"show", "log", "diff", "grep", "blame", "ls-tree"}
 var (
 	// safeDirRe limits directories that are embedded in permission rules.
 	safeDirRe   = regexp.MustCompile(`^/[A-Za-z0-9_./-]+$`)
-	sessionIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	sessionIDRe = regexp.MustCompile(
+		`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+	)
 )
 
 // GitAllowRules returns the Bash permission rules that let the agent run

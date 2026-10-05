@@ -13,7 +13,9 @@ func ReviewStatusGlyph(s reviewing.Status) string {
 		return constants.SuccessIcon
 	case reviewing.StatusChangesRequested:
 		return constants.ChangesRequestedIcon
-	case reviewing.StatusWaitingOnAuthor, reviewing.StatusWaitingOnCI, reviewing.StatusWaitingOnOthers:
+	case reviewing.StatusWaitingOnAuthor,
+		reviewing.StatusWaitingOnCI,
+		reviewing.StatusWaitingOnOthers:
 		return constants.WaitingIcon
 	case reviewing.StatusNeedsAttention:
 		return constants.ActionRequiredIcon

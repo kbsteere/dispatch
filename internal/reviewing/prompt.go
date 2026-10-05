@@ -62,12 +62,31 @@ func untrusted(s string) string {
 func BuildPrompt(in PromptInput) string {
 	var b strings.Builder
 	b.WriteString(reviewerInstructions)
-	fmt.Fprintf(&b, "\n\n## This pass\n\npr: %s\npass: %s\nauthor: %s\nreviewer (you act for): %s\n", in.Detail.Key, in.Pass, in.Detail.Author, in.Viewer)
-	fmt.Fprintf(&b, "worktree: %s\nhead: %s\nbase: %s\nmerge_base: %s\n", in.Worktree, in.Head, in.Base, in.MergeBase)
+	fmt.Fprintf(
+		&b,
+		"\n\n## This pass\n\npr: %s\npass: %s\nauthor: %s\nreviewer (you act for): %s\n",
+		in.Detail.Key,
+		in.Pass,
+		in.Detail.Author,
+		in.Viewer,
+	)
+	fmt.Fprintf(
+		&b,
+		"worktree: %s\nhead: %s\nbase: %s\nmerge_base: %s\n",
+		in.Worktree,
+		in.Head,
+		in.Base,
+		in.MergeBase,
+	)
 	fmt.Fprintf(&b, "full diff: git -C %s diff %s %s\n", in.Worktree, in.MergeBase, in.Head)
 	if in.Pass == PassIncremental && in.LastReviewed != "" {
-		fmt.Fprintf(&b, "since last review: git -C %s diff %s %s (if this fails, the branch was force-pushed: review the full diff instead)\n",
-			in.Worktree, in.LastReviewed, in.Head)
+		fmt.Fprintf(
+			&b,
+			"since last review: git -C %s diff %s %s (if this fails, the branch was force-pushed: review the full diff instead)\n",
+			in.Worktree,
+			in.LastReviewed,
+			in.Head,
+		)
 	}
 	if len(in.ContextDirs) > 0 {
 		b.WriteString("context repos:\n")
@@ -104,7 +123,17 @@ func BuildPrompt(in PromptInput) string {
 		b.WriteString("none\n")
 	}
 	for _, f := range in.Ledger {
-		fmt.Fprintf(&b, "- id=%s thread=%s %s:%d blocking=%t status=%s: %s\n", f.ID, f.ThreadID, f.Path, f.Line, f.Blocking, f.Status, f.Summary)
+		fmt.Fprintf(
+			&b,
+			"- id=%s thread=%s %s:%d blocking=%t status=%s: %s\n",
+			f.ID,
+			f.ThreadID,
+			f.Path,
+			f.Line,
+			f.Blocking,
+			f.Status,
+			f.Summary,
+		)
 	}
 
 	b.WriteString("\n## Pull request\n\ntitle:\n")
@@ -140,7 +169,12 @@ func BuildPrompt(in PromptInput) string {
 // LoadStandards reads CLAUDE.md and AGENTS.md at the base commit from the
 // repo root and from every ancestor directory of the changed files. An
 // AGENTS.md identical to its sibling CLAUDE.md is skipped.
-func LoadStandards(ctx context.Context, repo LocalRepo, baseOID string, files []string) []StandardFile {
+func LoadStandards(
+	ctx context.Context,
+	repo LocalRepo,
+	baseOID string,
+	files []string,
+) []StandardFile {
 	dirs := []string{""}
 	seen := map[string]bool{"": true}
 	for _, f := range files {

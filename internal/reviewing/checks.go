@@ -20,7 +20,11 @@ type RequiredContexts map[string][]int
 
 // ApprovalGates are required checks that pass only when specific people
 // approve. Waiting on them would deadlock dispatch's own approval.
-var ApprovalGates = map[string]bool{"doc-approval": true, "CODEOWNERS Approval": true, "codeowners-approval": true}
+var ApprovalGates = map[string]bool{
+	"doc-approval":        true,
+	"CODEOWNERS Approval": true,
+	"codeowners-approval": true,
+}
 
 var bucketRank = map[string]int{"pass": 0, "skipping": 1, "pending": 2, "cancel": 3, "fail": 4}
 

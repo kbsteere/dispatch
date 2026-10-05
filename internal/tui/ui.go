@@ -832,7 +832,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case reviewDoneMsg:
 		if msg.out.Err != nil {
-			log.Error("review pass failed", "watch", msg.watch, "pr", msg.out.Key, "err", msg.out.Err)
+			log.Error(
+				"review pass failed",
+				"watch",
+				msg.watch,
+				"pr",
+				msg.out.Key,
+				"err",
+				msg.out.Err,
+			)
 		}
 		m.syncWatchState()
 		m.resyncPrSectionRows()

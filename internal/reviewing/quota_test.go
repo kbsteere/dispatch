@@ -17,11 +17,41 @@ func TestQuotaNext(t *testing.T) {
 		wantPaused string
 	}{
 		{"unknown quota uses base", Quota{}, base, ""},
-		{"healthy", Quota{Remaining: 4000, ResetAt: reset, HourStart: t0, UsedThisHour: 20}, base, ""},
-		{"low slows to 15m", Quota{Remaining: 1400, ResetAt: reset, HourStart: t0}, 15 * time.Minute, ""},
-		{"critical pauses until reset", Quota{Remaining: 400, ResetAt: reset, HourStart: t0}, 40 * time.Minute, "github quota"},
-		{"critical with past reset waits a minute", Quota{Remaining: 400, ResetAt: t0.Add(-time.Minute), HourStart: t0}, time.Minute, "github quota"},
-		{"own hourly cap pauses until hour rolls", Quota{Remaining: 4000, ResetAt: reset, HourStart: t0.Add(-30 * time.Minute), UsedThisHour: 300}, 30 * time.Minute, "github quota"},
+		{
+			"healthy",
+			Quota{Remaining: 4000, ResetAt: reset, HourStart: t0, UsedThisHour: 20},
+			base,
+			"",
+		},
+		{
+			"low slows to 15m",
+			Quota{Remaining: 1400, ResetAt: reset, HourStart: t0},
+			15 * time.Minute,
+			"",
+		},
+		{
+			"critical pauses until reset",
+			Quota{Remaining: 400, ResetAt: reset, HourStart: t0},
+			40 * time.Minute,
+			"github quota",
+		},
+		{
+			"critical with past reset waits a minute",
+			Quota{Remaining: 400, ResetAt: t0.Add(-time.Minute), HourStart: t0},
+			time.Minute,
+			"github quota",
+		},
+		{
+			"own hourly cap pauses until hour rolls",
+			Quota{
+				Remaining:    4000,
+				ResetAt:      reset,
+				HourStart:    t0.Add(-30 * time.Minute),
+				UsedThisHour: 300,
+			},
+			30 * time.Minute,
+			"github quota",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

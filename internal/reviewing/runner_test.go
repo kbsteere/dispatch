@@ -22,8 +22,22 @@ func fakeClaudeBin(t *testing.T) string {
 }
 
 func fakeSpec(t *testing.T) RunSpec {
-	return RunSpec{Binary: fakeClaudeBin(t), SessionID: NewSessionID(), Prompt: "review this", Schema: ReviewSchema, CWD: t.TempDir(),
-		AddDirs: []string{"/wt/slot-0", "/home/u/Dev/cg/stereo"}, MaxTurns: 100, MaxBudgetUSD: 10, Timeout: 5 * time.Second}
+	return RunSpec{
+		Binary: fakeClaudeBin(
+			t,
+		),
+		SessionID: NewSessionID(),
+		Prompt:    "review this",
+		Schema:    ReviewSchema,
+		CWD:       t.TempDir(),
+		AddDirs: []string{
+			"/wt/slot-0",
+			"/home/u/Dev/cg/stereo",
+		},
+		MaxTurns:     100,
+		MaxBudgetUSD: 10,
+		Timeout:      5 * time.Second,
+	}
 }
 
 func TestBuildArgs(t *testing.T) {
@@ -119,7 +133,13 @@ func TestRunTimeoutKillsProcessGroup(t *testing.T) {
 	require.NoError(t, err)
 	child, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 	require.Positive(t, child)
-	require.Eventually(t, func() bool { return !alive(child) }, 2*time.Second, 50*time.Millisecond, "child sleep must die with the group")
+	require.Eventually(
+		t,
+		func() bool { return !alive(child) },
+		2*time.Second,
+		50*time.Millisecond,
+		"child sleep must die with the group",
+	)
 }
 
 func TestRunKill(t *testing.T) {
@@ -128,7 +148,12 @@ func TestRunKill(t *testing.T) {
 	t.Setenv("FAKE_CLAUDE_CHILD", childFile)
 	r, err := Start(context.Background(), fakeSpec(t))
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { b, _ := os.ReadFile(childFile); return len(b) > 0 }, 2*time.Second, 20*time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool { b, _ := os.ReadFile(childFile); return len(b) > 0 },
+		2*time.Second,
+		20*time.Millisecond,
+	)
 	pid := r.PID()
 	r.Kill()
 	r.Kill()
