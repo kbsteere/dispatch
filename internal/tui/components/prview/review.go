@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,8 +30,8 @@ type PrReviewMsg struct {
 }
 
 // resolveReviewDir picks the working directory for the claude subprocess:
-// the repo's configured local path when available, the home directory
-// otherwise. Home-relative paths and glob entries are resolved.
+// the repo's configured local checkout when available, the home directory
+// otherwise. Bare repos resolve to their main worktree.
 func resolveReviewDir(repoName string, repoPaths map[string]string) string {
 	home, _ := os.UserHomeDir()
 
@@ -40,20 +39,11 @@ func resolveReviewDir(repoName string, repoPaths map[string]string) string {
 	if !ok {
 		return home
 	}
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
-	}
-	if strings.ContainsAny(path, "*?[") {
-		matches, err := filepath.Glob(path)
-		if err != nil || len(matches) == 0 {
-			return home
-		}
-		path = matches[0]
-	}
-	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+	repo, err := reviewing.ResolveLocalRepo(path)
+	if err != nil || repo.Browse == "" {
 		return home
 	}
-	return filepath.Clean(path)
+	return repo.Browse
 }
 
 func (m *Model) currReview() *context.ClaudeReview {
