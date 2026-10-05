@@ -1,6 +1,7 @@
 package prview
 
 import (
+	"cmp"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -106,6 +107,59 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 		)
 	}
 	return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(b.String())
+}
+
+var draftEvents = map[string]string{
+	"APPROVE":         "Approve",
+	"REQUEST_CHANGES": "Request changes",
+	"COMMENT":         "Comment",
+}
+
+// renderDraft shows the review dispatch would post for a watched PR: a held
+// review, or a dry run's draft. Everything in it came from a model, so it
+// is sanitised before display.
+func renderDraft(d reviewing.Draft, held bool, width int) string {
+	clean := reviewing.SanitizeTerminal
+	line := lipgloss.NewStyle().Width(width).MaxWidth(width)
+	body := line.PaddingLeft(2)
+
+	title := "Draft review (dry run)"
+	if held {
+		title = "Held review"
+	}
+	event := cmp.Or(draftEvents[d.Event], "No review")
+	if len(d.Comments) == 0 && d.Event != "" {
+		event += ", no comments"
+	}
+	parts := []string{line.Render(title + ": " + event)}
+	for _, c := range d.Comments {
+		parts = append(parts,
+			line.Render(fmt.Sprintf("%s:%d", clean(c.Path), c.Line)),
+			body.Render(clean(c.Body)))
+	}
+	for _, r := range d.Replies {
+		parts = append(parts,
+			line.Render("Reply on an earlier thread:"),
+			body.Render(clean(r.Body)))
+	}
+	if n := len(d.Resolve); n > 0 {
+		parts = append(parts, line.Render(fmt.Sprintf("Resolves %d %s", n, plural(n, "thread"))))
+	}
+	if len(d.Unanchored) > 0 {
+		parts = append(parts, line.Render("Not posted (no changed line to attach to):"))
+		for _, f := range d.Unanchored {
+			parts = append(parts,
+				line.Render(fmt.Sprintf("- %s: %s", clean(f.Path), clean(f.Body))))
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 // retryLine says when a failed or throttled PR is retried on its own.

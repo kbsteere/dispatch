@@ -514,3 +514,37 @@ func TestStartupReleasesStaleClaims(t *testing.T) {
 	assert.Nil(t, st.Claim)
 	assert.Equal(t, StatusFailed, st.Status, "retried on the next poll")
 }
+
+func TestDraftFor(t *testing.T) {
+	now := time.Date(2026, 10, 5, 16, 0, 0, 0, time.UTC)
+	e := newTestEngine(t, &fakeGitHub{}, &now)
+	k := PRKey{"chainguard-dev", "stereo", 367322}
+	approve := Draft{Event: "APPROVE", Head: "d5dcdad"}
+	require.NoError(t, writeDraft(e.store.DraftPath(k, now), approve))
+	st := PRState{Key: k, ReviewedSig: &Signature{Head: "d5dcdad"}}
+
+	_, ok := e.DraftFor(st)
+	assert.False(t, ok, "a live watch shows no dry-run drafts")
+
+	e.d.Watch.DryRun = true
+	d, ok := e.DraftFor(st)
+	require.True(t, ok)
+	assert.Equal(t, approve, d)
+
+	st.ReviewedSig.Head = "e0f1a2b"
+	_, ok = e.DraftFor(st)
+	assert.False(t, ok, "a draft for an older head is not shown")
+
+	held := Draft{Event: "COMMENT", Head: "e0f1a2b", Reasons: []string{"narrates verification"}}
+	st.HeldDraft = e.store.DraftPath(k, now.Add(time.Minute))
+	require.NoError(t, writeDraft(st.HeldDraft, held))
+	e.d.Watch.DryRun = false
+	d, ok = e.DraftFor(st)
+	require.True(t, ok)
+	assert.Equal(t, held, d, "a held review shows in any mode")
+
+	st.HeldDraft = filepath.Join(t.TempDir(), "x.json")
+	require.NoError(t, writeDraft(st.HeldDraft, held))
+	_, ok = e.DraftFor(st)
+	assert.False(t, ok, "a held path outside the drafts dir is not read")
+}

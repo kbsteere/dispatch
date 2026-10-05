@@ -629,13 +629,13 @@ func summarize(body string) string {
 	return s
 }
 
-// heldDraft is a pass's would-be GitHub writes, kept for dry runs and for
+// Draft is a pass's would-be GitHub writes, kept for dry runs and for
 // passes the tone lint held.
-type heldDraft struct {
+type Draft struct {
 	Event    string          `json:"event"`
 	Head     string          `json:"head"`
 	Comments []ReviewComment `json:"comments"`
-	Replies  []heldReply     `json:"replies,omitempty"`
+	Replies  []DraftReply    `json:"replies,omitempty"`
 	Resolve  []string        `json:"resolve,omitempty"`
 	Findings []Finding       `json:"findings,omitempty"`
 	Ledger   []LedgerUpdate  `json:"ledger,omitempty"`
@@ -645,18 +645,39 @@ type heldDraft struct {
 	Unanchored []OutFinding `json:"unanchored,omitempty"`
 }
 
-type heldReply struct {
+type DraftReply struct {
 	ThreadID  string `json:"thread_id"`
 	FindingID string `json:"finding_id"`
 	Body      string `json:"body"`
 }
 
-func writeDraft(path string, d heldDraft) error {
+func writeDraft(path string, d Draft) error {
 	return writeJSONAtomic(path, d)
 }
 
-func readDraft(path string) (heldDraft, error) {
-	var d heldDraft
+// DraftFor returns the review dispatch would post for st: its held review,
+// or in dry run the latest draft written for the head it last reviewed.
+func (e *Engine) DraftFor(st PRState) (Draft, bool) {
+	if st.HeldDraft != "" {
+		drafts := filepath.Join(string(e.store), "drafts") + string(filepath.Separator)
+		if !strings.HasPrefix(filepath.Clean(st.HeldDraft), drafts) {
+			return Draft{}, false
+		}
+		d, err := readDraft(st.HeldDraft)
+		return d, err == nil
+	}
+	if !e.d.Watch.DryRun || st.ReviewedSig == nil {
+		return Draft{}, false
+	}
+	d, ok := e.store.LatestDraft(st.Key)
+	if !ok || d.Head != st.ReviewedSig.Head {
+		return Draft{}, false
+	}
+	return d, true
+}
+
+func readDraft(path string) (Draft, error) {
+	var d Draft
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return d, err

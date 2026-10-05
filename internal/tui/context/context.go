@@ -62,6 +62,10 @@ type ProgramContext struct {
 	// WatchPRs is the reviewingFor state of watched PRs keyed by PR URL.
 	// It is replaced wholesale from the bubbletea update loop.
 	WatchPRs map[string]reviewing.PRState
+	// WatchDrafts is the review dispatch would post for a watched PR, keyed
+	// by PR URL: a held review, or a dry run's draft. It is replaced with
+	// WatchPRs.
+	WatchDrafts map[string]reviewing.Draft
 	// WatchFooter summarises the reviewingFor watches for the footer.
 	WatchFooter string
 }

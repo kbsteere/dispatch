@@ -191,17 +191,22 @@ func (r reviewers) statuses() []reviewing.WatchStatus {
 	return out
 }
 
-// watchPRs indexes every watched PR's state by URL.
-func (r reviewers) watchPRs() map[string]reviewing.PRState {
-	out := map[string]reviewing.PRState{}
+// watchPRs returns the active watched PRs and their drafts, keyed by PR URL.
+func (r reviewers) watchPRs() (map[string]reviewing.PRState, map[string]reviewing.Draft) {
+	prs := map[string]reviewing.PRState{}
+	drafts := map[string]reviewing.Draft{}
 	for _, e := range r {
 		for _, st := range e.States() {
-			if !st.Inactive {
-				out[st.Key.URL()] = st
+			if st.Inactive {
+				continue
+			}
+			prs[st.Key.URL()] = st
+			if d, ok := e.DraftFor(st); ok {
+				drafts[st.Key.URL()] = d
 			}
 		}
 	}
-	return out
+	return prs, drafts
 }
 
 func footerText(statuses []reviewing.WatchStatus) string {
@@ -229,7 +234,7 @@ func footerText(statuses []reviewing.WatchStatus) string {
 }
 
 func (m *Model) syncWatchState() {
-	m.ctx.WatchPRs = m.reviewers.watchPRs()
+	m.ctx.WatchPRs, m.ctx.WatchDrafts = m.reviewers.watchPRs()
 	m.ctx.WatchFooter = footerText(m.reviewers.statuses())
 	m.refreshReviewSections()
 }

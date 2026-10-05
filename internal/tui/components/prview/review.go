@@ -155,11 +155,12 @@ func (m *Model) renderReviewTab() string {
 	if !ok {
 		return manual
 	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		renderWatchBlock(st, m.getIndentedContentWidth(), time.Now()),
-		"",
-		manual,
-	)
+	width := m.getIndentedContentWidth()
+	blocks := []string{renderWatchBlock(st, width, time.Now()), ""}
+	if d, ok := m.ctx.WatchDrafts[st.Key.URL()]; ok {
+		blocks = append(blocks, renderDraft(d, st.HeldDraft != "", width), "")
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, append(blocks, manual)...)
 }
 
 func (m *Model) renderManualReview() string {

@@ -264,6 +264,39 @@ func (s Store) DraftPath(k PRKey, t time.Time) string {
 	return filepath.Join(string(s), "drafts", fmt.Sprintf("%s__%d.json", k.FileName(), t.Unix()))
 }
 
+// LatestDraft returns the most recently written draft for k. Files that
+// cannot be decoded are skipped.
+func (s Store) LatestDraft(k PRKey) (Draft, bool) {
+	if !ValidName(k.Owner) || !ValidName(k.Repo) || k.Number <= 0 {
+		return Draft{}, false
+	}
+	prefix := k.FileName() + "__"
+	paths, err := filepath.Glob(filepath.Join(string(s), "drafts", prefix+"*.json"))
+	if err != nil {
+		return Draft{}, false
+	}
+	type stamped struct {
+		path string
+		at   int64
+	}
+	found := make([]stamped, 0, len(paths))
+	for _, p := range paths {
+		ts := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), prefix), ".json")
+		at, err := strconv.ParseInt(ts, 10, 64)
+		if err != nil {
+			continue
+		}
+		found = append(found, stamped{p, at})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at > found[j].at })
+	for _, f := range found {
+		if d, err := readDraft(f.path); err == nil {
+			return d, true
+		}
+	}
+	return Draft{}, false
+}
+
 // Lock takes an exclusive, non-blocking lock on the watch. The returned
 // function releases it.
 func (s Store) Lock() (func(), error) {

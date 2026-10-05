@@ -143,3 +143,30 @@ func TestDraftPath(t *testing.T) {
 func TestDay(t *testing.T) {
 	assert.Equal(t, "2026-10-05", Day(time.Date(2026, 10, 5, 23, 0, 0, 0, time.Local)))
 }
+
+func TestLatestDraft(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), "sustaining-automation")
+	require.NoError(t, err)
+
+	_, ok := s.LatestDraft(monoKey)
+	assert.False(t, ok, "no drafts yet")
+
+	at := time.Date(2026, 10, 5, 16, 0, 0, 0, time.UTC)
+	require.NoError(t, writeDraft(s.DraftPath(monoKey, at), Draft{Event: "COMMENT", Head: "aaa"}))
+	require.NoError(t, writeDraft(
+		s.DraftPath(monoKey, at.Add(time.Hour)),
+		Draft{Event: "REQUEST_CHANGES", Head: "bbb"},
+	))
+	require.NoError(t, os.WriteFile(
+		s.DraftPath(monoKey, at.Add(2*time.Hour)), []byte("{not json"), 0o600,
+	))
+	other := PRKey{"chainguard-dev", "mono", 624360}
+	require.NoError(t, writeDraft(s.DraftPath(other, at.Add(3*time.Hour)), Draft{Head: "ccc"}))
+
+	d, ok := s.LatestDraft(monoKey)
+	require.True(t, ok)
+	assert.Equal(t, "bbb", d.Head, "the newest readable draft for this PR wins")
+
+	_, ok = s.LatestDraft(PRKey{"..", "mono", 62436})
+	assert.False(t, ok, "invalid keys are refused")
+}

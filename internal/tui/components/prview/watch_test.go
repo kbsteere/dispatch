@@ -103,3 +103,46 @@ func TestRenderWatchBlockRetry(t *testing.T) {
 	attention := reviewing.PRState{Status: reviewing.StatusNeedsAttention}
 	assert.NotContains(t, renderWatchBlock(attention, 200, now), "Retries")
 }
+
+func TestRenderDraft(t *testing.T) {
+	d := reviewing.Draft{
+		Event: "REQUEST_CHANGES",
+		Comments: []reviewing.ReviewComment{
+			{
+				Path: "bots/kev/main.go",
+				Line: 12,
+				Body: "This writes to a nil map when the feed is empty.\x1b[2J",
+			},
+		},
+		Replies: []reviewing.DraftReply{{Body: "The retry still drops the last page."}},
+		Resolve: []string{"PRRT_1", "PRRT_2"},
+		Unanchored: []reviewing.OutFinding{
+			{Path: "bots/kev/README.md", Body: "No test covers the empty feed."},
+		},
+	}
+	out := renderDraft(d, false, 200)
+	for _, want := range []string{
+		"Draft review (dry run): Request changes",
+		"bots/kev/main.go:12",
+		"  This writes to a nil map when the feed is empty.[2J",
+		"Reply on an earlier thread:",
+		"  The retry still drops the last page.",
+		"Resolves 2 threads",
+		"Not posted (no changed line to attach to):",
+		"- bots/kev/README.md: No test covers the empty feed.",
+	} {
+		assert.Contains(t, out, want)
+	}
+	assert.NotContains(t, out, "\x1b[2J")
+
+	assert.Contains(
+		t,
+		renderDraft(reviewing.Draft{Event: "APPROVE"}, false, 200),
+		"Draft review (dry run): Approve, no comments",
+	)
+	assert.Contains(
+		t,
+		renderDraft(reviewing.Draft{Event: "COMMENT", Comments: d.Comments}, true, 200),
+		"Held review: Comment",
+	)
+}

@@ -261,7 +261,7 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		ourThreads[t] = true
 	}
 
-	draft := heldDraft{Head: d.HeadOID}
+	draft := Draft{Head: d.HeadOID}
 	for _, f := range review.Findings {
 		if !files[f.Path] || f.Line <= 0 {
 			// A finding dispatch cannot anchor to a changed line is still a
@@ -309,7 +309,7 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		} else if strings.TrimSpace(u.Reply) != "" && !f.Replied {
 			draft.Replies = append(
 				draft.Replies,
-				heldReply{ThreadID: f.ThreadID, FindingID: f.ID, Body: u.Reply},
+				DraftReply{ThreadID: f.ThreadID, FindingID: f.ID, Body: u.Reply},
 			)
 		}
 	}
@@ -418,7 +418,7 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 
 // tallyFor applies a draft's ledger updates and new findings to the ledger
 // and counts what is outstanding.
-func tallyFor(ledger []Finding, draft heldDraft) (Tally, []Finding) {
+func tallyFor(ledger []Finding, draft Draft) (Tally, []Finding) {
 	next := slices.Clone(ledger)
 	for _, u := range draft.Ledger {
 		for i := range next {
@@ -466,7 +466,7 @@ func othersRequestChanges(reviews []Review, viewer string) bool {
 func (e *Engine) post(
 	ctx context.Context,
 	k PRKey,
-	draft heldDraft,
+	draft Draft,
 	ledger []Finding,
 ) ([]Finding, []string, error) {
 	for _, id := range draft.Resolve {
