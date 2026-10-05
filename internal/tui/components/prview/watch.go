@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -50,7 +51,7 @@ func (m *Model) currWatch() (reviewing.PRState, bool) {
 
 // renderWatchBlock summarises a watched PR's autonomous review state.
 // Everything that came from a PR or a model is sanitised before display.
-func renderWatchBlock(st reviewing.PRState, width int) string {
+func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 	clean := reviewing.SanitizeTerminal
 	var b strings.Builder
 	fmt.Fprintf(&b, "Watch: %s", common.ReviewStatusWord(st.Status))
@@ -67,6 +68,9 @@ func renderWatchBlock(st reviewing.PRState, width int) string {
 		)
 	}
 	b.WriteString("\n")
+	if st.Status == reviewing.StatusFailed || st.Status == reviewing.StatusThrottled {
+		b.WriteString(retryLine(st.Backoff.Until, now))
+	}
 	if st.Note != "" {
 		fmt.Fprintf(&b, "Note: %s\n", clean(st.Note))
 	}
@@ -102,6 +106,26 @@ func renderWatchBlock(st reviewing.PRState, width int) string {
 		)
 	}
 	return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(b.String())
+}
+
+// retryLine says when a failed or throttled PR is retried on its own.
+func retryLine(until, now time.Time) string {
+	if d := until.Sub(now); d > 0 {
+		return fmt.Sprintf("Retries in %s · press N to retry now\n", roughDuration(d))
+	}
+	return "Retries on the next poll · press N to retry now\n"
+}
+
+// roughDuration renders a wait as minutes, hours, or days.
+func roughDuration(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", max(1, int(d.Round(time.Minute).Minutes())))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Round(time.Hour).Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Round(24*time.Hour).Hours()/24))
+	}
 }
 
 // watchSessionCmd resumes the last autonomous review session for the PR.

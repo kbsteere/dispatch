@@ -156,7 +156,7 @@ func (m *Model) renderReviewTab() string {
 		return manual
 	}
 	return lipgloss.JoinVertical(lipgloss.Left,
-		renderWatchBlock(st, m.getIndentedContentWidth()),
+		renderWatchBlock(st, m.getIndentedContentWidth(), time.Now()),
 		"",
 		manual,
 	)

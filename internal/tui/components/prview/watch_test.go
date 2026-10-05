@@ -3,8 +3,10 @@ package prview
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 )
@@ -42,7 +44,7 @@ func TestRenderWatchBlock(t *testing.T) {
 		},
 		HeldDraft: "/state/drafts/x.json",
 	}
-	out := renderWatchBlock(st, 200)
+	out := renderWatchBlock(st, 200, time.Now())
 
 	assert.NotContains(t, out, "\x1b[2J", "terminal escapes from model output are stripped")
 	assert.NotContains(t, out, "\x07")
@@ -61,8 +63,43 @@ func TestRenderWatchBlock(t *testing.T) {
 }
 
 func TestRenderWatchBlockMinimal(t *testing.T) {
-	out := renderWatchBlock(reviewing.PRState{Status: reviewing.StatusBaseline}, 80)
+	out := renderWatchBlock(reviewing.PRState{Status: reviewing.StatusBaseline}, 80, time.Now())
 	assert.Contains(t, out, "Watch: baseline (not reviewed)")
 	assert.NotContains(t, out, "Outstanding")
 	assert.NotContains(t, out, "Held review")
+}
+
+func TestRenderWatchBlockRetry(t *testing.T) {
+	now := time.Date(2026, 10, 5, 16, 33, 0, 0, time.UTC)
+	failed := reviewing.PRState{
+		Status:  reviewing.StatusFailed,
+		Note:    "preparing chainguard-dev/mono#66155: fatal: couldn't find remote ref refs/pull/66155/head",
+		Backoff: reviewing.Backoff{Until: now.Add(13 * time.Minute), Step: 1},
+	}
+	lines := strings.Split(renderWatchBlock(failed, 200, now), "\n")
+	require.GreaterOrEqual(t, len(lines), 3)
+	assert.Equal(t, "Watch: failed", strings.TrimSpace(lines[0]))
+	assert.Equal(
+		t,
+		"Retries in 13m · press N to retry now",
+		strings.TrimSpace(lines[1]),
+		"shown right under the status",
+	)
+	assert.True(
+		t,
+		strings.HasPrefix(strings.TrimSpace(lines[2]), "Note: preparing chainguard-dev/mono#66155"),
+	)
+
+	failed.Backoff.Until = now.Add(2 * time.Hour)
+	assert.Contains(t, renderWatchBlock(failed, 200, now), "Retries in 2h")
+
+	failed.Backoff.Until = now.Add(-time.Minute)
+	assert.Contains(
+		t,
+		renderWatchBlock(failed, 200, now),
+		"Retries on the next poll · press N to retry now",
+	)
+
+	attention := reviewing.PRState{Status: reviewing.StatusNeedsAttention}
+	assert.NotContains(t, renderWatchBlock(attention, 200, now), "Retries")
 }

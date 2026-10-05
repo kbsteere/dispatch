@@ -112,6 +112,13 @@ func (m *Model) GetCurrRow() data.RowData {
 	}
 	d := PRData(m.states[i])
 	if e, ok := m.enriched[d.Primary.Url]; ok {
+		// The fetched PR carries what the sidebar header shows (author
+		// role, dates, branches) that local state does not.
+		pd := e.ToPullRequestData()
+		if pd.Repository.NameWithOwner == "" {
+			pd.Repository = d.Primary.Repository
+		}
+		d.Primary = &pd
 		d.Enriched, d.IsEnriched = e, true
 	}
 	return d

@@ -194,7 +194,7 @@ func trimFloat(f float64) string {
 // PRData is the minimal PR row the sidebar needs; selecting it fetches the
 // full PR.
 func PRData(s reviewing.PRState) *prrow.Data {
-	return &prrow.Data{Primary: &data.PullRequestData{
+	pr := &data.PullRequestData{
 		Url:    s.Key.URL(),
 		Number: s.Key.Number,
 		Title:  reviewing.SanitizeTerminal(s.Title),
@@ -204,5 +204,7 @@ func PRData(s reviewing.PRState) *prrow.Data {
 			Owner:         data.Owner{Login: s.Key.Owner},
 		},
 		UpdatedAt: updatedAt(s),
-	}}
+	}
+	pr.Author.Login = reviewing.SanitizeTerminal(s.Author)
+	return &prrow.Data{Primary: pr}
 }

@@ -98,6 +98,23 @@ func TestSectionCachesEnrichedPR(t *testing.T) {
 	row = m.GetCurrRow().(*prrow.Data)
 	assert.True(t, row.IsEnriched, "a refresh keeps the fetched PR")
 	assert.Equal(t, "full", row.Enriched.Title)
+	assert.Equal(t, "full", row.Primary.Title, "the header uses the fetched PR")
+	assert.Equal(t, "chainguard-dev/stereo", row.Primary.GetRepoNameWithOwner())
+}
+
+func TestSectionHeaderFieldsBeforeFetch(t *testing.T) {
+	m := newTestSection(t)
+	m.SetData(
+		reviewing.WatchStatus{},
+		[]reviewing.PRState{st("mono", 66155, reviewing.StatusFailed, time.Minute)},
+	)
+	row := m.GetCurrRow().(*prrow.Data)
+	assert.Equal(
+		t,
+		"dnegreira",
+		row.Primary.Author.Login,
+		"author is known before the PR is fetched",
+	)
 }
 
 func TestSectionLoadingUntilFirstPoll(t *testing.T) {
