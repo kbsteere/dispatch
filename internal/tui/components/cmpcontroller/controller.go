@@ -28,6 +28,7 @@ const (
 	ModeUnassign
 	ModeLabel
 	ModeSearch
+	ModeAddReviewRef
 )
 
 type FetchPolicy int

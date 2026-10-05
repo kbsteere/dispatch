@@ -63,6 +63,7 @@ func (m Model) View() string {
 		if m.rightSection != nil {
 			rightSection = *m.rightSection
 		}
+		watch := m.renderWatch()
 		spacing := lipgloss.NewStyle().
 			Background(m.ctx.Theme.SelectedBackground).
 			Render(
@@ -72,6 +73,7 @@ func (m Model) View() string {
 						m.ctx.ScreenWidth-lipgloss.Width(
 							viewSwitcher,
 						)-lipgloss.Width(leftSection)-
+							lipgloss.Width(watch)-
 							lipgloss.Width(rightSection)-
 							lipgloss.Width(
 								helpIndicator,
@@ -80,7 +82,7 @@ func (m Model) View() string {
 
 		footer = m.ctx.Styles.Common.FooterStyle.
 			Render(lipgloss.JoinHorizontal(lipgloss.Top, viewSwitcher, leftSection, spacing,
-				rightSection, helpIndicator))
+				watch, rightSection, helpIndicator))
 	}
 
 	if m.ShowAll {
@@ -90,6 +92,18 @@ func (m Model) View() string {
 	}
 
 	return footer
+}
+
+// renderWatch shows the reviewingFor summary, if any watches are running.
+func (m Model) renderWatch() string {
+	if m.ctx.WatchFooter == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Background(m.ctx.Theme.SelectedBackground).
+		Foreground(m.ctx.Theme.FaintText).
+		Padding(0, 1).
+		Render(m.ctx.WatchFooter)
 }
 
 func (m *Model) SetShowConfirmQuit(val bool) {

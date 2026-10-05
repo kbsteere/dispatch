@@ -8,6 +8,7 @@ import (
 	gitm "github.com/aymanbagabas/git-module"
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/kbsteere/dispatch/v4/internal/config"
+	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
 	"github.com/kbsteere/dispatch/v4/internal/utils"
@@ -58,6 +59,11 @@ type ProgramContext struct {
 	// ClaudeReviews tracks background Claude review runs keyed by PR URL.
 	// It's only accessed from the bubbletea update loop.
 	ClaudeReviews map[string]*ClaudeReview
+	// WatchPRs is the reviewingFor state of watched PRs keyed by PR URL.
+	// It is replaced wholesale from the bubbletea update loop.
+	WatchPRs map[string]reviewing.PRState
+	// WatchFooter summarises the reviewingFor watches for the footer.
+	WatchFooter string
 }
 
 type ClaudeReviewState int

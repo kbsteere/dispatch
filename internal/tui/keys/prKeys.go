@@ -31,6 +31,11 @@ type PRKeyMap struct {
 	ViewIssues           key.Binding
 	ClaudeReview         key.Binding
 	ClaudeSession        key.Binding
+	ReviewFollow         key.Binding
+	ReviewAddRef         key.Binding
+	ReviewSendHeld       key.Binding
+	ReviewNow            key.Binding
+	ReviewPause          key.Binding
 }
 
 var PRKeys = PRKeyMap{
@@ -118,6 +123,26 @@ var PRKeys = PRKeyMap{
 		key.WithKeys("B"),
 		key.WithHelp("B", "open claude session"),
 	),
+	ReviewFollow: key.NewBinding(
+		key.WithKeys("f"),
+		key.WithHelp("f", "add/remove PR from review watch"),
+	),
+	ReviewAddRef: key.NewBinding(
+		key.WithKeys("F"),
+		key.WithHelp("F", "add PR to review watch by URL"),
+	),
+	ReviewSendHeld: key.NewBinding(
+		key.WithKeys("S"),
+		key.WithHelp("S", "send held review"),
+	),
+	ReviewNow: key.NewBinding(
+		key.WithKeys("N"),
+		key.WithHelp("N", "review now"),
+	),
+	ReviewPause: key.NewBinding(
+		key.WithKeys("Z"),
+		key.WithHelp("Z", "pause/resume review watch"),
+	),
 }
 
 func PRFullHelp() []key.Binding {
@@ -142,6 +167,11 @@ func PRFullHelp() []key.Binding {
 		PRKeys.ViewIssues,
 		PRKeys.ClaudeReview,
 		PRKeys.ClaudeSession,
+		PRKeys.ReviewFollow,
+		PRKeys.ReviewAddRef,
+		PRKeys.ReviewSendHeld,
+		PRKeys.ReviewNow,
+		PRKeys.ReviewPause,
 	}
 }
 
@@ -212,6 +242,16 @@ func rebindPRKeys(keys []config.Keybinding) error {
 			key = &PRKeys.ClaudeReview
 		case "claudeSession":
 			key = &PRKeys.ClaudeSession
+		case "reviewFollow":
+			key = &PRKeys.ReviewFollow
+		case "reviewAddRef":
+			key = &PRKeys.ReviewAddRef
+		case "reviewSendHeld":
+			key = &PRKeys.ReviewSendHeld
+		case "reviewNow":
+			key = &PRKeys.ReviewNow
+		case "reviewPause":
+			key = &PRKeys.ReviewPause
 		default:
 			return fmt.Errorf("unknown built-in pr key: %q", prKey.Builtin)
 		}

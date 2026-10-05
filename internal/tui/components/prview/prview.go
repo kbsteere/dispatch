@@ -129,6 +129,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, m.label(labels)
 			}
 			return m, nil
+
+		case cmpcontroller.ModeAddReviewRef:
+			ref := strings.TrimSpace(value)
+			if ref == "" {
+				return m, nil
+			}
+			return m, func() tea.Msg { return AddReviewRefMsg{Ref: ref} }
 		}
 	}
 

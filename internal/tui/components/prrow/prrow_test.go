@@ -11,6 +11,7 @@ import (
 
 	"github.com/kbsteere/dispatch/v4/internal/config"
 	"github.com/kbsteere/dispatch/v4/internal/data"
+	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
 	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 	"github.com/kbsteere/dispatch/v4/internal/tui/context"
@@ -362,6 +363,22 @@ func TestRenderClaudeReviewStatus(t *testing.T) {
 		})
 		if got := pr.renderClaudeReviewStatus(); strings.TrimSpace(got) != "" {
 			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("watched PR shows its watch status", func(t *testing.T) {
+		pr := newPr(nil)
+		pr.Ctx.WatchPRs = map[string]reviewing.PRState{url: {Status: reviewing.StatusChangesRequested}}
+		if got := pr.renderClaudeReviewStatus(); !strings.Contains(got, constants.ChangesRequestedIcon) {
+			t.Errorf("got %q, want it to contain %q", got, constants.ChangesRequestedIcon)
+		}
+	})
+
+	t.Run("manual review takes precedence over watch status", func(t *testing.T) {
+		pr := newPr(map[string]*context.ClaudeReview{url: {State: context.ClaudeReviewFailed}})
+		pr.Ctx.WatchPRs = map[string]reviewing.PRState{url: {Status: reviewing.StatusApproved}}
+		if got := pr.renderClaudeReviewStatus(); !strings.Contains(got, constants.FailureIcon) {
+			t.Errorf("got %q, want it to contain %q", got, constants.FailureIcon)
 		}
 	})
 }

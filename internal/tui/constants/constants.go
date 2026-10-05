@@ -223,6 +223,8 @@ const (
 	CommentPrompt  = "Leave a comment" + Ellipsis
 	ApprovalPrompt = "Approve with comment" + Ellipsis
 	LabelPrompt    = "Add/remove labels (comma-separated)" + Ellipsis
+
+	AddReviewRefPrompt = "PR to add to the review watch (owner/repo#N or URL), ctrl+d to submit" + Ellipsis
 )
 
 const Logo = `  ╷ )))

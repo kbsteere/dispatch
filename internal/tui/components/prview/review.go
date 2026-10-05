@@ -114,7 +114,7 @@ func (m *Model) SetReview(msg PrReviewMsg) {
 func (m *Model) OpenReviewSession() tea.Cmd {
 	r := m.currReview()
 	if r == nil || r.State != context.ClaudeReviewDone || r.SessionId == "" {
-		return nil
+		return m.watchSessionCmd()
 	}
 
 	dir := resolveReviewDir(m.pr.Data.Primary.GetRepoNameWithOwner(), m.ctx.Config.RepoPaths)
@@ -133,6 +133,19 @@ func (m *Model) GoToReviewTab() {
 }
 
 func (m *Model) renderReviewTab() string {
+	manual := m.renderManualReview()
+	st, ok := m.currWatch()
+	if !ok {
+		return manual
+	}
+	return lipgloss.JoinVertical(lipgloss.Left,
+		renderWatchBlock(st, m.getIndentedContentWidth()),
+		"",
+		manual,
+	)
+}
+
+func (m *Model) renderManualReview() string {
 	r := m.currReview()
 	hintStyle := m.ctx.Styles.Common.FaintTextStyle
 

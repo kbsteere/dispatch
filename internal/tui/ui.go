@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -65,6 +66,9 @@ type Model struct {
 	taskSpinner      spinner.Model
 	tasks            map[string]context.Task
 	positionOverride string // "" means no override, "right" or "bottom"
+	reviewers        reviewers
+	userPRSections   []config.PrsSectionConfig // PR sections from config, before reviewing sections are appended
+	pendingSend      string                    // PR URL whose held review awaits a second S press
 }
 
 type Repositories struct {
@@ -213,6 +217,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.footer.ShowConfirmQuit && (msg.String() == "y" || msg.String() == "enter") {
+			m.reviewers.shutdown()
 			return m, tea.Quit
 		} else if m.footer.ShowConfirmQuit {
 			m.footer.SetShowConfirmQuit(false)
@@ -361,6 +366,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Quit):
 			if !m.ctx.Config.ConfirmQuit {
+				m.reviewers.shutdown()
 				return m, tea.Quit
 			}
 
@@ -482,6 +488,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.PRKeys.ClaudeSession):
 				return m, m.prView.OpenReviewSession()
+
+			case key.Matches(msg, keys.PRKeys.ReviewFollow):
+				return m, m.toggleFollow(currRowData)
+
+			case key.Matches(msg, keys.PRKeys.ReviewAddRef):
+				if len(m.reviewers) == 0 {
+					return m, noWatches
+				}
+				return m, m.openSidebarForPRInput(m.prView.SetIsAddingReviewRef)
+
+			case key.Matches(msg, keys.PRKeys.ReviewSendHeld):
+				return m, m.sendHeld(currRowData)
+
+			case key.Matches(msg, keys.PRKeys.ReviewNow):
+				return m, m.reviewNow(currRowData)
+
+			case key.Matches(msg, keys.PRKeys.ReviewPause):
+				return m, m.togglePause()
 			}
 		case m.ctx.View == config.IssuesView:
 			switch {
@@ -698,6 +722,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebar.IsOpen = msg.Config.Defaults.Preview.Open
 		m.syncMainContentDimensions()
 
+		m.userPRSections = slices.Clone(m.ctx.Config.PRSections)
+		m.reviewers = newReviewers(m.ctx.Config)
+		m.rebuildReviewSections()
+		m.syncWatchState()
+		cmds = append(cmds, m.reviewers.startCmds())
+
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
 		m.setCurrentViewSections(newSections)
 		m.tabs.SetCurrSectionId(1)
@@ -779,6 +809,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prView.SetReview(msg)
 		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())
+
+	case reviewTickMsg:
+		if e := m.reviewers.byName(msg.watch); e != nil {
+			cmds = append(cmds, pollCmd(e))
+		}
+
+	case reviewPolledMsg:
+		e := m.reviewers.byName(msg.watch)
+		if e == nil {
+			break
+		}
+		if msg.err != nil {
+			log.Error("review watch poll failed", "watch", msg.watch, "err", msg.err)
+		}
+		for _, j := range msg.jobs {
+			cmds = append(cmds, reviewCmd(e, j))
+		}
+		m.syncWatchState()
+		m.resyncPrSectionRows()
+		cmds = append(cmds, tickCmd(msg.watch, msg.next), m.syncSidebar())
+
+	case reviewDoneMsg:
+		if msg.out.Err != nil {
+			log.Error("review pass failed", "watch", msg.watch, "pr", msg.out.Key, "err", msg.out.Err)
+		}
+		m.syncWatchState()
+		m.resyncPrSectionRows()
+		cmds = append(cmds, m.syncSidebar())
+
+	case reviewActionMsg:
+		if msg.err != nil {
+			cmds = append(cmds, m.notifyErr(msg.err.Error()))
+		} else if msg.note != "" {
+			cmds = append(cmds, m.notify(msg.note))
+		}
+		m.syncWatchState()
+		if msg.refresh {
+			m.rebuildReviewSections()
+			newSections, fetchSectionsCmds := m.fetchAllViewSections()
+			m.setCurrentViewSections(newSections)
+			cmds = append(cmds, fetchSectionsCmds)
+		}
+		m.resyncPrSectionRows()
+		cmds = append(cmds, m.syncSidebar())
+
+	case prview.AddReviewRefMsg:
+		cmds = append(cmds, m.addRef(msg.Ref))
 
 	case notificationPRFetchedMsg:
 		if msg.Err == nil {

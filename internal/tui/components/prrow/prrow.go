@@ -9,6 +9,7 @@ import (
 	checks "github.com/dlvhdr/x/gh-checks"
 
 	"github.com/kbsteere/dispatch/v4/internal/git"
+	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/common"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
@@ -385,13 +386,13 @@ func (pr *PullRequest) RenderMergeStateStatus() string {
 }
 
 func (pr *PullRequest) renderClaudeReviewStatus() string {
-	if pr.Data.Primary == nil || pr.Ctx.ClaudeReviews == nil {
+	if pr.Data.Primary == nil {
 		return ""
 	}
 
 	review, ok := pr.Ctx.ClaudeReviews[pr.Data.Primary.Url]
 	if !ok {
-		return ""
+		return pr.renderWatchStatus()
 	}
 
 	cellStyle := pr.getTextStyle()
@@ -404,6 +405,24 @@ func (pr *PullRequest) renderClaudeReviewStatus() string {
 		return cellStyle.Foreground(pr.Ctx.Theme.ErrorText).Render(constants.FailureIcon)
 	default:
 		return ""
+	}
+}
+
+// renderWatchStatus shows the reviewingFor status of a watched PR.
+func (pr *PullRequest) renderWatchStatus() string {
+	st, ok := pr.Ctx.WatchPRs[pr.Data.Primary.Url]
+	if !ok {
+		return ""
+	}
+	cellStyle := pr.getTextStyle()
+	glyph := common.ReviewStatusGlyph(st.Status)
+	switch st.Status {
+	case reviewing.StatusApproved:
+		return cellStyle.Foreground(pr.Ctx.Theme.SuccessText).Render(glyph)
+	case reviewing.StatusChangesRequested, reviewing.StatusFailed, reviewing.StatusNeedsAttention:
+		return cellStyle.Foreground(pr.Ctx.Theme.ErrorText).Render(glyph)
+	default:
+		return cellStyle.Foreground(pr.Ctx.Theme.FaintText).Render(glyph)
 	}
 }
 
