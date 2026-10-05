@@ -196,7 +196,9 @@ func (r reviewers) watchPRs() map[string]reviewing.PRState {
 	out := map[string]reviewing.PRState{}
 	for _, e := range r {
 		for _, st := range e.States() {
-			out[st.Key.URL()] = st
+			if !st.Inactive {
+				out[st.Key.URL()] = st
+			}
 		}
 	}
 	return out
@@ -401,10 +403,17 @@ func (m *Model) reviewNow(row data.RowData) tea.Cmd {
 			}
 		}
 	}
+	if _, active := m.ctx.WatchPRs[k.URL()]; !active {
+		return func() tea.Msg {
+			return reviewActionMsg{
+				err: fmt.Errorf("%s is no longer open (merged, closed, or back to draft)", k),
+			}
+		}
+	}
 	if err := e.Force(k); err != nil {
 		return func() tea.Msg { return reviewActionMsg{err: err} }
 	}
-	return tea.Batch(m.notify(fmt.Sprintf("Reviewing %s on the next poll", k)), manualPollCmd(e))
+	return tea.Batch(m.notify(fmt.Sprintf("Reviewing %s now", k)), manualPollCmd(e))
 }
 
 func (m *Model) togglePause() tea.Cmd {

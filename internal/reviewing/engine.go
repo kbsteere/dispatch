@@ -431,13 +431,20 @@ func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
 		switch {
 		case st.Pinned && st.NodeID != "":
 			ids = append(ids, st.NodeID)
-		case st.Claim != nil:
-			// Closed, merged, or back to draft: stop reviewing it.
-			e.kill(st.Key)
+		case st.Claim != nil || !st.Inactive || st.ForceReview:
+			// Merged, closed, back to draft, or out of scope: stop
+			// reviewing it and hide it until the search returns it.
+			if st.Claim != nil {
+				e.kill(st.Key)
+			}
 			_, _ = e.update(st.Key, func(s *PRState) {
+				if s.Claim != nil {
+					s.Status = StatusWaitingOnAuthor
+					s.Note = "closed or returned to draft"
+				}
 				s.Claim = nil
-				s.Status = StatusWaitingOnAuthor
-				s.Note = "closed or returned to draft"
+				s.Inactive = true
+				s.ForceReview = false
 			})
 		}
 	}
@@ -494,6 +501,7 @@ func (e *Engine) evaluate(
 		rebuildFromMarkers(&st, d, viewer, sig)
 	}
 	st.NodeID = d.NodeID
+	st.Inactive = false
 	st.UpdatedAt = d.UpdatedAt
 	st.Title = d.Title
 	st.Author = d.Author

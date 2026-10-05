@@ -56,12 +56,14 @@ func updatedAt(s reviewing.PRState) time.Time {
 	return t
 }
 
-// SortStates returns the valid states in display order without modifying
-// the input. States whose key fails validation are dropped.
+// SortStates returns the active, valid states in display order without
+// modifying the input. Inactive PRs (merged, closed, back to draft) and
+// states whose key fails validation are dropped.
 func SortStates(states []reviewing.PRState) []reviewing.PRState {
 	out := make([]reviewing.PRState, 0, len(states))
 	for _, s := range states {
-		if reviewing.ValidName(s.Key.Owner) && reviewing.ValidName(s.Key.Repo) && s.Key.Number > 0 {
+		if !s.Inactive && reviewing.ValidName(s.Key.Owner) && reviewing.ValidName(s.Key.Repo) &&
+			s.Key.Number > 0 {
 			out = append(out, s)
 		}
 	}

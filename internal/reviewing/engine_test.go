@@ -397,6 +397,34 @@ func TestPollReleasesClaimWhenPRLeavesResults(t *testing.T) {
 	assert.Equal(t, 0, e.Status().InFlight)
 }
 
+func TestPollMarksPRsThatLeaveTheSearchInactive(t *testing.T) {
+	// mono#66155 merged after a failed pass; it must not linger in the view.
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "mono", 66155}
+	d := detail(1, a)
+	d.Key, d.NodeID = k, "N66155"
+	gh := &fakeGitHub{
+		viewer: "kbsteere", hits: []SearchHit{{Key: k, NodeID: "N66155", UpdatedAt: a}},
+		details: map[string]PRDetail{"N66155": d},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, _ = e.Poll(context.Background())
+	_, _ = e.update(k, func(s *PRState) { s.Status = StatusFailed; s.ForceReview = true })
+
+	gh.hits = nil // merged: the search no longer returns it
+	_, _, err := e.Poll(context.Background())
+	require.NoError(t, err)
+	st := stateOf(t, e, k)
+	assert.True(t, st.Inactive)
+	assert.False(t, st.ForceReview, "a forced review of a gone PR is dropped")
+
+	gh.hits = []SearchHit{{Key: k, NodeID: "N66155", UpdatedAt: "reopened"}}
+	_, _, err = e.Poll(context.Background())
+	require.NoError(t, err)
+	assert.False(t, stateOf(t, e, k).Inactive, "a PR back in the search is active again")
+}
+
 func TestSecondEngineIsReadOnly(t *testing.T) {
 	now := t0
 	root := t.TempDir()

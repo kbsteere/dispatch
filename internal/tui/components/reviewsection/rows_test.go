@@ -51,6 +51,16 @@ func TestSortStates(t *testing.T) {
 	assert.Equal(t, 1, in[0].Key.Number, "input is not reordered")
 }
 
+func TestSortStatesHidesInactive(t *testing.T) {
+	merged := st("mono", 66155, reviewing.StatusFailed, time.Minute)
+	merged.Inactive = true
+	got := SortStates(
+		[]reviewing.PRState{merged, st("stereo", 367322, reviewing.StatusFailed, time.Minute)},
+	)
+	require.Len(t, got, 1)
+	assert.Equal(t, 367322, got[0].Key.Number)
+}
+
 func TestSortStatesSkipsInvalidKeys(t *testing.T) {
 	bad := st("..", 1, reviewing.StatusApproved, time.Minute)
 	got := SortStates(

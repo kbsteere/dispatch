@@ -93,12 +93,15 @@ type Backoff struct {
 
 // PRState is everything dispatch remembers about one PR in one watch.
 type PRState struct {
-	Key          PRKey          `json:"key"`
-	NodeID       string         `json:"node_id,omitempty"`
-	Title        string         `json:"title,omitempty"`
-	Author       string         `json:"author,omitempty"`
-	CI           string         `json:"ci,omitempty"` // required-check state at the last poll
-	Pinned       bool           `json:"pinned,omitempty"`
+	Key    PRKey  `json:"key"`
+	NodeID string `json:"node_id,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Author string `json:"author,omitempty"`
+	CI     string `json:"ci,omitempty"` // required-check state at the last poll
+	Pinned bool   `json:"pinned,omitempty"`
+	// Inactive marks a PR the watch's search no longer returns (merged,
+	// closed, back to draft, or out of scope). It is hidden until it returns.
+	Inactive     bool           `json:"inactive,omitempty"`
 	Status       Status         `json:"status,omitempty"`
 	UpdatedAt    string         `json:"updated_at,omitempty"`
 	ReviewedSig  *Signature     `json:"reviewed_sig,omitempty"`

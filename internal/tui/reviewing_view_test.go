@@ -108,6 +108,46 @@ func TestReviewingViewShowsPRsAfterFirstPoll(t *testing.T) {
 	}
 }
 
+func TestReviewNowKeyQueuesAReview(t *testing.T) {
+	cfg, err := config.ParseConfig(config.Location{
+		ConfigFlag:       "../config/testdata/test-config.yml",
+		SkipGlobalConfig: true,
+	})
+	require.NoError(t, err)
+	w := config.ReviewWatch{
+		Name:    "sustaining-automation",
+		Authors: []string{"tcnghia"},
+		Scopes:  []string{"repo:chainguard-dev/stereo"},
+	}
+	cfg.ReviewingFor.Watches = []config.ReviewWatch{w}
+	m := NewModel(config.Location{}, Repositories{})
+	m.ctx.Config = &cfg
+	m.ctx.Theme = theme.ParseTheme(&cfg)
+	m.ctx.Styles = context.InitStyles(m.ctx.Theme)
+	m.ctx.ScreenWidth, m.ctx.ScreenHeight = 200, 50
+	m.ctx.MainContentWidth, m.ctx.MainContentHeight = 200, 30
+	e, err := reviewing.NewEngine(reviewing.Deps{
+		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(),
+		GitHub: viewGitHub{}, LookupPath: func(string) (string, bool) { return "", false },
+	})
+	require.NoError(t, err)
+	t.Cleanup(e.Shutdown)
+	m.reviewers = reviewers{e}
+	m.ctx.View = config.PRsView
+	m.switchSelectedView()
+	next, _ := m.Update(pollCmd(e)())
+	m = next.(Model)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
+	m = next.(Model)
+	require.NotNil(t, cmd)
+	var forced bool
+	for _, st := range e.States() {
+		forced = forced || st.ForceReview
+	}
+	require.True(t, forced, "N in the Reviewing view queues a review of the selected PR")
+}
+
 func TestStatusTicksRunOnceAndStopWhenIdle(t *testing.T) {
 	m := NewModel(config.Location{}, Repositories{})
 	m.ctx.Config = &config.Config{}
