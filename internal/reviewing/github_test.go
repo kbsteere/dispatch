@@ -287,19 +287,19 @@ func TestReplyAndResolveThread(t *testing.T) {
 	assert.Equal(t, "PRRT_1", reqs[1].Variables["id"])
 }
 
-func TestReviewThreadIDs(t *testing.T) {
+func TestReviewThreads(t *testing.T) {
 	gh, _ := fakeGH(t, func(r gqlRequest) string {
 		return `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-			{"id":"PRRT_a","comments":{"nodes":[{"pullRequestReview":{"databaseId":3311}}]}},
+			{"id":"PRRT_a","path":"bots/kev/main.go","line":12,"comments":{"nodes":[{"pullRequestReview":{"databaseId":3311}}]}},
 			{"id":"PRRT_b","comments":{"nodes":[{"pullRequestReview":{"databaseId":42}}]}},
-			{"id":"PRRT_c","comments":{"nodes":[{"pullRequestReview":{"databaseId":3311}}]}}
+			{"id":"PRRT_c","path":"bots/kev/sync.go","line":3,"comments":{"nodes":[{"pullRequestReview":{"databaseId":3311}}]}}
 		]}}}}}`
 	}, noREST(t))
-	ids, err := gh.ReviewThreadIDs(context.Background(), monoKey, "https://github.com/chainguard-dev/mono/pull/62436#pullrequestreview-3311")
+	ids, err := gh.ReviewThreads(context.Background(), monoKey, "https://github.com/chainguard-dev/mono/pull/62436#pullrequestreview-3311")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"PRRT_a", "PRRT_c"}, ids)
+	assert.Equal(t, []ThreadRef{{ID: "PRRT_a", Path: "bots/kev/main.go", Line: 12}, {ID: "PRRT_c", Path: "bots/kev/sync.go", Line: 3}}, ids)
 
-	_, err = gh.ReviewThreadIDs(context.Background(), monoKey, "https://github.com/chainguard-dev/mono/pull/62436")
+	_, err = gh.ReviewThreads(context.Background(), monoKey, "https://github.com/chainguard-dev/mono/pull/62436")
 	assert.Error(t, err)
 }
 

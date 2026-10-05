@@ -129,7 +129,7 @@ type GitHub interface {
 	PostReview(ctx context.Context, k PRKey, p ReviewPayload) (string, error)
 	ReplyThread(ctx context.Context, threadID, body string) (string, error)
 	ResolveThread(ctx context.Context, threadID string) error
-	ReviewThreadIDs(ctx context.Context, k PRKey, reviewURL string) ([]string, error)
+	ReviewThreads(ctx context.Context, k PRKey, reviewURL string) ([]ThreadRef, error)
 }
 
 // WithMarker appends the hidden dispatch marker to a body.
@@ -639,11 +639,18 @@ func (g *ghClient) ResolveThread(ctx context.Context, threadID string) error {
 var reviewIDRe = regexp.MustCompile(`#pullrequestreview-(\d+)$`)
 
 const reviewThreadsQuery = `query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) {
-  reviewThreads(last: 100) { nodes { id comments(first: 1) { nodes { pullRequestReview { databaseId } } } } }
+  reviewThreads(last: 100) { nodes { id path line comments(first: 1) { nodes { pullRequestReview { databaseId } } } } }
 } } }`
 
-// ReviewThreadIDs returns the threads opened by the review at reviewURL.
-func (g *ghClient) ReviewThreadIDs(ctx context.Context, k PRKey, reviewURL string) ([]string, error) {
+// ThreadRef locates a review thread.
+type ThreadRef struct {
+	ID   string
+	Path string
+	Line int
+}
+
+// ReviewThreads returns the threads opened by the review at reviewURL.
+func (g *ghClient) ReviewThreads(ctx context.Context, k PRKey, reviewURL string) ([]ThreadRef, error) {
 	m := reviewIDRe.FindStringSubmatch(reviewURL)
 	if m == nil {
 		return nil, fmt.Errorf("no review id in %q", reviewURL)
@@ -655,6 +662,8 @@ func (g *ghClient) ReviewThreadIDs(ctx context.Context, k PRKey, reviewURL strin
 				ReviewThreads struct {
 					Nodes []struct {
 						ID       string `json:"id"`
+						Path     string `json:"path"`
+						Line     int    `json:"line"`
 						Comments struct {
 							Nodes []struct {
 								PullRequestReview *struct {
@@ -670,16 +679,16 @@ func (g *ghClient) ReviewThreadIDs(ctx context.Context, k PRKey, reviewURL strin
 	if err := g.gql.DoWithContext(ctx, reviewThreadsQuery, map[string]any{"o": k.Owner, "r": k.Repo, "n": k.Number}, &resp); err != nil {
 		return nil, err
 	}
-	var ids []string
+	var refs []ThreadRef
 	for _, t := range resp.Repository.PullRequest.ReviewThreads.Nodes {
 		if len(t.Comments.Nodes) == 0 || t.Comments.Nodes[0].PullRequestReview == nil {
 			continue
 		}
 		if t.Comments.Nodes[0].PullRequestReview.DatabaseID == reviewID {
-			ids = append(ids, t.ID)
+			refs = append(refs, ThreadRef{ID: t.ID, Path: t.Path, Line: t.Line})
 		}
 	}
-	return ids, nil
+	return refs, nil
 }
 
 // failingGitHub reports a client construction error from every call.
@@ -701,6 +710,6 @@ func (f failingGitHub) PostReview(context.Context, PRKey, ReviewPayload) (string
 }
 func (f failingGitHub) ReplyThread(context.Context, string, string) (string, error) { return "", f.err }
 func (f failingGitHub) ResolveThread(context.Context, string) error             { return f.err }
-func (f failingGitHub) ReviewThreadIDs(context.Context, PRKey, string) ([]string, error) {
+func (f failingGitHub) ReviewThreads(context.Context, PRKey, string) ([]ThreadRef, error) {
 	return nil, f.err
 }

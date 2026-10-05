@@ -46,6 +46,9 @@ type Finding struct {
 	Blocking bool   `json:"blocking"`
 	Summary  string `json:"summary"`
 	Status   string `json:"status"`
+	// Replied records that dispatch already answered pushback on this
+	// finding's thread; it never replies twice.
+	Replied bool `json:"replied,omitempty"`
 }
 
 // Signature is the PR state a review pass last saw.
