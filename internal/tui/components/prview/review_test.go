@@ -4,8 +4,33 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestManualReviewArgs(t *testing.T) {
+	args := manualReviewArgs()
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		"-p --output-format json", "--setting-sources local", "--tools Read,Grep,Glob,Bash", "--permission-mode dontAsk",
+		"Bash(git diff:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args missing %q: %s", want, joined)
+		}
+	}
+	// --allowedTools is variadic and would swallow a positional prompt, so
+	// the prompt goes over stdin.
+	if strings.Contains(joined, "github.com") {
+		t.Errorf("the prompt must not be passed as an argument: %s", joined)
+	}
+	if strings.Contains(joined, "/review ") {
+		t.Error("manual reviews use the reviewer instructions, not /review")
+	}
+	if strings.Contains(joined, "gh pr review") || strings.Contains(joined, "gh api") {
+		t.Error("the manual review must not be able to post")
+	}
+}
 
 func TestResolveReviewDir(t *testing.T) {
 	home := t.TempDir()

@@ -29,6 +29,21 @@ type PrReviewMsg struct {
 	Err       error
 }
 
+// manualReviewArgs runs an on-demand review with the reviewer instructions
+// and read-only tools. User settings are not loaded because their hooks can
+// approve commands the allowlist would deny. The prompt goes over stdin.
+func manualReviewArgs() []string {
+	return []string{
+		"-p", "--output-format", "json",
+		"--setting-sources", "local",
+		"--tools", "Read,Grep,Glob,Bash",
+		"--permission-mode", "dontAsk",
+		"--allowedTools",
+		"Bash(git show:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git grep:*)", "Bash(git blame:*)",
+		"Bash(git ls-tree:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
+	}
+}
+
 // resolveReviewDir picks the working directory for the claude subprocess:
 // the repo's configured local checkout when available, the home directory
 // otherwise. Bare repos resolve to their main worktree.
@@ -70,8 +85,9 @@ func (m *Model) StartReview() tea.Cmd {
 		ctx, cancel := goctx.WithTimeout(goctx.Background(), reviewTimeout)
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, "claude", "-p", "--output-format", "json", "/review "+url)
+		cmd := exec.CommandContext(ctx, "claude", manualReviewArgs()...)
 		cmd.Dir = dir
+		cmd.Stdin = strings.NewReader(reviewing.ManualPrompt(url))
 		out, err := cmd.Output()
 		if err != nil {
 			var exitErr *exec.ExitError
