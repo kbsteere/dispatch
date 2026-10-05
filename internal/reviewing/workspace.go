@@ -58,13 +58,10 @@ func EnsureLocalRepo(
 		cmd := exec.CommandContext(
 			ctx,
 			"git",
-			"clone",
-			"--bare",
-			"--filter=blob:none",
-			"--",
-			url,
-			dir,
-		)
+			slices.Concat(
+				ghAuthArgs,
+				[]string{"clone", "--bare", "--filter=blob:none", "--", url, dir},
+			)...)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return LocalRepo{}, fmt.Errorf("cloning %s: %w: %s", url, err, out)
@@ -73,9 +70,47 @@ func EnsureLocalRepo(
 	return LocalRepo{GitDir: dir, Bare: true}, nil
 }
 
+// ErrKeyTouch reports an SSH fetch that needed a security key touch that
+// never came.
+var ErrKeyTouch = errors.New("security key touch needed")
+
+// ghAuthArgs make git authenticate HTTPS requests with gh's login and
+// nothing else, so no other credential helper can prompt.
+var ghAuthArgs = []string{
+	"-c",
+	"credential.helper=",
+	"-c",
+	"credential.helper=!gh auth git-credential",
+}
+
+// remoteURLs returns the canonical repository's HTTPS and SSH addresses.
+// PR refs (refs/pull/N/head) exist only there, not on a fork that a local
+// clone's origin may point at. It is a variable so tests can use local repos.
+var remoteURLs = func(k PRKey) (https, ssh string) {
+	return fmt.Sprintf("https://github.com/%s/%s.git", k.Owner, k.Repo),
+		fmt.Sprintf("git@github.com:%s/%s.git", k.Owner, k.Repo)
+}
+
+// sshNeedsTouch reports whether the SSH agent holds a security key
+// identity, whose signatures need a physical touch.
+var sshNeedsTouch = func() bool {
+	out, err := exec.Command("ssh-add", "-L").Output()
+	return err == nil && strings.Contains(string(out), "sk-")
+}
+
+// isTouchError recognises an SSH failure caused by an untouched security key.
+func isTouchError(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "agent refused operation") ||
+		(strings.Contains(s, "signing failed") && strings.Contains(s, "-SK"))
+}
+
 // FetchPR fetches the PR head to refs/dispatch/N/head and its base branch to
-// refs/dispatch/N/base without touching any working tree.
-func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string) error {
+// refs/dispatch/N/base from the canonical repository, without touching any
+// working tree or remote. It uses HTTPS with gh's login, and falls back to
+// SSH; onTouch, when set, is called before an SSH fetch that may need a
+// security key touch.
+func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string, onTouch func()) error {
 	if baseRef == "" || !branchRe.MatchString(baseRef) || strings.HasPrefix(baseRef, "-") ||
 		strings.Contains(baseRef, "..") {
 		return fmt.Errorf("invalid base ref %q", baseRef)
@@ -83,10 +118,30 @@ func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string) error
 	if k.Number <= 0 {
 		return fmt.Errorf("invalid PR number %d", k.Number)
 	}
-	_, err := gitCmd(ctx, repo.GitDir, "fetch", "--quiet", "--no-tags", "--force", "origin",
+	specs := []string{
 		fmt.Sprintf("+refs/pull/%d/head:refs/dispatch/%d/head", k.Number, k.Number),
-		fmt.Sprintf("+refs/heads/%s:refs/dispatch/%d/base", baseRef, k.Number))
-	return err
+		fmt.Sprintf("+refs/heads/%s:refs/dispatch/%d/base", baseRef, k.Number),
+	}
+	fetch := []string{"fetch", "--quiet", "--no-tags", "--force"}
+	httpsURL, sshURL := remoteURLs(k)
+
+	args := slices.Concat(ghAuthArgs, fetch, []string{httpsURL}, specs)
+	_, httpsErr := gitCmd(ctx, repo.GitDir, args...)
+	if httpsErr == nil {
+		return nil
+	}
+	if onTouch != nil && sshNeedsTouch() {
+		onTouch()
+	}
+	_, sshErr := gitCmd(ctx, repo.GitDir, slices.Concat(fetch, []string{sshURL}, specs)...)
+	switch {
+	case sshErr == nil:
+		return nil
+	case isTouchError(sshErr):
+		return fmt.Errorf("%w: %v", ErrKeyTouch, sshErr)
+	default:
+		return fmt.Errorf("fetching %s: https: %v; ssh: %w", k, httpsErr, sshErr)
+	}
 }
 
 // MergeBase returns the merge base of two commits.

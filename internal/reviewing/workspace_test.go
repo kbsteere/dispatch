@@ -2,6 +2,7 @@ package reviewing
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,8 @@ func TestFetchPRAndPool(t *testing.T) {
 	require.NoError(t, err)
 
 	k := PRKey{"chainguard-dev", "mono", 7}
-	require.NoError(t, FetchPR(ctx, repo, k, "main"))
+	useRemotes(t, origin, origin)
+	require.NoError(t, FetchPR(ctx, repo, k, "main", nil))
 	assert.Equal(t, head, strings.TrimSpace(gitT(t, clone, "rev-parse", "refs/dispatch/7/head")))
 	base := strings.TrimSpace(gitT(t, clone, "rev-parse", "refs/dispatch/7/base"))
 	mb, err := MergeBase(ctx, repo, head, base)
@@ -83,13 +85,14 @@ func TestFetchPRAndPool(t *testing.T) {
 
 func TestFetchPRIntoBareRepo(t *testing.T) {
 	origin, head := prOrigin(t)
+	useRemotes(t, origin, origin)
 	bare := filepath.Join(t.TempDir(), "mono")
 	gitT(t, filepath.Dir(bare), "clone", "-q", "--bare", origin, bare)
 	repo, err := ResolveLocalRepo(bare)
 	require.NoError(t, err)
 	require.NoError(
 		t,
-		FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "mono", 7}, "main"),
+		FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "mono", 7}, "main", nil),
 	)
 	assert.Equal(t, head, strings.TrimSpace(gitT(t, bare, "rev-parse", "refs/dispatch/7/head")))
 }
@@ -99,7 +102,7 @@ func TestFetchPRRejectsBadBaseRef(t *testing.T) {
 	repo, err := ResolveLocalRepo(origin)
 	require.NoError(t, err)
 	for _, ref := range []string{"--upload-pack=touch /tmp/x", "main..evil", "a b", ""} {
-		assert.Error(t, FetchPR(context.Background(), repo, PRKey{"o", "r", 7}, ref), ref)
+		assert.Error(t, FetchPR(context.Background(), repo, PRKey{"o", "r", 7}, ref, nil), ref)
 	}
 }
 
@@ -214,4 +217,114 @@ func TestEnsureLocalRepoPrefersRepoPaths(t *testing.T) {
 		func(string) (string, bool) { return "", false },
 	)
 	assert.Error(t, err)
+}
+
+// useRemotes points the canonical HTTPS and SSH addresses at local repos.
+func useRemotes(t *testing.T, https, ssh string) {
+	t.Helper()
+	orig := remoteURLs
+	remoteURLs = func(PRKey) (string, string) { return https, ssh }
+	t.Cleanup(func() { remoteURLs = orig })
+}
+
+func touchKeyAvailable(t *testing.T, available bool) {
+	t.Helper()
+	orig := sshNeedsTouch
+	sshNeedsTouch = func() bool { return available }
+	t.Cleanup(func() { sshNeedsTouch = orig })
+}
+
+func TestFetchPRUsesCanonicalRepoNotOrigin(t *testing.T) {
+	// A clone whose origin is the user's fork, which has no refs/pull/*.
+	canonical, head := prOrigin(t)
+	fork := newOrigin(t)
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitT(t, filepath.Dir(clone), "clone", "-q", fork, clone)
+	repo, err := ResolveLocalRepo(clone)
+	require.NoError(t, err)
+	useRemotes(t, canonical, filepath.Join(t.TempDir(), "unused"))
+	touchKeyAvailable(t, true)
+
+	touched := 0
+	require.NoError(
+		t,
+		FetchPR(
+			context.Background(),
+			repo,
+			PRKey{"chainguard-dev", "mono", 7},
+			"main",
+			func() { touched++ },
+		),
+	)
+	assert.Equal(t, head, strings.TrimSpace(gitT(t, clone, "rev-parse", "refs/dispatch/7/head")))
+	assert.Equal(t, 0, touched, "HTTPS never asks for a key touch")
+	assert.NotContains(
+		t,
+		gitT(t, clone, "remote", "-v"),
+		canonical,
+		"the clone's remotes are untouched",
+	)
+}
+
+func TestFetchPRFallsBackToSSHAndPromptsForTouch(t *testing.T) {
+	canonical, head := prOrigin(t)
+	repo, err := ResolveLocalRepo(newOrigin(t))
+	require.NoError(t, err)
+	useRemotes(t, filepath.Join(t.TempDir(), "https-unreachable"), canonical)
+
+	touchKeyAvailable(t, true)
+	touched := 0
+	require.NoError(
+		t,
+		FetchPR(
+			context.Background(),
+			repo,
+			PRKey{"chainguard-dev", "stereo", 7},
+			"main",
+			func() { touched++ },
+		),
+	)
+	assert.Equal(t, 1, touched, "a security key identity means the SSH fetch may need a touch")
+	assert.Equal(
+		t,
+		head,
+		strings.TrimSpace(gitT(t, repo.GitDir, "rev-parse", "refs/dispatch/7/head")),
+	)
+
+	touchKeyAvailable(t, false)
+	touched = 0
+	require.NoError(
+		t,
+		FetchPR(
+			context.Background(),
+			repo,
+			PRKey{"chainguard-dev", "stereo", 7},
+			"main",
+			func() { touched++ },
+		),
+	)
+	assert.Equal(t, 0, touched, "no security key identity, no prompt")
+}
+
+func TestFetchPRBothFail(t *testing.T) {
+	repo, err := ResolveLocalRepo(newOrigin(t))
+	require.NoError(t, err)
+	useRemotes(t, filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b"))
+	touchKeyAvailable(t, false)
+	err = FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "stereo", 7}, "main", nil)
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrKeyTouch))
+	assert.Contains(t, err.Error(), "https")
+	assert.Contains(t, err.Error(), "ssh")
+}
+
+func TestIsTouchError(t *testing.T) {
+	// Real output from a background fetch with an ED25519-SK key.
+	real := `exit status 128: sign_and_send_pubkey: signing failed for ED25519-SK "/home/u/.ssh/id_ed25519_sk" from agent: agent refused operation
+git@github.com: Permission denied (publickey).`
+	assert.True(t, isTouchError(errors.New(real)))
+	assert.False(
+		t,
+		isTouchError(errors.New("fatal: couldn't find remote ref refs/pull/66155/head")),
+	)
 }

@@ -69,6 +69,7 @@ type Model struct {
 	reviewers        reviewers
 	reviewSections   []section.Section // the Reviewing view's tables, one per watch
 	pendingSend      string            // PR URL whose held review awaits a second S press
+	statusTicking    bool              // the watch status refresh loop is running
 }
 
 type Repositories struct {
@@ -837,11 +838,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, j := range msg.jobs {
 			cmds = append(cmds, reviewCmd(e, j))
 		}
+		if len(msg.jobs) > 0 {
+			cmds = append(cmds, m.startStatusTicks())
+		}
 		m.syncWatchState()
 		m.resyncPrSectionRows()
 		if reschedule(msg) {
 			cmds = append(cmds, tickCmd(msg.watch, msg.next))
 		}
+		cmds = append(cmds, m.syncSidebar())
+
+	case reviewStatusTickMsg:
+		cmds = append(cmds, m.onStatusTick())
+		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())
 
 	case reviewDoneMsg:

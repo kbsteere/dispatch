@@ -66,6 +66,9 @@ type WatchStatus struct {
 	// LastPoll is when the last successful poll finished; zero before the
 	// first one.
 	LastPoll time.Time
+	// Prompt is an action the user must take now, such as touching a
+	// security key; empty when none.
+	Prompt string
 }
 
 // Engine runs one watch: it polls, claims PRs, runs review passes, and
@@ -86,6 +89,7 @@ type Engine struct {
 	pauseWhy string
 	lastErr  string
 	lastPoll time.Time
+	prompt   string // an action the user must take now, such as touching a security key
 	closing  bool
 }
 
@@ -258,6 +262,7 @@ func (e *Engine) Status() WatchStatus {
 		QuotaRemaining: e.quota.Remaining,
 		DailyBudget:    e.d.Limits.DailyBudgetUsd,
 		LastPoll:       e.lastPoll,
+		Prompt:         e.prompt,
 	}
 }
 
@@ -649,4 +654,10 @@ func readDraft(path string) (heldDraft, error) {
 		return d, err
 	}
 	return d, json.Unmarshal(b, &d)
+}
+
+func (e *Engine) setPrompt(p string) {
+	e.mu.Lock()
+	e.prompt = p
+	e.mu.Unlock()
 }

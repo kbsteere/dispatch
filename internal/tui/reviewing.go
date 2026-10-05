@@ -113,6 +113,38 @@ func manualPollCmd(e *reviewing.Engine) tea.Cmd {
 // reschedule reports whether a finished poll schedules the next one.
 func reschedule(msg reviewPolledMsg) bool { return !msg.manual }
 
+// reviewStatusTickMsg refreshes watch state on screen while reviews run, so
+// prompts such as a security key touch show up while they are needed.
+type reviewStatusTickMsg struct{}
+
+const statusTickInterval = time.Second
+
+func statusTickCmd() tea.Cmd {
+	return tea.Tick(statusTickInterval, func(time.Time) tea.Msg { return reviewStatusTickMsg{} })
+}
+
+// startStatusTicks starts the status refresh loop unless it is running.
+func (m *Model) startStatusTicks() tea.Cmd {
+	if m.statusTicking {
+		return nil
+	}
+	m.statusTicking = true
+	return statusTickCmd()
+}
+
+// onStatusTick refreshes watch state and keeps ticking while any review is
+// in flight.
+func (m *Model) onStatusTick() tea.Cmd {
+	m.syncWatchState()
+	for _, s := range m.reviewers.statuses() {
+		if s.InFlight > 0 {
+			return statusTickCmd()
+		}
+	}
+	m.statusTicking = false
+	return nil
+}
+
 // refreshReviewing reloads the Reviewing tables from watch state and polls
 // every watch now.
 func (m *Model) refreshReviewing() tea.Cmd {
@@ -176,6 +208,9 @@ func footerText(statuses []reviewing.WatchStatus) string {
 		state := s.Mode
 		if s.Paused != "" {
 			state = "paused: " + s.Paused
+		}
+		if s.Prompt != "" {
+			parts = append(parts, "▶ "+s.Prompt)
 		}
 		parts = append(
 			parts,

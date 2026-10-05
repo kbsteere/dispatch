@@ -29,6 +29,8 @@ func newReviewHarness(t *testing.T, mode string, watch func(*config.ReviewWatch)
 	t.Helper()
 	t.Setenv("FAKE_CLAUDE_MODE", mode)
 	origin, head := prOrigin(t)
+	useRemotes(t, origin, origin)
+	touchKeyAvailable(t, false)
 	clone := filepath.Join(t.TempDir(), "clone")
 	gitT(t, filepath.Dir(clone), "clone", "-q", origin, clone)
 	base := strings.TrimSpace(gitT(t, origin, "rev-parse", "main"))
@@ -377,4 +379,28 @@ func TestReviewSupersededResultIsDropped(t *testing.T) {
 		h.e.store.Spend(Day(h.now)),
 		"spend is recorded even when the result is dropped",
 	)
+}
+
+func TestReviewMissedKeyTouchNeedsAttentionWithoutBackoff(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	out := h.e.holdForTouch(h.job.Key, Outcome{Key: h.job.Key})
+	assert.Equal(t, StatusNeedsAttention, out.Status)
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	assert.Contains(t, st.Note, "touch the key")
+	assert.True(t, st.Backoff.Until.IsZero(), "waits for the user, not a timer")
+	assert.Nil(t, st.Claim)
+	assert.Equal(t, 0, h.e.Status().InFlight)
+}
+
+func TestReviewSSHFallbackClearsPrompt(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	origin, _ := remoteURLs(h.job.Key)
+	useRemotes(t, filepath.Join(t.TempDir(), "https-unreachable"), origin)
+	touchKeyAvailable(t, true)
+
+	out := h.e.Review(context.Background(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted, "the SSH fetch worked and the pass completed")
+	assert.Empty(t, h.e.Status().Prompt, "the touch prompt is cleared once the fetch ends")
 }

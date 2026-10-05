@@ -108,6 +108,16 @@ func TestReviewingViewShowsPRsAfterFirstPoll(t *testing.T) {
 	}
 }
 
+func TestStatusTicksRunOnceAndStopWhenIdle(t *testing.T) {
+	m := NewModel(config.Location{}, Repositories{})
+	m.ctx.Config = &config.Config{}
+	require.NotNil(t, m.startStatusTicks(), "starts the loop")
+	require.Nil(t, m.startStatusTicks(), "never a second loop")
+	require.Nil(t, m.onStatusTick(), "no reviews in flight: the loop stops")
+	require.False(t, m.statusTicking)
+	require.NotNil(t, m.startStatusTicks(), "and can start again later")
+}
+
 func TestManualPollDoesNotStartAnotherLoop(t *testing.T) {
 	require.True(t, reschedule(reviewPolledMsg{}))
 	require.False(t, reschedule(reviewPolledMsg{manual: true}))

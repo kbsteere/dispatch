@@ -169,6 +169,9 @@ func Summary(ws reviewing.WatchStatus) string {
 	if ws.Err != "" {
 		s += " · error: " + clip(reviewing.SanitizeTerminal(ws.Err), 80)
 	}
+	if ws.Prompt != "" {
+		s = "▶ " + ws.Prompt + " · " + s
+	}
 	return s
 }
 

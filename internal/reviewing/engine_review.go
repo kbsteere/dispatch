@@ -24,7 +24,13 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 
 	repo, err := e.localRepo(ctx, job.Key)
 	if err == nil {
-		err = FetchPR(ctx, repo, job.Key, d.BaseRef)
+		err = FetchPR(ctx, repo, job.Key, d.BaseRef, func() {
+			e.setPrompt(fmt.Sprintf("Touch your security key to fetch %s", job.Key))
+		})
+		e.setPrompt("")
+	}
+	if errors.Is(err, ErrKeyTouch) {
+		return e.holdForTouch(job.Key, out)
 	}
 	mergeBase := d.BaseOID
 	if err == nil {
@@ -203,6 +209,24 @@ func (e *Engine) recordRun(k PRKey, sessionID string, res RunResult, err error) 
 		}
 		st.ReviewsByDay[Day(now)]++
 	})
+}
+
+// touchNote tells the user how to recover from a missed security key touch.
+const touchNote = "fetching over SSH needs your security key: press N, then touch the key when it blinks"
+
+// holdForTouch records a pass that could not fetch because the security
+// key was not touched. It waits for the user rather than backing off.
+func (e *Engine) holdForTouch(k PRKey, out Outcome) Outcome {
+	st, _ := e.update(k, func(st *PRState) {
+		st.Claim = nil
+		st.Status = StatusNeedsAttention
+		st.Note = touchNote
+	})
+	e.mu.Lock()
+	delete(e.claimed, k)
+	e.mu.Unlock()
+	out.Status, out.Note = st.Status, touchNote
+	return out
 }
 
 // fail records a failed pass and backs the PR off.

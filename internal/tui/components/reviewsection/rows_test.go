@@ -121,6 +121,24 @@ func TestSummaryBeforeFirstPollAndOnError(t *testing.T) {
 	assert.Less(t, len([]rune(got)), 200, "long errors are clipped")
 }
 
+func TestSummaryLeadsWithPrompt(t *testing.T) {
+	ws := reviewing.WatchStatus{
+		Name:           "sustaining-automation",
+		Mode:           "live",
+		DailyBudget:    100,
+		LastPoll:       now,
+		QuotaRemaining: 4000,
+		Prompt:         "Touch your security key to fetch chainguard-dev/stereo#367322",
+	}
+	assert.True(
+		t,
+		strings.HasPrefix(
+			Summary(ws),
+			"▶ Touch your security key to fetch chainguard-dev/stereo#367322 · sustaining-automation · live",
+		),
+	)
+}
+
 func TestSummary(t *testing.T) {
 	ws := reviewing.WatchStatus{
 		Name: "sustaining-automation", Mode: "live", SpentToday: 14.2, DailyBudget: 100,
