@@ -29,29 +29,19 @@ type PrReviewMsg struct {
 	Err       error
 }
 
-// manualReviewArgs runs an on-demand review with the reviewer instructions
-// and read-only tools. User settings are not loaded because their hooks can
-// approve commands the allowlist would deny. The prompt goes over stdin.
+// manualReviewArgs runs an on-demand review with the reviewer instructions.
+// The only commands allowed are gh pr view and gh pr diff, which cannot
+// write files; git is excluded because flags such as --output can. User
+// settings are not loaded because their hooks can approve commands the
+// allowlist would deny. The prompt goes over stdin.
 func manualReviewArgs() []string {
 	return []string{
 		"-p",
-		"--output-format",
-		"json",
-		"--setting-sources",
-		"local",
-		"--tools",
-		"Read,Grep,Glob,Bash",
-		"--permission-mode",
-		"dontAsk",
-		"--allowedTools",
-		"Bash(git show:*)",
-		"Bash(git log:*)",
-		"Bash(git diff:*)",
-		"Bash(git grep:*)",
-		"Bash(git blame:*)",
-		"Bash(git ls-tree:*)",
-		"Bash(gh pr view:*)",
-		"Bash(gh pr diff:*)",
+		"--output-format", "json",
+		"--setting-sources", "local",
+		"--tools", "Read,Grep,Glob,Bash",
+		"--permission-mode", "dontAsk",
+		"--allowedTools", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
 	}
 }
 

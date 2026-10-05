@@ -16,29 +16,19 @@ import (
 	"time"
 )
 
-// gitReadCmds are the git subcommands the reviewer may run, each pinned to a
-// directory with `git -C <dir>` because the agent cannot cd.
-var gitReadCmds = []string{"show", "log", "diff", "grep", "blame", "ls-tree"}
+// reviewerTools are the only tools a review session gets. There is no
+// shell: even "read-only" git subcommands accept flags such as --output
+// that write files, so dispatch runs git itself and hands the agent the
+// results as files.
+const reviewerTools = "Read,Grep,Glob"
 
 var (
-	// safeDirRe limits directories that are embedded in permission rules.
+	// safeDirRe limits the directories a session may be given.
 	safeDirRe   = regexp.MustCompile(`^/[A-Za-z0-9_./-]+$`)
 	sessionIDRe = regexp.MustCompile(
 		`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
 	)
 )
-
-// GitAllowRules returns the Bash permission rules that let the agent run
-// read-only git commands in the given directories and nothing else.
-func GitAllowRules(dirs []string) []string {
-	var rules []string
-	for _, d := range dirs {
-		for _, c := range gitReadCmds {
-			rules = append(rules, fmt.Sprintf("Bash(git -C %s %s:*)", d, c))
-		}
-	}
-	return rules
-}
 
 // RunSpec describes one bounded claude session.
 type RunSpec struct {
@@ -62,15 +52,11 @@ func BuildArgs(s RunSpec) []string {
 		"--session-id", s.SessionID,
 		"--max-turns", strconv.Itoa(s.MaxTurns),
 		"--max-budget-usd", fmt.Sprintf("%.2f", s.MaxBudgetUSD),
-		// User settings can carry PreToolUse hooks that approve Bash calls
-		// and override --allowedTools; load none of them.
+		// User settings can carry hooks and permissions that widen what a
+		// session may do; load none of them.
 		"--setting-sources", "local",
-		"--tools", "Read,Grep,Glob,Bash",
+		"--tools", reviewerTools,
 		"--permission-mode", "dontAsk",
-	}
-	if rules := GitAllowRules(s.AddDirs); len(rules) > 0 {
-		args = append(args, "--allowedTools")
-		args = append(args, rules...)
 	}
 	for _, d := range s.AddDirs {
 		args = append(args, "--add-dir", d)
@@ -107,7 +93,7 @@ type Run struct {
 func Start(ctx context.Context, s RunSpec) (*Run, error) {
 	for _, d := range s.AddDirs {
 		if !safeDirRe.MatchString(d) || strings.Contains(d, "..") {
-			return nil, fmt.Errorf("directory %q cannot be used in a permission rule", d)
+			return nil, fmt.Errorf("directory %q is not a clean absolute path", d)
 		}
 	}
 	if !ValidSessionID(s.SessionID) {

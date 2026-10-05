@@ -15,19 +15,7 @@ import (
 )
 
 func TestBuildPromptStructure(t *testing.T) {
-	a, b, c, d := strings.Repeat(
-		"a",
-		40,
-	), strings.Repeat(
-		"b",
-		40,
-	), strings.Repeat(
-		"c",
-		40,
-	), strings.Repeat(
-		"d",
-		40,
-	)
+	b, c, d := strings.Repeat("b", 40), strings.Repeat("c", 40), strings.Repeat("d", 40)
 	wt := "/state/worktrees/chainguard-dev__mono/slot-0"
 	in := PromptInput{
 		Watch: config.ReviewWatch{
@@ -51,13 +39,17 @@ func TestBuildPromptStructure(t *testing.T) {
 				},
 			},
 		},
-		Pass:         PassIncremental,
-		Head:         b,
-		Base:         c,
-		MergeBase:    d,
-		LastReviewed: a,
-		Worktree:     wt,
-		ContextDirs:  []string{"/home/u/Dev/cg/stereo"},
+		Pass:      PassIncremental,
+		Head:      b,
+		Base:      c,
+		MergeBase: d,
+		Files: ReviewFiles{
+			Diff:      "/s/pr.diff",
+			Commits:   "/s/commits.txt",
+			SinceLast: "/s/since-last-review.diff",
+		},
+		Worktree:    wt,
+		ContextDirs: []string{"/home/u/Dev/cg/stereo"},
 		Ledger: []Finding{
 			{
 				ID:       "f1",
@@ -77,8 +69,9 @@ func TestBuildPromptStructure(t *testing.T) {
 	assert.True(t, strings.HasPrefix(p, reviewerInstructions))
 	assert.Contains(t, p, "pass: incremental")
 	assert.Contains(t, p, "worktree: "+wt)
-	assert.Contains(t, p, "full diff: git -C "+wt+" diff "+d+" "+b)
-	assert.Contains(t, p, "since last review: git -C "+wt+" diff "+a+" "+b)
+	assert.Contains(t, p, "pr diff: /s/pr.diff\ncommits: /s/commits.txt\n")
+	assert.Contains(t, p, "since last review: /s/since-last-review.diff")
+	assert.NotContains(t, p, "git -C", "the agent is never told to run git")
 	assert.Contains(t, p, "- /home/u/Dev/cg/stereo")
 	assert.Contains(t, p, "- bots/kev/sync.go")
 	assert.Contains(t, p, "every new gRPC handler records a latency metric")
@@ -112,9 +105,15 @@ func TestBuildPromptStructure(t *testing.T) {
 
 func TestBuildPromptFullPassOmitsIncrementalDiff(t *testing.T) {
 	p := BuildPrompt(
-		PromptInput{Pass: PassFull, Head: "h", MergeBase: "m", Worktree: "/w", LastReviewed: "old"},
+		PromptInput{
+			Pass:      PassFull,
+			Head:      "h",
+			MergeBase: "m",
+			Worktree:  "/w",
+			Files:     ReviewFiles{Diff: "/s/pr.diff", SinceLast: "/s/old.diff"},
+		},
 	)
-	assert.Contains(t, p, "full diff: git -C /w diff m h")
+	assert.Contains(t, p, "pr diff: /s/pr.diff")
 	assert.NotContains(t, p, "since last review")
 	assert.Contains(t, p, "## Earlier findings (yours)\nnone\n")
 }
@@ -171,6 +170,6 @@ func TestManualPrompt(t *testing.T) {
 	p := ManualPrompt("https://github.com/chainguard-dev/mono/pull/1")
 	assert.Contains(t, p, "https://github.com/chainguard-dev/mono/pull/1")
 	assert.Contains(t, p, "Nothing will be posted")
-	assert.Contains(t, p, "without -C")
+	assert.Contains(t, p, "gh pr view and gh pr diff")
 	assert.True(t, strings.HasSuffix(p, reviewerInstructions))
 }

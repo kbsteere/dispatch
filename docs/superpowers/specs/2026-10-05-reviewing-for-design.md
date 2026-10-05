@@ -402,3 +402,20 @@ engine events to the section, status column, Review tab, and footer.
 - PR reference parsing (`owner/repo#N`, PR URLs, malformed input).
 - Before going live: run the real watch in `dryRun` and review drafts; run
   `/go-security-review` before opening the PR.
+
+## Revisions after security review (2026-10-05)
+
+- Review sessions get no shell. Even "read-only" git subcommands accept flags
+  such as `--output` that write arbitrary files, which a prompt injection in PR
+  content could turn into code execution (for example by writing
+  `core.fsmonitor` into a repo config). Autonomous sessions run with
+  `--tools Read,Grep,Glob` only; dispatch writes `pr.diff`, `commits.txt`, and
+  `since-last-review.diff` into the session directory, running git with
+  `core.fsmonitor=`, `diff.external=`, `--no-ext-diff`, and `--no-textconv`.
+  The manual `b` review allows only `gh pr view` and `gh pr diff`.
+- Findings that cannot be anchored to a changed file and line are held for the
+  user (status `needs-attention`) instead of being dropped, and a held draft
+  with such findings is never sent as an approval.
+- PR file lists are paginated to completion (GitHub's 3000-file maximum).
+- A failed required-checks lookup yields CI state `UNKNOWN`, which never
+  satisfies the approval gate.

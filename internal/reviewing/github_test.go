@@ -324,6 +324,34 @@ func TestDetails(t *testing.T) {
 	}, d.Checks)
 }
 
+func TestDetailsPaginatesFiles(t *testing.T) {
+	// A PR with more than 100 changed files: a finding on file 101 must be
+	// anchorable, so every page is fetched.
+	firstPage := strings.Replace(
+		detailResp,
+		`"files":{"nodes":[{"path":"kev.yaml"}]}`,
+		`"files":{"pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29yOjEwMA=="},"nodes":[{"path":"kev.yaml"}]}`,
+		1,
+	)
+	var cursors []any
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		if strings.Contains(r.Query, "files(first: 100, after: $after)") {
+			cursors = append(cursors, r.Variables["after"])
+			if r.Variables["after"] == "Y3Vyc29yOjEwMA==" {
+				return `{"data":{"rateLimit":{"cost":1},"node":{"files":{"pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29yOjIwMA=="},"nodes":[{"path":"zz/late.go"}]}}}}`
+			}
+			return `{"data":{"rateLimit":{"cost":1},"node":{"files":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"path":"zz/later.go"}]}}}}`
+		}
+		return firstPage
+	}, noREST(t))
+	ds, rl, err := gh.Details(context.Background(), []string{"PR_kwDOA1"})
+	require.NoError(t, err)
+	require.Len(t, ds, 1)
+	assert.Equal(t, []string{"kev.yaml", "zz/late.go", "zz/later.go"}, ds[0].Files)
+	assert.Equal(t, []any{"Y3Vyc29yOjEwMA==", "Y3Vyc29yOjIwMA=="}, cursors)
+	assert.Equal(t, 3, rl.Cost, "every page's cost is counted")
+}
+
 func TestDetailsSkipsInvalidRepo(t *testing.T) {
 	gh, _ := fakeGH(t, func(gqlRequest) string {
 		return strings.Replace(detailResp, `"name":"stereo"`, `"name":".."`, 1)

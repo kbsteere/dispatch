@@ -305,7 +305,7 @@ const detailQuery = `query($id: ID!) {
     author { login }
     headRefOid baseRefName baseRefOid
     repository { name owner { login } }
-    files(first: 100) { nodes { path } }
+    files(first: 100) { pageInfo { hasNextPage endCursor } nodes { path } }
     comments(last: 50) { nodes { id body createdAt author { login } } }
     reviews(last: 50) { nodes { state body submittedAt author { login } commit { oid } } }
     reviewThreads(last: 100) { nodes {
@@ -332,25 +332,21 @@ func (c commentJSON) toComment() Comment {
 }
 
 type detailJSON struct {
-	ID         string     `json:"id"`
-	Number     int        `json:"number"`
-	State      string     `json:"state"`
-	IsDraft    bool       `json:"isDraft"`
-	Title      string     `json:"title"`
-	Body       string     `json:"body"`
-	UpdatedAt  string     `json:"updatedAt"`
-	Mergeable  string     `json:"mergeable"`
-	Author     *loginJSON `json:"author"`
-	HeadRefOid string     `json:"headRefOid"`
-	BaseRef    string     `json:"baseRefName"`
-	BaseRefOid string     `json:"baseRefOid"`
-	Repository repoJSON   `json:"repository"`
-	Files      struct {
-		Nodes []struct {
-			Path string `json:"path"`
-		} `json:"nodes"`
-	} `json:"files"`
-	Comments struct {
+	ID         string        `json:"id"`
+	Number     int           `json:"number"`
+	State      string        `json:"state"`
+	IsDraft    bool          `json:"isDraft"`
+	Title      string        `json:"title"`
+	Body       string        `json:"body"`
+	UpdatedAt  string        `json:"updatedAt"`
+	Mergeable  string        `json:"mergeable"`
+	Author     *loginJSON    `json:"author"`
+	HeadRefOid string        `json:"headRefOid"`
+	BaseRef    string        `json:"baseRefName"`
+	BaseRefOid string        `json:"baseRefOid"`
+	Repository repoJSON      `json:"repository"`
+	Files      filesPageJSON `json:"files"`
+	Comments   struct {
 		Nodes []commentJSON `json:"nodes"`
 	} `json:"comments"`
 	Reviews struct {
@@ -506,9 +502,66 @@ func (g *ghClient) Details(ctx context.Context, nodeIDs []string) ([]PRDetail, R
 		if !ValidName(d.Key.Owner) || !ValidName(d.Key.Repo) || d.Key.Number <= 0 {
 			continue
 		}
+		more, cost, err := g.remainingFiles(ctx, id, resp.Node.Files.PageInfo)
+		rl.Cost += cost
+		if err != nil {
+			return out, rl, err
+		}
+		d.Files = append(d.Files, more...)
 		out = append(out, d)
 	}
 	return out, rl, nil
+}
+
+type pageInfoJSON struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
+}
+
+type filesPageJSON struct {
+	PageInfo pageInfoJSON `json:"pageInfo"`
+	Nodes    []struct {
+		Path string `json:"path"`
+	} `json:"nodes"`
+}
+
+// maxFilePages bounds file pagination; GitHub lists at most 3000 files.
+const maxFilePages = 30
+
+const filesPageQuery = `query($id: ID!, $after: String) {
+  rateLimit { cost }
+  node(id: $id) { ... on PullRequest { files(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { path } } } }
+}`
+
+// remainingFiles fetches the changed files beyond the first page, so a
+// finding on any changed file can be anchored.
+func (g *ghClient) remainingFiles(
+	ctx context.Context,
+	id string,
+	page pageInfoJSON,
+) ([]string, int, error) {
+	var files []string
+	cost := 0
+	for i := 0; page.HasNextPage && i < maxFilePages; i++ {
+		var resp struct {
+			RateLimit struct {
+				Cost int `json:"cost"`
+			} `json:"rateLimit"`
+			Node struct {
+				Files filesPageJSON `json:"files"`
+			} `json:"node"`
+		}
+		vars := map[string]any{"id": id, "after": page.EndCursor}
+		if err := g.gql.DoWithContext(ctx, filesPageQuery, vars, &resp); err != nil {
+			return files, cost, err
+		}
+		cost += resp.RateLimit.Cost
+		for _, n := range resp.Node.Files.Nodes {
+			files = append(files, n.Path)
+		}
+		page = resp.Node.Files.PageInfo
+	}
+	return files, cost, nil
 }
 
 const resolvePRQuery = `query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) { id } } }`

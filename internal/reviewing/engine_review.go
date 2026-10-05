@@ -110,9 +110,6 @@ func (e *Engine) runSession(
 		Worktree: slot, ContextDirs: e.contextDirs(), Ledger: st.Ledger, Viewer: viewer,
 		Standards: LoadStandards(ctx, repo, job.Detail.BaseOID, job.Detail.Files),
 	}
-	if st.ReviewedSig != nil {
-		in.LastReviewed = st.ReviewedSig.Head
-	}
 	maxTurns := e.d.Limits.MaxTurns
 	if job.Pass == PassLedger {
 		maxTurns = e.d.Limits.MaxTurnsLedgerOnly
@@ -122,6 +119,15 @@ func (e *Engine) runSession(
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		return RunResult{}, "", err
 	}
+	lastReviewed := ""
+	if st.ReviewedSig != nil {
+		lastReviewed = st.ReviewedSig.Head
+	}
+	files, err := WriteReviewFiles(ctx, repo, cwd, mergeBase, job.Detail.HeadOID, lastReviewed)
+	if err != nil {
+		return RunResult{}, "", err
+	}
+	in.Files = files
 	run, err := Start(ctx, RunSpec{
 		Binary:       e.d.Claude,
 		SessionID:    sessionID,
@@ -232,10 +238,20 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 	}
 
 	draft := heldDraft{Head: d.HeadOID}
-	var dropped []string
 	for _, f := range review.Findings {
 		if !files[f.Path] || f.Line <= 0 {
-			dropped = append(dropped, fmt.Sprintf("%s:%d", f.Path, f.Line))
+			// A finding dispatch cannot anchor to a changed line is still a
+			// finding; hold the pass for the user rather than dropping it,
+			// which could turn a reported problem into an approval.
+			draft.Unanchored = append(draft.Unanchored, f)
+			draft.Reasons = append(
+				draft.Reasons,
+				fmt.Sprintf(
+					"finding on %s:%d is not on a changed file dispatch knows about",
+					f.Path,
+					f.Line,
+				),
+			)
 			continue
 		}
 		draft.Comments = append(
@@ -295,11 +311,6 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 			Summary:  summarize(t.Comments[0].Body),
 			Status:   FindingOutstanding,
 		})
-	}
-	if len(dropped) > 0 {
-		out.Note = strings.TrimSpace(
-			out.Note + " (dropped findings outside the diff: " + strings.Join(dropped, ", ") + ")",
-		)
 	}
 
 	for _, c := range draft.Comments {
@@ -530,6 +541,10 @@ func (e *Engine) PostHeld(ctx context.Context, k PRKey) error {
 	}
 	if len(fresh) == 0 || fresh[0].HeadOID != draft.Head {
 		return fmt.Errorf("%s moved since the review was held; it will be reviewed again", k)
+	}
+	if draft.Event == string(ActionApprove) && len(draft.Unanchored) > 0 {
+		// The reviewer reported problems that never made it into comments.
+		draft.Event = string(ActionNone)
 	}
 	if draft.Event == string(ActionNone) && len(draft.Comments) > 0 {
 		draft.Event = string(ActionComment)

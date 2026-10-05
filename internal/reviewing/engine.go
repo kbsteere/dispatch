@@ -338,14 +338,21 @@ func (e *Engine) signature(ctx context.Context, d PRDetail, viewer string) Signa
 		ignore[l] = true
 	}
 	events, resolved := d.Events()
-	req, _ := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef)
+	ci := ciUnknown
+	if req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef); err == nil {
+		ci = RequiredState(d.Checks, req)
+	}
 	return Signature{
 		Head:   d.HeadOID,
 		Draft:  d.IsDraft,
 		Digest: ActivityDigest(events, resolved, ignore),
-		CI:     RequiredState(d.Checks, req),
+		CI:     ci,
 	}
 }
+
+// ciUnknown is the CI state when required checks could not be determined.
+// It never satisfies the approval gate.
+const ciUnknown = "UNKNOWN"
 
 // needsDetail reports whether a PR must be re-read even though its
 // updatedAt may not have moved: CI results, head settling, retries after
@@ -606,6 +613,9 @@ type heldDraft struct {
 	Findings []Finding       `json:"findings,omitempty"`
 	Ledger   []LedgerUpdate  `json:"ledger,omitempty"`
 	Reasons  []string        `json:"lint_reasons,omitempty"`
+	// Unanchored are findings that could not be placed on a changed line.
+	// They are never posted; move one into comments to send it.
+	Unanchored []OutFinding `json:"unanchored,omitempty"`
 }
 
 type heldReply struct {

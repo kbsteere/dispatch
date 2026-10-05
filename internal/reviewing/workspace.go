@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -95,6 +96,76 @@ func MergeBase(ctx context.Context, repo LocalRepo, head, base string) (string, 
 	}
 	out, err := gitCmd(ctx, repo.GitDir, "merge-base", head, base)
 	return strings.TrimSpace(string(out)), err
+}
+
+// ReviewFiles are git outputs dispatch prepares for a review session, so
+// the agent never needs to run git itself.
+type ReviewFiles struct {
+	Diff      string
+	Commits   string
+	SinceLast string // empty when there is no usable earlier review
+}
+
+// safeGitArgs keep git from running external programs configured in the
+// repo or user config while it produces review files.
+var safeGitArgs = []string{"-c", "core.fsmonitor=", "-c", "diff.external=", "-c", "core.pager=cat"}
+
+// WriteReviewFiles writes the PR diff, its commit log, and the diff since
+// the last reviewed head into dir.
+func WriteReviewFiles(
+	ctx context.Context,
+	repo LocalRepo,
+	dir, mergeBase, head, lastReviewed string,
+) (ReviewFiles, error) {
+	if !ValidSHA(mergeBase) || !ValidSHA(head) {
+		return ReviewFiles{}, errors.New("invalid sha")
+	}
+	write := func(name string, args ...string) (string, error) {
+		out, err := gitCmd(ctx, repo.GitDir, append(slices.Clone(safeGitArgs), args...)...)
+		if err != nil {
+			return "", err
+		}
+		p := filepath.Join(dir, name)
+		return p, os.WriteFile(p, out, 0o600)
+	}
+	var files ReviewFiles
+	var err error
+	if files.Diff, err = write(
+		"pr.diff",
+		"diff",
+		"--no-color",
+		"--no-ext-diff",
+		"--no-textconv",
+		mergeBase,
+		head,
+	); err != nil {
+		return files, err
+	}
+	if files.Commits, err = write(
+		"commits.txt",
+		"log",
+		"--no-color",
+		"--format=%H %an%n%s%n%n%b",
+		mergeBase+".."+head,
+	); err != nil {
+		return files, err
+	}
+	if ValidSHA(lastReviewed) && lastReviewed != head {
+		// A force push can drop the last reviewed commit; then there is no
+		// incremental diff and the agent reviews the full diff.
+		if p, err := write(
+			"since-last-review.diff",
+			"diff",
+			"--no-color",
+			"--no-ext-diff",
+			"--no-textconv",
+			lastReviewed,
+			head,
+		); err == nil {
+			files.SinceLast = p
+		}
+	}
+	return files, nil
 }
 
 // ShowFile returns a file's content at a commit.

@@ -31,6 +31,7 @@ type fakeGitHub struct {
 	// running, to simulate a push during review.
 	headAfterRun string
 	detailCalls  int
+	requiredErr  error
 }
 
 func (f *fakeGitHub) Viewer(context.Context) (string, error) { return f.viewer, nil }
@@ -62,7 +63,7 @@ func (f *fakeGitHub) Resolve(_ context.Context, k PRKey) (string, error) {
 }
 
 func (f *fakeGitHub) RequiredContexts(context.Context, PRKey, string) (RequiredContexts, error) {
-	return f.required, nil
+	return f.required, f.requiredErr
 }
 
 func (f *fakeGitHub) PostReview(_ context.Context, _ PRKey, p ReviewPayload) (string, error) {

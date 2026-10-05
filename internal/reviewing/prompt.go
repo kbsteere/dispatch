@@ -38,18 +38,18 @@ type StandardFile struct {
 
 // PromptInput is everything a review prompt is built from.
 type PromptInput struct {
-	Watch        config.ReviewWatch
-	Detail       PRDetail
-	Pass         Pass
-	Head         string
-	Base         string
-	MergeBase    string
-	LastReviewed string
-	Worktree     string
-	ContextDirs  []string
-	Ledger       []Finding
-	Viewer       string
-	Standards    []StandardFile
+	Watch       config.ReviewWatch
+	Detail      PRDetail
+	Pass        Pass
+	Head        string
+	Base        string
+	MergeBase   string
+	Files       ReviewFiles
+	Worktree    string
+	ContextDirs []string
+	Ledger      []Finding
+	Viewer      string
+	Standards   []StandardFile
 }
 
 func untrusted(s string) string {
@@ -78,15 +78,15 @@ func BuildPrompt(in PromptInput) string {
 		in.Base,
 		in.MergeBase,
 	)
-	fmt.Fprintf(&b, "full diff: git -C %s diff %s %s\n", in.Worktree, in.MergeBase, in.Head)
-	if in.Pass == PassIncremental && in.LastReviewed != "" {
-		fmt.Fprintf(
-			&b,
-			"since last review: git -C %s diff %s %s (if this fails, the branch was force-pushed: review the full diff instead)\n",
-			in.Worktree,
-			in.LastReviewed,
-			in.Head,
-		)
+	fmt.Fprintf(&b, "pr diff: %s\ncommits: %s\n", in.Files.Diff, in.Files.Commits)
+	if in.Pass == PassIncremental {
+		if in.Files.SinceLast != "" {
+			fmt.Fprintf(&b, "since last review: %s\n", in.Files.SinceLast)
+		} else {
+			b.WriteString(
+				"since last review: unavailable (the branch was force-pushed); review the full diff\n",
+			)
+		}
 	}
 	if len(in.ContextDirs) > 0 {
 		b.WriteString("context repos:\n")
@@ -223,6 +223,6 @@ func LoadStandards(
 // TUI and never posted.
 func ManualPrompt(url string) string {
 	return "Review the pull request " + url + " using the instructions below, but return your findings as Markdown for a human to read, not JSON. " +
-		"Nothing will be posted. You are running inside the repository checkout: run git commands without -C, and use gh pr view / gh pr diff to read the PR.\n\n" +
+		"Nothing will be posted. You are running inside the repository checkout. In this session the only commands you may run are gh pr view and gh pr diff; use them to read the PR and its diff.\n\n" +
 		reviewerInstructions
 }

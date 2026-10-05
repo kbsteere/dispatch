@@ -133,6 +133,69 @@ func TestShowFileAtBase(t *testing.T) {
 	assert.Error(t, err, "only full SHAs")
 }
 
+func TestWriteReviewFiles(t *testing.T) {
+	ctx := context.Background()
+	origin, head := prOrigin(t)
+	repo, err := ResolveLocalRepo(origin)
+	require.NoError(t, err)
+	base := strings.TrimSpace(gitT(t, origin, "rev-parse", "main"))
+	dir := t.TempDir()
+
+	files, err := WriteReviewFiles(ctx, repo, dir, base, head, base)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "pr.diff"), files.Diff)
+	diff, err := os.ReadFile(files.Diff)
+	require.NoError(t, err)
+	assert.Contains(t, string(diff), "+package kev")
+	commits, err := os.ReadFile(files.Commits)
+	require.NoError(t, err)
+	assert.Contains(t, string(commits), "feature")
+	since, err := os.ReadFile(files.SinceLast)
+	require.NoError(t, err)
+	assert.Contains(t, string(since), "+package kev")
+	info, err := os.Stat(files.Diff)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestWriteReviewFilesWithoutUsableLastReview(t *testing.T) {
+	origin, head := prOrigin(t)
+	repo, err := ResolveLocalRepo(origin)
+	require.NoError(t, err)
+	base := strings.TrimSpace(gitT(t, origin, "rev-parse", "main"))
+
+	files, err := WriteReviewFiles(context.Background(), repo, t.TempDir(), base, head, "")
+	require.NoError(t, err)
+	assert.Empty(t, files.SinceLast, "first review has no incremental diff")
+
+	files, err = WriteReviewFiles(
+		context.Background(),
+		repo,
+		t.TempDir(),
+		base,
+		head,
+		strings.Repeat("f", 40),
+	)
+	require.NoError(t, err)
+	assert.Empty(t, files.SinceLast, "a force-pushed-away commit yields no incremental diff")
+
+	_, err = WriteReviewFiles(context.Background(), repo, t.TempDir(), "--output=/tmp/x", head, "")
+	assert.Error(t, err)
+}
+
+func TestWriteReviewFilesIgnoresExternalDiff(t *testing.T) {
+	origin, head := prOrigin(t)
+	canary := filepath.Join(t.TempDir(), "ran")
+	gitT(t, origin, "config", "diff.external", "touch "+canary+" #")
+	repo, err := ResolveLocalRepo(origin)
+	require.NoError(t, err)
+	base := strings.TrimSpace(gitT(t, origin, "rev-parse", "main"))
+	_, err = WriteReviewFiles(context.Background(), repo, t.TempDir(), base, head, "")
+	require.NoError(t, err)
+	_, statErr := os.Stat(canary)
+	assert.True(t, os.IsNotExist(statErr), "external diff drivers never run")
+}
+
 func TestEnsureLocalRepoPrefersRepoPaths(t *testing.T) {
 	origin, _ := prOrigin(t)
 	repo, err := EnsureLocalRepo(

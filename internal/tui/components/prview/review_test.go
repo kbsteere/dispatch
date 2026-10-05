@@ -13,11 +13,14 @@ func TestManualReviewArgs(t *testing.T) {
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
 		"-p --output-format json", "--setting-sources local", "--tools Read,Grep,Glob,Bash", "--permission-mode dontAsk",
-		"Bash(git diff:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
+		"--allowedTools Bash(gh pr view:*) Bash(gh pr diff:*)",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("args missing %q: %s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "git ") {
+		t.Errorf("git is not allowed: flags such as --output write files: %s", joined)
 	}
 	// --allowedTools is variadic and would swallow a positional prompt, so
 	// the prompt goes over stdin.

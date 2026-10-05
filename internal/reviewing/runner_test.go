@@ -45,23 +45,15 @@ func TestBuildArgs(t *testing.T) {
 	args := strings.Join(BuildArgs(s), " ")
 	for _, want := range []string{
 		"-p", "--output-format json", "--session-id " + s.SessionID, "--max-turns 100", "--max-budget-usd 10.00",
-		"--setting-sources local", "--tools Read,Grep,Glob,Bash", "--permission-mode dontAsk",
-		"Bash(git -C /wt/slot-0 show:*)", "Bash(git -C /wt/slot-0 blame:*)", "Bash(git -C /home/u/Dev/cg/stereo log:*)",
+		"--setting-sources local", "--tools Read,Grep,Glob --permission-mode dontAsk",
 		"--add-dir /wt/slot-0", "--add-dir /home/u/Dev/cg/stereo", "--json-schema",
 	} {
 		assert.Contains(t, args, want)
 	}
 	assert.NotContains(t, args, "dangerously")
-	assert.NotContains(t, args, "Bash(git -C:*)", "never a blanket git -C rule")
-	assert.NotContains(t, args, "push")
+	assert.NotContains(t, args, "Bash", "review sessions never get a shell")
+	assert.NotContains(t, args, "--allowedTools")
 	assert.NotContains(t, args, "review this", "the prompt goes over stdin, never argv")
-}
-
-func TestGitAllowRules(t *testing.T) {
-	assert.Equal(t, []string{
-		"Bash(git -C /wt show:*)", "Bash(git -C /wt log:*)", "Bash(git -C /wt diff:*)",
-		"Bash(git -C /wt grep:*)", "Bash(git -C /wt blame:*)", "Bash(git -C /wt ls-tree:*)",
-	}, GitAllowRules([]string{"/wt"}))
 }
 
 func TestStartRejectsUnsafeDirs(t *testing.T) {

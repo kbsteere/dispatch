@@ -2,6 +2,7 @@ package reviewing
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -277,18 +278,35 @@ func TestReviewMaxTurnsBacksOffAndRecordsSpend(t *testing.T) {
 	assert.Nil(t, st.Claim)
 }
 
-func TestReviewDropsFindingsOutsideTheDiff(t *testing.T) {
+func TestReviewRequiredChecksLookupFailureNeverApproves(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	h.gh.requiredErr = errors.New("HTTP 502: Bad Gateway")
+	out := h.e.Review(context.Background(), h.job)
+	require.NoError(t, out.Err)
+	assert.Empty(t, h.gh.posted)
+	assert.Equal(t, StatusWaitingOnCI, h.state(t).Status)
+}
+
+func TestReviewHoldsFindingsOutsideTheDiff(t *testing.T) {
+	// A finding on a file dispatch did not fetch (or with no line) must
+	// never be dropped on the way to an approval.
 	h := newReviewHarness(t, "badpath", nil)
 	out := h.e.Review(context.Background(), h.job)
 	require.NoError(t, out.Err)
-	assert.Contains(t, out.Note, "not-in-pr.go:3")
-	require.Len(t, h.gh.posted, 1)
-	assert.Equal(
-		t,
-		"APPROVE",
-		h.gh.posted[0].Event,
-		"unknown ledger ids and paths outside the PR are ignored",
-	)
+	assert.Empty(t, h.gh.posted, "nothing is posted, approval least of all")
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	draft, err := readDraft(st.HeldDraft)
+	require.NoError(t, err)
+	require.Len(t, draft.Unanchored, 1)
+	assert.Equal(t, "not-in-pr.go", draft.Unanchored[0].Path)
+	assert.Contains(t, strings.Join(draft.Reasons, "\n"), "not-in-pr.go:3")
+
+	// Sending the held review as is never approves.
+	require.NoError(t, h.e.PostHeld(context.Background(), h.job.Key))
+	for _, p := range h.gh.posted {
+		assert.NotEqual(t, "APPROVE", p.Event)
+	}
 }
 
 func TestReviewHeadMovedDiscards(t *testing.T) {
