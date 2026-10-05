@@ -78,7 +78,7 @@ reviewingFor:
       ignoreLogins: []          # optional: activity from these never triggers a review
 ```
 
-Each watch gets a `Reviewing: <name>` section listing its authors' open, non-draft PRs, plus a `Reviewing: <name> · added` section for PRs you add by hand. The Claude column shows each PR's status, and the Review tab shows outstanding findings, the last run's turns, cost, and session, and any held review.
+Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, last run (turns and cost), and last update. PRs needing your attention sort first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
 
 How it behaves:
 

@@ -175,6 +175,31 @@ func TestPollBaselinesOnFirstStart(t *testing.T) {
 	assert.Equal(t, calls, gh.detailCalls, "unchanged PRs are not re-read")
 }
 
+func TestPollRecordsDisplayFieldsAndStatus(t *testing.T) {
+	now := t0
+	sha := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	d := detail(1, sha)
+	d.Title, d.Author = "kev: bump to 1.4.2", "dnegreira"
+	gh := &fakeGitHub{
+		viewer:  "kbsteere",
+		hits:    []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: sha}},
+		details: map[string]PRDetail{"N1": d},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, err := e.Poll(context.Background())
+	require.NoError(t, err)
+
+	st := stateOf(t, e, k)
+	assert.Equal(t, "kev: bump to 1.4.2", st.Title)
+	assert.Equal(t, "dnegreira", st.Author)
+	assert.Equal(t, "SUCCESS", st.CI)
+
+	ws := e.Status()
+	assert.Equal(t, 4000, ws.QuotaRemaining)
+	assert.Equal(t, 100.0, ws.DailyBudget)
+}
+
 func TestPollClaimsAfterNewPushSettles(t *testing.T) {
 	now := t0
 	a, b := strings.Repeat("a", 40), strings.Repeat("b", 40)

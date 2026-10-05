@@ -505,30 +505,6 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 			limit = &m.Ctx.Config.Defaults.PrsLimit
 		}
 
-		if len(m.Config.Urls) > 0 {
-			prs, err := fetchUrlSection(m.Config.Urls)
-			if err != nil {
-				return constants.TaskFinishedMsg{
-					SectionId:   m.Id,
-					SectionType: m.Type,
-					TaskId:      taskId,
-					Msg:         SectionPullRequestsFetchErrorMsg{TaskId: taskId, Err: err},
-					Err:         err,
-				}
-			}
-			return constants.TaskFinishedMsg{
-				SectionId:   m.Id,
-				SectionType: m.Type,
-				TaskId:      taskId,
-				Msg: SectionPullRequestsFetchedMsg{
-					Prs:        prs,
-					TotalCount: len(prs),
-					PageInfo:   data.PageInfo{},
-					TaskId:     taskId,
-				},
-			}
-		}
-
 		res, err := data.FetchPullRequests(m.GetFilters(), *limit, m.PageInfo)
 		if err != nil {
 			return constants.TaskFinishedMsg{

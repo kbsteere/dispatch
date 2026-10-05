@@ -60,6 +60,9 @@ type WatchStatus struct {
 	Mode       string
 	Paused     string
 	Err        string
+	// QuotaRemaining is the GitHub GraphQL quota left, or 0 when unknown.
+	QuotaRemaining int
+	DailyBudget    float64
 }
 
 // Engine runs one watch: it polls, claims PRs, runs review passes, and
@@ -242,12 +245,14 @@ func (e *Engine) Status() WatchStatus {
 		paused = "read-only"
 	}
 	return WatchStatus{
-		Name:       e.d.Watch.Name,
-		InFlight:   len(e.claimed),
-		SpentToday: e.store.Spend(Day(e.d.Now())),
-		Mode:       mode,
-		Paused:     paused,
-		Err:        e.lastErr,
+		Name:           e.d.Watch.Name,
+		InFlight:       len(e.claimed),
+		SpentToday:     e.store.Spend(Day(e.d.Now())),
+		Mode:           mode,
+		Paused:         paused,
+		Err:            e.lastErr,
+		QuotaRemaining: e.quota.Remaining,
+		DailyBudget:    e.d.Limits.DailyBudgetUsd,
 	}
 }
 
@@ -479,6 +484,9 @@ func (e *Engine) evaluate(
 	}
 	st.NodeID = d.NodeID
 	st.UpdatedAt = d.UpdatedAt
+	st.Title = d.Title
+	st.Author = d.Author
+	st.CI = sig.CI
 
 	switch {
 	case d.State != "OPEN":

@@ -113,7 +113,7 @@ var PRKeys = PRKeyMap{
 	),
 	ViewIssues: key.NewBinding(
 		key.WithKeys("s"),
-		key.WithHelp("s", "switch to issues"),
+		key.WithHelp("s", "next view"),
 	),
 	ClaudeReview: key.NewBinding(
 		key.WithKeys("b"),

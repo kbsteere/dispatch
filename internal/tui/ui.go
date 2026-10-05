@@ -5,7 +5,6 @@ import (
 	"os"
 	"reflect"
 	"runtime/debug"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +36,7 @@ import (
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/prssection"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/prview"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/reposection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/reviewsection"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/sidebar"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/tabs"
@@ -67,8 +67,8 @@ type Model struct {
 	tasks            map[string]context.Task
 	positionOverride string // "" means no override, "right" or "bottom"
 	reviewers        reviewers
-	userPRSections   []config.PrsSectionConfig // PR sections from config, before reviewing sections are appended
-	pendingSend      string                    // PR URL whose held review awaits a second S press
+	reviewSections   []section.Section // the Reviewing view's tables, one per watch
+	pendingSend      string            // PR URL whose held review awaits a second S press
 }
 
 type Repositories struct {
@@ -401,7 +401,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, keys.BranchKeys.ViewPRs):
 				cmds = append(cmds, m.switchSelectedView())
 			}
-		case m.ctx.View == config.PRsView:
+		case m.ctx.View.IsPRLike():
 			switch {
 			case key.Matches(msg, keys.PRKeys.PrevSidebarTab),
 				key.Matches(msg, keys.PRKeys.NextSidebarTab):
@@ -722,9 +722,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebar.IsOpen = msg.Config.Defaults.Preview.Open
 		m.syncMainContentDimensions()
 
-		m.userPRSections = slices.Clone(m.ctx.Config.PRSections)
 		m.reviewers = newReviewers(m.ctx.Config)
-		m.rebuildReviewSections()
 		m.syncWatchState()
 		cmds = append(cmds, m.reviewers.startCmds())
 
@@ -784,7 +782,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prview.EnrichedPrMsg:
 		if msg.Err == nil {
 			m.prView.SetEnrichedPR(msg.Data)
-			if msg.Id >= 0 && msg.Id < len(m.prs) {
+			// Section ids index the current view's sections; only PR
+			// sections cache enriched rows.
+			if rs, ok := m.getCurrSection().(*reviewsection.Model); ok &&
+				m.ctx.View == config.ReviewingView {
+				rs.EnrichPR(msg.Data)
+			}
+			if m.ctx.View == config.PRsView && msg.Id >= 0 && msg.Id < len(m.prs) {
 				if prSection, ok := m.prs[msg.Id].(*prssection.Model); ok {
 					prSection.EnrichPR(msg.Data)
 				}
@@ -853,12 +857,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.notify(msg.note))
 		}
 		m.syncWatchState()
-		if msg.refresh {
-			m.rebuildReviewSections()
-			newSections, fetchSectionsCmds := m.fetchAllViewSections()
-			m.setCurrentViewSections(newSections)
-			cmds = append(cmds, fetchSectionsCmds)
-		}
 		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())
 
@@ -1155,6 +1153,9 @@ func (m *Model) markNotificationAsRead(notificationId string) {
 func (m *Model) onViewedRowChanged() tea.Cmd {
 	m.prView.SetSummaryViewLess()
 	m.prView.GoToFirstTab()
+	if m.ctx.View == config.ReviewingView {
+		m.prView.GoToReviewTab()
+	}
 	sidebarCmd := m.syncSidebar()
 	enrichCmd := m.prView.EnrichCurrRow()
 	m.sidebar.ScrollToTop()
@@ -1211,6 +1212,11 @@ func (m *Model) updateSection(id int, sType string, msg tea.Msg) (cmd tea.Cmd) {
 		if id >= 0 && id < len(m.issues) && m.issues[id] != nil {
 			updatedSection, cmd = m.issues[id].Update(msg)
 			m.issues[id] = updatedSection
+		}
+	case reviewsection.SectionType:
+		if id >= 0 && id < len(m.reviewSections) && m.reviewSections[id] != nil {
+			updatedSection, cmd = m.reviewSections[id].Update(msg)
+			m.reviewSections[id] = updatedSection
 		}
 	}
 
@@ -1628,6 +1634,9 @@ func (m *Model) fetchAllViewSections() ([]section.Section, tea.Cmd) {
 		s, prcmds := prssection.FetchAllSections(m.ctx, m.prs)
 		cmds = append(cmds, prcmds)
 		return s, tea.Batch(cmds...)
+	case config.ReviewingView:
+		// Built from local watch state; nothing to fetch.
+		return m.buildReviewSections(), nil
 	default:
 		s, issuecmds := issuessection.FetchAllSections(m.ctx)
 		cmds = append(cmds, issuecmds)
@@ -1649,6 +1658,8 @@ func (m *Model) getCurrentViewSections() []section.Section {
 		return m.notifications
 	case config.PRsView:
 		return m.prs
+	case config.ReviewingView:
+		return m.reviewSections
 	default:
 		return m.issues
 	}
@@ -1656,8 +1667,8 @@ func (m *Model) getCurrentViewSections() []section.Section {
 
 func (m *Model) getCurrentViewDefaultSection() int {
 	switch m.ctx.View {
-	case config.RepoView:
-		return 0
+	case config.RepoView, config.ReviewingView:
+		return 0 // no search section
 	case config.NotificationsView:
 		return 1 // First notification section after search section
 	case config.PRsView:
@@ -1702,6 +1713,12 @@ func (m *Model) setCurrentViewSections(newSections []section.Section) {
 		return
 	}
 
+	if m.ctx.View == config.ReviewingView {
+		m.reviewSections = newSections
+		m.tabs.SetSections(newSections)
+		return
+	}
+
 	missingSearchSection := len(newSections) == 0 ||
 		(len(newSections) > 0 && newSections[0].GetId() != 0)
 	s := make([]section.Section, 0)
@@ -1742,6 +1759,25 @@ func (m *Model) setCurrentViewSections(newSections []section.Section) {
 	m.tabs.SetSections(newSections)
 }
 
+// nextView is the view after v in the cycle Notifications → PRs →
+// Reviewing (when watches are configured) → Issues → Repo (when enabled).
+func nextView(v config.ViewType, reviewing, repo bool) config.ViewType {
+	order := []config.ViewType{config.NotificationsView, config.PRsView}
+	if reviewing {
+		order = append(order, config.ReviewingView)
+	}
+	order = append(order, config.IssuesView)
+	if repo {
+		order = append(order, config.RepoView)
+	}
+	for i, o := range order {
+		if o == v {
+			return order[(i+1)%len(order)]
+		}
+	}
+	return config.NotificationsView
+}
+
 func (m *Model) switchSelectedView() tea.Cmd {
 	repoFF := config.IsFeatureEnabled(config.FF_REPO_VIEW)
 
@@ -1751,28 +1787,7 @@ func (m *Model) switchSelectedView() tea.Cmd {
 		m.notificationView.ClearSubject()
 	}
 
-	// View cycle: Notifications → PRs → Issues (→ Repo if enabled) → Notifications
-	if repoFF {
-		switch m.ctx.View {
-		case config.NotificationsView:
-			m.ctx.View = config.PRsView
-		case config.PRsView:
-			m.ctx.View = config.IssuesView
-		case config.IssuesView:
-			m.ctx.View = config.RepoView
-		case config.RepoView:
-			m.ctx.View = config.NotificationsView
-		}
-	} else {
-		switch m.ctx.View {
-		case config.NotificationsView:
-			m.ctx.View = config.PRsView
-		case config.PRsView:
-			m.ctx.View = config.IssuesView
-		default:
-			m.ctx.View = config.NotificationsView
-		}
-	}
+	m.ctx.View = nextView(m.ctx.View, len(m.reviewers) > 0, repoFF)
 
 	m.syncMainContentDimensions()
 	m.setCurrSectionId(m.getCurrentViewDefaultSection())
@@ -1809,7 +1824,7 @@ func (m *Model) isUserDefinedKeybinding(msg tea.KeyMsg) bool {
 		}
 	}
 
-	if m.ctx.View == config.PRsView {
+	if m.ctx.View.IsPRLike() {
 		for _, keybinding := range m.ctx.Config.Keybindings.Prs {
 			if keybinding.Builtin == "" && keybinding.Key == msg.String() {
 				return true

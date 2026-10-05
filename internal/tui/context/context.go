@@ -104,6 +104,12 @@ func (ctx *ProgramContext) GetViewSectionsConfig() []config.SectionConfig {
 		for _, cfg := range ctx.Config.PRSections {
 			configs = append(configs, cfg.ToSectionConfig())
 		}
+	case config.ReviewingView:
+		// One table per watch and no search section.
+		for _, w := range ctx.Config.ReviewingFor.Watches {
+			configs = append(configs, config.SectionConfig{Title: w.Name})
+		}
+		return configs
 	case config.IssuesView:
 		for _, cfg := range ctx.Config.IssuesSections {
 			configs = append(configs, cfg.ToSectionConfig())

@@ -71,6 +71,8 @@ func (a *ViewType) UnmarshalJSON(b []byte) error {
 		*a = IssuesView
 	case "repo":
 		*a = RepoView
+	case "reviewing":
+		*a = ReviewingView
 	}
 
 	return nil
@@ -81,14 +83,20 @@ const (
 	PRsView           ViewType = "prs"
 	IssuesView        ViewType = "issues"
 	RepoView          ViewType = "repo"
+	ReviewingView     ViewType = "reviewing"
 )
+
+// IsPRLike reports whether the view lists pull requests, so PR keys, the PR
+// sidebar, and PR actions apply in it.
+func (vt ViewType) IsPRLike() bool {
+	return vt == PRsView || vt == ReviewingView
+}
 
 type SectionConfig struct {
 	Title   string
 	Filters string
 	Limit   *int      `yaml:"limit,omitempty"`
 	Type    *ViewType `yaml:"type,omitempty"`
-	Urls    []string  `yaml:"-"`
 }
 
 type PrsSectionConfig struct {
@@ -97,9 +105,6 @@ type PrsSectionConfig struct {
 	Limit   *int            `yaml:"limit,omitempty"`
 	Layout  PrsLayoutConfig `yaml:"layout,omitempty"`
 	Type    *ViewType       `yaml:"type,omitempty"`
-	// Urls, when set, lists the section's PRs directly instead of searching.
-	// It is never read from config files.
-	Urls []string `yaml:"-"`
 }
 
 type IssuesSectionConfig struct {
@@ -927,6 +932,9 @@ func (parser ConfigParser) unmarshalConfigWithDefaults() (Config, error) {
 
 	repoFF := IsFeatureEnabled(FF_REPO_VIEW)
 	if cfg.Defaults.View == RepoView && !repoFF {
+		cfg.Defaults.View = PRsView
+	}
+	if cfg.Defaults.View == ReviewingView && len(cfg.ReviewingFor.Watches) == 0 {
 		cfg.Defaults.View = PRsView
 	}
 

@@ -14,9 +14,9 @@ import (
 	"github.com/kbsteere/dispatch/v4/internal/data"
 	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/common"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/reviewsection"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/section"
 )
-
-const reviewingSectionPrefix = "Reviewing: "
 
 // reviewers are the running reviewingFor watches, one engine each.
 type reviewers []*reviewing.Engine
@@ -35,9 +35,8 @@ type (
 	}
 	// reviewActionMsg reports a user action on a watch (add, remove, send).
 	reviewActionMsg struct {
-		note    string
-		err     error
-		refresh bool
+		note string
+		err  error
 	}
 )
 
@@ -146,18 +145,6 @@ func (r reviewers) watchPRs() map[string]reviewing.PRState {
 	return out
 }
 
-func (r reviewers) pinnedURLs() map[string][]string {
-	out := map[string][]string{}
-	for _, e := range r {
-		for _, st := range e.States() {
-			if st.Pinned {
-				out[e.Name()] = append(out[e.Name()], st.Key.URL())
-			}
-		}
-	}
-	return out
-}
-
 func footerText(statuses []reviewing.WatchStatus) string {
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
@@ -179,70 +166,45 @@ func footerText(statuses []reviewing.WatchStatus) string {
 	return strings.Join(parts, " │ ")
 }
 
-// ReviewingSections are the PR sections for each watch: its search, plus a
-// section listing PRs added by hand when there are any.
-func ReviewingSections(
-	cfg config.ReviewingForConfig,
-	pinned map[string][]string,
-) []config.PrsSectionConfig {
-	var out []config.PrsSectionConfig
-	for _, w := range cfg.Watches {
-		out = append(
-			out,
-			config.PrsSectionConfig{
-				Title:   reviewingSectionPrefix + w.Name,
-				Filters: w.SearchFilter(),
-			},
-		)
-		if urls := pinned[w.Name]; len(urls) > 0 {
-			out = append(
-				out,
-				config.PrsSectionConfig{
-					Title: reviewingSectionPrefix + w.Name + " · added",
-					Urls:  urls,
-				},
-			)
-		}
+func (m *Model) syncWatchState() {
+	m.ctx.WatchPRs = m.reviewers.watchPRs()
+	m.ctx.WatchFooter = footerText(m.reviewers.statuses())
+	m.refreshReviewSections()
+}
+
+// buildReviewSections creates the Reviewing view's tables, one per watch.
+func (m *Model) buildReviewSections() []section.Section {
+	out := make([]section.Section, 0, len(m.reviewers))
+	for i, e := range m.reviewers {
+		s := reviewsection.NewModel(i, m.ctx, e.Name())
+		s.SetData(e.Status(), e.States())
+		out = append(out, &s)
 	}
 	return out
 }
 
-// watchFromSectionTitle returns the watch a reviewing section belongs to.
-func watchFromSectionTitle(title string) (string, bool) {
-	name, ok := strings.CutPrefix(title, reviewingSectionPrefix)
-	if !ok {
-		return "", false
+// refreshReviewSections reloads each table from its watch's state.
+func (m *Model) refreshReviewSections() {
+	for _, s := range m.reviewSections {
+		rs, ok := s.(*reviewsection.Model)
+		if !ok {
+			continue
+		}
+		if e := m.reviewers.byName(rs.Watch()); e != nil {
+			rs.SetData(e.Status(), e.States())
+		}
 	}
-	name, _ = strings.CutSuffix(name, " · added")
-	return name, true
 }
 
-func (m *Model) syncWatchState() {
-	m.ctx.WatchPRs = m.reviewers.watchPRs()
-	m.ctx.WatchFooter = footerText(m.reviewers.statuses())
-}
-
-// rebuildReviewSections replaces the reviewing sections at the end of the
-// configured PR sections, so hand-added PRs appear and disappear.
-func (m *Model) rebuildReviewSections() {
-	if m.ctx.Config == nil {
-		return
-	}
-	m.ctx.Config.PRSections = append(slices.Clone(m.userPRSections),
-		ReviewingSections(m.ctx.Config.ReviewingFor, m.reviewers.pinnedURLs())...)
-}
-
-// targetEngine is the watch for the focused reviewing section, or the
-// first watch.
+// targetEngine is the watch of the focused Reviewing table, or the first
+// watch.
 func (m *Model) targetEngine() *reviewing.Engine {
 	if len(m.reviewers) == 0 {
 		return nil
 	}
-	if s := m.getCurrSection(); s != nil {
-		if name, ok := watchFromSectionTitle(s.GetConfig().Title); ok {
-			if e := m.reviewers.byName(name); e != nil {
-				return e
-			}
+	if rs, ok := m.getCurrSection().(*reviewsection.Model); ok {
+		if e := m.reviewers.byName(rs.Watch()); e != nil {
+			return e
 		}
 	}
 	return m.reviewers[0]
@@ -270,15 +232,22 @@ func (m *Model) toggleFollow(row data.RowData) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return reviewActionMsg{err: err} }
 	}
-	pinned := m.ctx.WatchPRs[k.URL()].Pinned
+	st, watched := m.ctx.WatchPRs[k.URL()]
+	pinned := st.Pinned
+	if watched && !pinned {
+		return func() tea.Msg {
+			return reviewActionMsg{
+				note: fmt.Sprintf("%s is already in a review watch; press N to review it now", k),
+			}
+		}
+	}
 	return func() tea.Msg {
 		if pinned {
 			if err := e.Unpin(k); err != nil {
 				return reviewActionMsg{err: err}
 			}
 			return reviewActionMsg{
-				note:    fmt.Sprintf("Removed %s from %s", k, e.Name()),
-				refresh: true,
+				note: fmt.Sprintf("Removed %s from %s", k, e.Name()),
 			}
 		}
 		if err := e.Pin(context.Background(), k); err != nil {
@@ -290,7 +259,6 @@ func (m *Model) toggleFollow(row data.RowData) tea.Cmd {
 				k,
 				e.Name(),
 			),
-			refresh: true,
 		}
 	}
 }
@@ -315,7 +283,6 @@ func (m *Model) addRef(ref string) tea.Cmd {
 				k,
 				e.Name(),
 			),
-			refresh: true,
 		}
 	}
 }

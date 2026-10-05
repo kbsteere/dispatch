@@ -95,6 +95,9 @@ type Backoff struct {
 type PRState struct {
 	Key          PRKey          `json:"key"`
 	NodeID       string         `json:"node_id,omitempty"`
+	Title        string         `json:"title,omitempty"`
+	Author       string         `json:"author,omitempty"`
+	CI           string         `json:"ci,omitempty"` // required-check state at the last poll
 	Pinned       bool           `json:"pinned,omitempty"`
 	Status       Status         `json:"status,omitempty"`
 	UpdatedAt    string         `json:"updated_at,omitempty"`

@@ -90,7 +90,7 @@ func (m *Model) executeKeybinding(key string) tea.Cmd {
 				return m.runCustomIssueCommand(keybinding.Command, data)
 			}
 		}
-	case config.PRsView:
+	case config.PRsView, config.ReviewingView:
 		for _, keybinding := range m.ctx.Config.Keybindings.Prs {
 			if keybinding.Key != key || keybinding.Command == "" {
 				continue

@@ -495,22 +495,22 @@ func (m *BaseModel) GetPromptConfirmation() string {
 	if m.IsPromptConfirmationShown {
 		var prompt string
 		switch {
-		case m.PromptConfirmationAction == "close" && m.Ctx.View == config.PRsView:
+		case m.PromptConfirmationAction == "close" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to close this PR? (y/N) "
 
-		case m.PromptConfirmationAction == "reopen" && m.Ctx.View == config.PRsView:
+		case m.PromptConfirmationAction == "reopen" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to reopen this PR? (y/N) "
 
-		case m.PromptConfirmationAction == "ready" && m.Ctx.View == config.PRsView:
+		case m.PromptConfirmationAction == "ready" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to mark this PR as ready? (y/N) "
 
-		case m.PromptConfirmationAction == "merge" && m.Ctx.View == config.PRsView:
+		case m.PromptConfirmationAction == "merge" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to merge this PR? (y/N) "
 
-		case m.PromptConfirmationAction == "update" && m.Ctx.View == config.PRsView:
+		case m.PromptConfirmationAction == "update" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to update this PR? (y/N) "
 
-		case m.PromptConfirmationAction == "approveWorkflows" && m.Ctx.View == config.PRsView:
+		case m.PromptConfirmationAction == "approveWorkflows" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to approve all workflows? (y/N) "
 
 		case m.PromptConfirmationAction == "close" && m.Ctx.View == config.IssuesView:

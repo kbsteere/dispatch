@@ -139,6 +139,9 @@ func (m *Model) renderViewButton(view config.ViewType) string {
 	case config.PRsView:
 		icon = constants.OpenIcon
 		label = " PRs"
+	case config.ReviewingView:
+		icon = constants.RobotIcon
+		label = " Reviewing"
 	case config.IssuesView:
 		icon = constants.IssueOpenedIcon
 		label = " Issues"
@@ -183,14 +186,24 @@ func (m *Model) renderViewSwitcher(ctx *context.ProgramContext) string {
 		user = ctx.Styles.Common.FooterStyle.Render("@" + ctx.User)
 	}
 
-	view := lipgloss.JoinHorizontal(
-		lipgloss.Top,
+	buttons := []string{
 		ctx.Styles.ViewSwitcher.ViewsSeparator.PaddingLeft(1).
 			Render(m.renderViewButton(config.NotificationsView)),
 		ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
 		m.renderViewButton(config.PRsView),
+	}
+	if ctx.Config != nil && len(ctx.Config.ReviewingFor.Watches) > 0 {
+		buttons = append(buttons,
+			ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
+			m.renderViewButton(config.ReviewingView))
+	}
+	buttons = append(buttons,
 		ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
-		m.renderViewButton(config.IssuesView),
+		m.renderViewButton(config.IssuesView))
+
+	view := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		lipgloss.JoinHorizontal(lipgloss.Top, buttons...),
 		lipgloss.NewStyle().Background(ctx.Styles.Common.FooterStyle.GetBackground()).Foreground(
 			ctx.Styles.ViewSwitcher.ViewsSeparator.GetBackground(),
 		).

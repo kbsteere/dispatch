@@ -68,7 +68,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	}
 
 	switch k.viewType {
-	case config.PRsView:
+	case config.PRsView, config.ReviewingView:
 		additionalKeys = PRFullHelp()
 		customKeys = append(customKeys, CustomPRBindings...)
 	case config.RepoView:

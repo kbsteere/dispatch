@@ -59,6 +59,27 @@ func TestReviewingForParses(t *testing.T) {
 	assert.Equal(t, 300, lim.MaxGithubPointsPerHour)
 }
 
+func TestReviewingViewDefault(t *testing.T) {
+	cfg, err := parseReviewingYAML(t, "defaults:\n  view: reviewing\n"+reviewingYAML)
+	require.NoError(t, err)
+	assert.Equal(t, ReviewingView, cfg.Defaults.View)
+
+	cfg, err = parseReviewingYAML(
+		t,
+		"defaults:\n  view: reviewing\nprSections:\n  - title: x\n    filters: is:open\n",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, PRsView, cfg.Defaults.View, "falls back to PRs without watches")
+}
+
+func TestViewTypeIsPRLike(t *testing.T) {
+	assert.True(t, PRsView.IsPRLike())
+	assert.True(t, ReviewingView.IsPRLike())
+	assert.False(t, IssuesView.IsPRLike())
+	assert.False(t, NotificationsView.IsPRLike())
+	assert.False(t, RepoView.IsPRLike())
+}
+
 func TestReviewingForAbsentIsEmpty(t *testing.T) {
 	cfg, err := parseReviewingYAML(t, "prSections:\n  - title: x\n    filters: is:open\n")
 	require.NoError(t, err)

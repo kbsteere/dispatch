@@ -31,45 +31,6 @@ func TestFooterText(t *testing.T) {
 	assert.Equal(t, "", footerText(nil))
 }
 
-func TestReviewingSections(t *testing.T) {
-	cfg := config.ReviewingForConfig{Watches: []config.ReviewWatch{
-		{
-			Name:    "sustaining-automation",
-			Authors: []string{"tcnghia"},
-			Scopes:  []string{"repo:chainguard-dev/mono"},
-		},
-	}}
-	got := ReviewingSections(
-		cfg,
-		map[string][]string{
-			"sustaining-automation": {"https://github.com/chainguard-dev/omnibump/pull/88"},
-		},
-	)
-	assert.Equal(t, []config.PrsSectionConfig{
-		{
-			Title:   "Reviewing: sustaining-automation",
-			Filters: "is:open draft:false archived:false repo:chainguard-dev/mono author:tcnghia",
-		},
-		{
-			Title: "Reviewing: sustaining-automation · added",
-			Urls:  []string{"https://github.com/chainguard-dev/omnibump/pull/88"},
-		},
-	}, got)
-	assert.Len(t, ReviewingSections(cfg, nil), 1, "no added section without hand-added PRs")
-	assert.Empty(t, ReviewingSections(config.ReviewingForConfig{}, nil))
-}
-
-func TestWatchFromSectionTitle(t *testing.T) {
-	name, ok := watchFromSectionTitle("Reviewing: sustaining-automation · added")
-	assert.True(t, ok)
-	assert.Equal(t, "sustaining-automation", name)
-	name, ok = watchFromSectionTitle("Reviewing: sustaining-automation")
-	assert.True(t, ok)
-	assert.Equal(t, "sustaining-automation", name)
-	_, ok = watchFromSectionTitle("My Pull Requests")
-	assert.False(t, ok)
-}
-
 func TestContextDirsSkipsWildcardsAndMissing(t *testing.T) {
 	dirs := contextDirs(map[string]string{
 		"chainguard-dev/*":    "/nowhere/*",
@@ -77,4 +38,24 @@ func TestContextDirsSkipsWildcardsAndMissing(t *testing.T) {
 		"chainguard-dev/nope": t.TempDir(),
 	})
 	assert.Empty(t, dirs, "wildcards are skipped and non-repos are dropped")
+}
+
+func TestNextView(t *testing.T) {
+	tests := []struct {
+		from            config.ViewType
+		reviewing, repo bool
+		want            config.ViewType
+	}{
+		{config.NotificationsView, true, false, config.PRsView},
+		{config.PRsView, true, false, config.ReviewingView},
+		{config.ReviewingView, true, false, config.IssuesView},
+		{config.IssuesView, true, false, config.NotificationsView},
+		{config.PRsView, false, false, config.IssuesView},
+		{config.IssuesView, false, true, config.RepoView},
+		{config.RepoView, true, true, config.NotificationsView},
+		{config.ReviewingView, false, false, config.NotificationsView},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, nextView(tt.from, tt.reviewing, tt.repo), "from %s", tt.from)
+	}
 }
