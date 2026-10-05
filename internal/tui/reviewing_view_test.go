@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kbsteere/dispatch/v4/internal/config"
@@ -95,4 +96,19 @@ func TestReviewingViewShowsPRsAfterFirstPoll(t *testing.T) {
 	require.Equal(t, 1, rs.NumRows(), "the table shows the watch's PRs after the poll")
 	require.Contains(t, rs.View(), "stereo#366936")
 	require.NotContains(t, rs.View(), "quota unknown")
+
+	// Refreshing reloads from watch state instead of blanking the table.
+	for _, k := range []string{"r", "R"} {
+		next, _ = m.Update(tea.KeyPressMsg{Code: rune(k[0]), Text: k})
+		m = next.(Model)
+		rs, ok = m.getCurrSection().(*reviewsection.Model)
+		require.True(t, ok)
+		require.Equal(t, 1, rs.NumRows(), "after %q the table still shows the watch's PRs", k)
+		require.False(t, rs.GetIsLoading())
+	}
+}
+
+func TestManualPollDoesNotStartAnotherLoop(t *testing.T) {
+	require.True(t, reschedule(reviewPolledMsg{}))
+	require.False(t, reschedule(reviewPolledMsg{manual: true}))
 }

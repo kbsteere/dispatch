@@ -28,6 +28,9 @@ type (
 		jobs  []reviewing.Job
 		next  time.Duration
 		err   error
+		// manual marks a poll the user asked for; it does not schedule the
+		// next poll, so there is only ever one poll loop per watch.
+		manual bool
 	}
 	reviewDoneMsg struct {
 		watch string
@@ -97,6 +100,28 @@ func pollCmd(e *reviewing.Engine) tea.Cmd {
 		jobs, next, err := e.Poll(context.Background())
 		return reviewPolledMsg{watch: e.Name(), jobs: jobs, next: next, err: err}
 	}
+}
+
+// manualPollCmd polls now without affecting the regular poll schedule.
+func manualPollCmd(e *reviewing.Engine) tea.Cmd {
+	return func() tea.Msg {
+		jobs, next, err := e.Poll(context.Background())
+		return reviewPolledMsg{watch: e.Name(), jobs: jobs, next: next, err: err, manual: true}
+	}
+}
+
+// reschedule reports whether a finished poll schedules the next one.
+func reschedule(msg reviewPolledMsg) bool { return !msg.manual }
+
+// refreshReviewing reloads the Reviewing tables from watch state and polls
+// every watch now.
+func (m *Model) refreshReviewing() tea.Cmd {
+	m.syncWatchState()
+	cmds := make([]tea.Cmd, 0, len(m.reviewers))
+	for _, e := range m.reviewers {
+		cmds = append(cmds, manualPollCmd(e))
+	}
+	return tea.Batch(cmds...)
 }
 
 func reviewCmd(e *reviewing.Engine, j reviewing.Job) tea.Cmd {
@@ -344,7 +369,7 @@ func (m *Model) reviewNow(row data.RowData) tea.Cmd {
 	if err := e.Force(k); err != nil {
 		return func() tea.Msg { return reviewActionMsg{err: err} }
 	}
-	return tea.Batch(m.notify(fmt.Sprintf("Reviewing %s on the next poll", k)), pollCmd(e))
+	return tea.Batch(m.notify(fmt.Sprintf("Reviewing %s on the next poll", k)), manualPollCmd(e))
 }
 
 func (m *Model) togglePause() tea.Cmd {
@@ -357,5 +382,5 @@ func (m *Model) togglePause() tea.Cmd {
 	if e.Paused() {
 		return m.notify(fmt.Sprintf("Paused review watch %s", e.Name()))
 	}
-	return tea.Batch(m.notify(fmt.Sprintf("Resumed review watch %s", e.Name())), pollCmd(e))
+	return tea.Batch(m.notify(fmt.Sprintf("Resumed review watch %s", e.Name())), manualPollCmd(e))
 }

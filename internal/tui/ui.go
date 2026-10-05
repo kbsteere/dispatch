@@ -304,6 +304,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 
+		case m.ctx.View == config.ReviewingView &&
+			(key.Matches(msg, m.keys.Refresh) || key.Matches(msg, m.keys.RefreshAll)):
+			// Reviewing tables come from watch state: reload it and poll now
+			// rather than clearing rows that have no search to refetch them.
+			data.ClearEnrichmentCache()
+			cmds = append(cmds, m.refreshReviewing())
+
 		case key.Matches(msg, m.keys.Refresh):
 			if currSection != nil {
 				data.ClearEnrichmentCache()
@@ -832,7 +839,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.syncWatchState()
 		m.resyncPrSectionRows()
-		cmds = append(cmds, tickCmd(msg.watch, msg.next), m.syncSidebar())
+		if reschedule(msg) {
+			cmds = append(cmds, tickCmd(msg.watch, msg.next))
+		}
+		cmds = append(cmds, m.syncSidebar())
 
 	case reviewDoneMsg:
 		if msg.out.Err != nil {
