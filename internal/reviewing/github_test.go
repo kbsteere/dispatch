@@ -3,11 +3,14 @@ package reviewing
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,11 +85,15 @@ type gqlRequest struct {
 }
 
 // fakeGH serves GraphQL at /graphql and REST everywhere else.
-func fakeGH(t *testing.T, gql func(gqlRequest) string, rest http.HandlerFunc) (GitHub, *int) {
+func fakeGH(
+	t *testing.T,
+	gql func(gqlRequest) string,
+	rest http.HandlerFunc,
+) (GitHub, *atomic.Int64) {
 	t.Helper()
-	hits := 0
+	var hits atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		hits.Add(1)
 		if r.URL.Path == "/graphql" {
 			var req gqlRequest
 			b, _ := io.ReadAll(r.Body)
@@ -352,6 +359,43 @@ func TestDetailsPaginatesFiles(t *testing.T) {
 	assert.Equal(t, 3, rl.Cost, "every page's cost is counted")
 }
 
+func TestDetailsFetchesConcurrentlyInOrder(t *testing.T) {
+	// A watch's first poll reads every open PR; doing that one request at a
+	// time took about a minute for 45 PRs.
+	var mu sync.Mutex
+	inFlight, peak := 0, 0
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		mu.Lock()
+		inFlight++
+		peak = max(peak, inFlight)
+		mu.Unlock()
+		time.Sleep(30 * time.Millisecond)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		id := r.Variables["id"].(string)
+		n := strings.TrimPrefix(id, "PR_")
+		return strings.NewReplacer(`"id":"PR_kwDOA1"`, `"id":"`+id+`"`, `"number":1234`, `"number":`+n).
+			Replace(detailResp)
+	}, noREST(t))
+
+	var ids []string
+	for i := 1; i <= 16; i++ {
+		ids = append(ids, fmt.Sprintf("PR_%d", i))
+	}
+	start := time.Now()
+	ds, rl, err := gh.Details(context.Background(), ids)
+	require.NoError(t, err)
+	require.Len(t, ds, 16)
+	for i, d := range ds {
+		assert.Equal(t, i+1, d.Key.Number, "results keep the requested order")
+	}
+	assert.Equal(t, 16, rl.Cost, "every request's cost is counted")
+	assert.Greater(t, peak, 1, "requests overlap")
+	assert.LessOrEqual(t, peak, detailConcurrency, "concurrency is bounded")
+	assert.Less(t, time.Since(start), 16*30*time.Millisecond)
+}
+
 func TestDetailsSkipsInvalidRepo(t *testing.T) {
 	gh, _ := fakeGH(t, func(gqlRequest) string {
 		return strings.Replace(detailResp, `"name":"stereo"`, `"name":".."`, 1)
@@ -381,12 +425,12 @@ func TestRequiredContexts(t *testing.T) {
 	req, err := gh.RequiredContexts(context.Background(), monoKey, "main")
 	require.NoError(t, err)
 	assert.Equal(t, RequiredContexts{"check-go-complete": {15368}, "lint": nil}, req)
-	first := *hits
+	first := hits.Load()
 
 	again, err := gh.RequiredContexts(context.Background(), monoKey, "main")
 	require.NoError(t, err)
 	assert.Equal(t, req, again)
-	assert.Equal(t, first, *hits, "second call is served from cache")
+	assert.Equal(t, first, hits.Load(), "second call is served from cache")
 }
 
 func TestRequiredContextsClassicProtection(t *testing.T) {

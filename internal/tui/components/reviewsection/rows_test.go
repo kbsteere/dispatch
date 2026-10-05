@@ -106,10 +106,25 @@ func TestCellsEdgeCases(t *testing.T) {
 	assert.Equal(t, "", Cells(b, now).Updated)
 }
 
+func TestSummaryBeforeFirstPollAndOnError(t *testing.T) {
+	ws := reviewing.WatchStatus{Name: "sustaining-automation", Mode: "dry run", DailyBudget: 100}
+	assert.Equal(t,
+		"sustaining-automation · dry run · $0.00/$100 today · 0 reviewing · polling GitHub…",
+		Summary(ws))
+
+	ws.LastPoll = now
+	ws.QuotaRemaining = 3912
+	ws.Err = "non-200 OK status code: 502 Bad Gateway\x1b[2J " + strings.Repeat("x", 200)
+	got := Summary(ws)
+	assert.Contains(t, got, "quota 3,912 · error: non-200 OK status code: 502 Bad Gateway[2J")
+	assert.NotContains(t, got, "\x1b")
+	assert.Less(t, len([]rune(got)), 200, "long errors are clipped")
+}
+
 func TestSummary(t *testing.T) {
 	ws := reviewing.WatchStatus{
 		Name: "sustaining-automation", Mode: "live", SpentToday: 14.2, DailyBudget: 100,
-		InFlight: 2, QuotaRemaining: 3912,
+		InFlight: 2, QuotaRemaining: 3912, LastPoll: now,
 	}
 	assert.Equal(t,
 		"sustaining-automation · live · $14.20/$100 today · 2 reviewing · quota 3,912",

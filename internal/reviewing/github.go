@@ -475,42 +475,78 @@ func (n detailJSON) toDetail() PRDetail {
 	return d
 }
 
-// Details fetches each PR separately because isRequired needs the PR's id.
+// detailConcurrency bounds how many PRs Details fetches at once.
+const detailConcurrency = 8
+
+// Details fetches each PR separately, because isRequired needs the PR's id,
+// with up to detailConcurrency requests in flight. Results keep the order of
+// nodeIDs; PRs that no longer exist or have invalid names are skipped.
 func (g *ghClient) Details(ctx context.Context, nodeIDs []string) ([]PRDetail, RateLimit, error) {
+	type result struct {
+		d   *PRDetail
+		rl  RateLimit
+		err error
+	}
+	results := make([]result, len(nodeIDs))
+	sem := make(chan struct{}, detailConcurrency)
+	var wg sync.WaitGroup
+	for i, id := range nodeIDs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			d, rl, err := g.detail(ctx, id)
+			results[i] = result{d, rl, err}
+		}()
+	}
+	wg.Wait()
+
 	var out []PRDetail
 	var rl RateLimit
-	for _, id := range nodeIDs {
-		var resp struct {
-			RateLimit rateLimitJSON `json:"rateLimit"`
-			Node      *detailJSON   `json:"node"`
+	cost := 0
+	var firstErr error
+	for _, r := range results {
+		cost += r.rl.Cost
+		// The lowest remaining quota is the most recent reading.
+		if !r.rl.ResetAt.IsZero() && (rl.ResetAt.IsZero() || r.rl.Remaining < rl.Remaining) {
+			rl = r.rl
 		}
-		if err := g.gql.DoWithContext(
-			ctx,
-			detailQuery,
-			map[string]any{"id": id},
-			&resp,
-		); err != nil {
-			return out, rl, err
+		if r.err != nil && firstErr == nil {
+			firstErr = r.err
 		}
-		cost := rl.Cost + resp.RateLimit.Cost
-		rl = resp.RateLimit.toRateLimit()
-		rl.Cost = cost
-		if resp.Node == nil || resp.Node.ID == "" {
-			continue
+		if r.d != nil {
+			out = append(out, *r.d)
 		}
-		d := resp.Node.toDetail()
-		if !ValidName(d.Key.Owner) || !ValidName(d.Key.Repo) || d.Key.Number <= 0 {
-			continue
-		}
-		more, cost, err := g.remainingFiles(ctx, id, resp.Node.Files.PageInfo)
-		rl.Cost += cost
-		if err != nil {
-			return out, rl, err
-		}
-		d.Files = append(d.Files, more...)
-		out = append(out, d)
 	}
-	return out, rl, nil
+	rl.Cost = cost
+	return out, rl, firstErr
+}
+
+// detail fetches one PR, including every page of its changed files.
+func (g *ghClient) detail(ctx context.Context, id string) (*PRDetail, RateLimit, error) {
+	var resp struct {
+		RateLimit rateLimitJSON `json:"rateLimit"`
+		Node      *detailJSON   `json:"node"`
+	}
+	if err := g.gql.DoWithContext(ctx, detailQuery, map[string]any{"id": id}, &resp); err != nil {
+		return nil, RateLimit{}, err
+	}
+	rl := resp.RateLimit.toRateLimit()
+	if resp.Node == nil || resp.Node.ID == "" {
+		return nil, rl, nil
+	}
+	d := resp.Node.toDetail()
+	if !ValidName(d.Key.Owner) || !ValidName(d.Key.Repo) || d.Key.Number <= 0 {
+		return nil, rl, nil
+	}
+	more, cost, err := g.remainingFiles(ctx, id, resp.Node.Files.PageInfo)
+	rl.Cost += cost
+	if err != nil {
+		return nil, rl, err
+	}
+	d.Files = append(d.Files, more...)
+	return &d, rl, nil
 }
 
 type pageInfoJSON struct {

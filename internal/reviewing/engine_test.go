@@ -187,8 +187,10 @@ func TestPollRecordsDisplayFieldsAndStatus(t *testing.T) {
 		details: map[string]PRDetail{"N1": d},
 	}
 	e := newTestEngine(t, gh, &now)
+	assert.True(t, e.Status().LastPoll.IsZero(), "not polled yet")
 	_, _, err := e.Poll(context.Background())
 	require.NoError(t, err)
+	assert.Equal(t, now, e.Status().LastPoll)
 
 	st := stateOf(t, e, k)
 	assert.Equal(t, "kev: bump to 1.4.2", st.Title)

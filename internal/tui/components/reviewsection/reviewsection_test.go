@@ -100,6 +100,22 @@ func TestSectionCachesEnrichedPR(t *testing.T) {
 	assert.Equal(t, "full", row.Enriched.Title)
 }
 
+func TestSectionLoadingUntilFirstPoll(t *testing.T) {
+	m := newTestSection(t)
+	m.SetData(reviewing.WatchStatus{Name: "sustaining-automation"}, nil)
+	assert.True(t, m.GetIsLoading(), "first poll still running")
+	assert.NotContains(t, m.View(), "No PRs were found")
+
+	m.SetData(reviewing.WatchStatus{Name: "sustaining-automation", LastPoll: now}, nil)
+	assert.False(t, m.GetIsLoading())
+	assert.Contains(
+		t,
+		m.View(),
+		"No PRs were found",
+		"after a poll an empty table is a real result",
+	)
+}
+
 func TestSectionHasNoSearchOrFetch(t *testing.T) {
 	m := newTestSection(t)
 	assert.Nil(t, m.SetIsSearching(true))

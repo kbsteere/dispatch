@@ -63,6 +63,9 @@ type WatchStatus struct {
 	// QuotaRemaining is the GitHub GraphQL quota left, or 0 when unknown.
 	QuotaRemaining int
 	DailyBudget    float64
+	// LastPoll is when the last successful poll finished; zero before the
+	// first one.
+	LastPoll time.Time
 }
 
 // Engine runs one watch: it polls, claims PRs, runs review passes, and
@@ -82,6 +85,7 @@ type Engine struct {
 	paused   bool
 	pauseWhy string
 	lastErr  string
+	lastPoll time.Time
 	closing  bool
 }
 
@@ -253,6 +257,7 @@ func (e *Engine) Status() WatchStatus {
 		Err:            e.lastErr,
 		QuotaRemaining: e.quota.Remaining,
 		DailyBudget:    e.d.Limits.DailyBudgetUsd,
+		LastPoll:       e.lastPoll,
 	}
 }
 
@@ -457,6 +462,7 @@ func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
 	e.setErr(nil)
 
 	e.mu.Lock()
+	e.lastPoll = e.d.Now()
 	next, why := e.quota.Next(lim.PollInterval, lim.MaxGithubPointsPerHour, now)
 	e.mu.Unlock()
 	e.setPause(why)

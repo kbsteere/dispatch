@@ -158,11 +158,18 @@ func Summary(ws reviewing.WatchStatus) string {
 		state = "paused: " + ws.Paused
 	}
 	quota := "quota unknown"
-	if ws.QuotaRemaining > 0 {
+	switch {
+	case ws.LastPoll.IsZero():
+		quota = "polling GitHub…"
+	case ws.QuotaRemaining > 0:
 		quota = "quota " + thousands(ws.QuotaRemaining)
 	}
-	return fmt.Sprintf("%s · %s · $%.2f/$%s today · %d reviewing · %s",
+	s := fmt.Sprintf("%s · %s · $%.2f/$%s today · %d reviewing · %s",
 		ws.Name, state, ws.SpentToday, trimFloat(ws.DailyBudget), ws.InFlight, quota)
+	if ws.Err != "" {
+		s += " · error: " + clip(reviewing.SanitizeTerminal(ws.Err), 80)
+	}
+	return s
 }
 
 func thousands(n int) string {

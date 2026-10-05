@@ -68,7 +68,9 @@ func (m *Model) SetData(ws reviewing.WatchStatus, states []reviewing.PRState) {
 	m.states = SortStates(states)
 	m.TotalCount = len(m.states)
 	m.Table.SetRows(m.BuildRows())
-	m.Table.SetIsLoading(false)
+	// Until the first poll finishes there is nothing to show yet; say so
+	// instead of claiming no PRs match.
+	m.SetIsLoading(ws.LastPoll.IsZero() && len(m.states) == 0)
 }
 
 func ciGlyph(ci string) string {
