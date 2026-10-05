@@ -343,6 +343,7 @@ type Config struct {
 	IconStyle                string                       `yaml:"iconStyle,omitempty"                            validate:"omitempty,oneof=nerd text"`
 	SmartFilteringAtLaunch   bool                         `yaml:"smartFilteringAtLaunch"                         default:"true"`
 	IncludeReadNotifications bool                         `yaml:"includeReadNotifications"                       default:"true"`
+	ReviewingFor             ReviewingForConfig           `yaml:"reviewingFor,omitempty"`
 }
 
 type configError struct {
@@ -862,6 +863,8 @@ func initParser() ConfigParser {
 	})
 
 	validate.RegisterValidation("color", validateColor)
+	validate.RegisterValidation("watchname", validateWatchName)
+	validate.RegisterValidation("reviewscope", validateReviewScope)
 
 	return ConfigParser{
 		k: koanf.NewWithConf(conf),
