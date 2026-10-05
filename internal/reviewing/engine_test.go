@@ -212,6 +212,7 @@ func TestPollClaimsAfterNewPushSettles(t *testing.T) {
 	}
 	e := newTestEngine(t, gh, &now)
 	_, _, _ = e.Poll(context.Background()) // baseline
+	_, _ = e.update(k, func(s *PRState) { s.CodeReviewedHead = a })
 
 	gh.hits[0].UpdatedAt = b
 	gh.details["N1"] = detail(1, b)
@@ -239,6 +240,7 @@ func TestPollForeignCommentTriggersLedgerPass(t *testing.T) {
 	}
 	e := newTestEngine(t, gh, &now)
 	_, _, _ = e.Poll(context.Background())
+	_, _ = e.update(k, func(s *PRState) { s.CodeReviewedHead = a })
 
 	d := detail(1, a)
 	d.Comments = []Comment{
@@ -547,4 +549,47 @@ func TestDraftFor(t *testing.T) {
 	require.NoError(t, writeDraft(st.HeldDraft, held))
 	_, ok = e.DraftFor(st)
 	assert.False(t, ok, "a held path outside the drafts dir is not read")
+}
+
+func TestBaselineActivityGetsFullPass(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	gh := &fakeGitHub{
+		viewer: "kbsteere", hits: []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: "u1"}},
+		details: map[string]PRDetail{"N1": detail(1, a)},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, _ = e.Poll(t.Context())
+	require.Equal(t, StatusBaseline, stateOf(t, e, k).Status)
+
+	d := detail(1, a)
+	d.Comments = []Comment{
+		{Author: "powersj", Body: "lgtm once CI is green", CreatedAt: t0.Add(time.Minute)},
+	}
+	gh.details["N1"] = d
+	gh.hits[0].UpdatedAt = "u2"
+	jobs, _, _ := e.Poll(t.Context())
+	require.Len(t, jobs, 1)
+	assert.Equal(t, PassFull, jobs[0].Pass, "a baseline PR's code was never read")
+}
+
+func TestChoosePass(t *testing.T) {
+	a, b := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	tests := []struct {
+		name     string
+		reviewed string
+		forced   bool
+		want     Pass
+	}{
+		{"code never read", "", false, PassFull},
+		{"head moved since the code review", a, false, PassIncremental},
+		{"only comments changed", b, false, PassLedger},
+		{"forced review of an unchanged head", b, true, PassFull},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, choosePass(tt.reviewed, b, tt.forced))
+		})
+	}
 }

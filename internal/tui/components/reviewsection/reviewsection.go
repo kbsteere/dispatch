@@ -49,7 +49,7 @@ func NewModel(id int, ctx *context.ProgramContext, watch string) Model {
 func Columns() []table.Column {
 	grow := true
 	return []table.Column{
-		{Title: "Status", Width: utils.IntPtr(11)},
+		{Title: "Status", Width: utils.IntPtr(17)},
 		{Title: "PR", Grow: &grow},
 		{Title: "Author", Width: utils.IntPtr(14)},
 		{Title: "Open", Width: utils.IntPtr(7)},

@@ -146,3 +146,14 @@ func TestRenderDraft(t *testing.T) {
 		"Held review: Comment",
 	)
 }
+
+func TestRenderWatchBlockMarksDryRun(t *testing.T) {
+	st := reviewing.PRState{Status: reviewing.StatusApproved, DryRun: true}
+	assert.Contains(
+		t,
+		renderWatchBlock(st, 200, time.Now()),
+		"Watch: approved (dry run, not posted)",
+	)
+	st.DryRun = false
+	assert.NotContains(t, renderWatchBlock(st, 200, time.Now()), "dry run")
+}

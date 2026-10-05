@@ -175,3 +175,10 @@ func TestPRData(t *testing.T) {
 	assert.Equal(t, "kev: bump", d.Primary.Title)
 	assert.False(t, d.IsEnriched, "the sidebar enriches it on selection")
 }
+
+func TestCellsMarksDryRunStatus(t *testing.T) {
+	s := st("stereo", 367322, reviewing.StatusApproved, time.Minute)
+	assert.Equal(t, "approved", Cells(s, now).Status)
+	s.DryRun = true
+	assert.Equal(t, "approved (dry)", Cells(s, now).Status, "nothing was posted")
+}

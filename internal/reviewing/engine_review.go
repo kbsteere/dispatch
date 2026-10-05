@@ -125,9 +125,9 @@ func (e *Engine) runSession(
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		return RunResult{}, "", err
 	}
-	lastReviewed := ""
-	if st.ReviewedSig != nil {
-		lastReviewed = st.ReviewedSig.Head
+	lastReviewed := st.CodeReviewedHead
+	if job.Pass == PassFull {
+		lastReviewed = ""
 	}
 	files, err := WriteReviewFiles(ctx, repo, cwd, mergeBase, job.Detail.HeadOID, lastReviewed)
 	if err != nil {
@@ -280,7 +280,10 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		}
 		draft.Comments = append(
 			draft.Comments,
-			ReviewComment{Path: f.Path, Line: f.Line, StartLine: f.StartLine, Body: f.Body},
+			ReviewComment{
+				Path: f.Path, Line: f.Line, StartLine: f.StartLine,
+				Body: labelSeverity(f.Body, f.Blocking),
+			},
 		)
 		draft.Findings = append(draft.Findings, Finding{
 			ID: nextFindingID(append(st.Ledger, draft.Findings...)), Path: f.Path, Line: f.Line,
@@ -356,6 +359,9 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 	}
 	sig := e.signature(ctx, fresh[0], viewer)
 
+	// A comments-only pass reads no code, so it relies on an earlier full or
+	// incremental pass having read this head.
+	codeReviewed := job.Pass != PassLedger || st.CodeReviewedHead == fresh[0].HeadOID
 	tally, ledger := tallyFor(st.Ledger, draft)
 	snap := Snapshot{
 		State:                fresh[0].State,
@@ -367,6 +373,7 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		RequiredCI:           sig.CI,
 		ApprovedHead:         st.ApprovedHead,
 		OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
+		CodeReviewed:         codeReviewed,
 	}
 	action, status := Decide(snap, tally)
 	draft.Event = string(action)
@@ -394,6 +401,8 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 			s.Ledger = ledger
 			s.ReviewedSig = &sig
 			s.DesignRefs = review.DesignRefs
+			s.DryRun = true
+			markCodeReviewed(s, job.Pass, d.HeadOID)
 		})
 	}
 
@@ -407,6 +416,8 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		s.OurThreads = append(s.OurThreads, ourNew...)
 		s.ReviewedSig = &sig
 		s.DesignRefs = review.DesignRefs
+		s.DryRun = false
+		markCodeReviewed(s, job.Pass, d.HeadOID)
 		switch action {
 		case ActionApprove:
 			s.ApprovedHead = d.HeadOID
@@ -487,10 +498,8 @@ func (e *Engine) post(
 	if draft.Event == string(ActionNone) || draft.Event == "" {
 		return ledger, nil, nil
 	}
-	p := ReviewPayload{CommitID: draft.Head, Event: draft.Event}
-	if draft.Event != string(ActionApprove) {
-		p.Comments = draft.Comments
-	}
+	// Non-blocking comments are posted with an approval.
+	p := ReviewPayload{CommitID: draft.Head, Event: draft.Event, Comments: draft.Comments}
 	url, err := e.d.GitHub.PostReview(ctx, k, p)
 	if err != nil {
 		return ledger, nil, err
@@ -595,4 +604,24 @@ func (e *Engine) PostHeld(ctx context.Context, k PRKey) error {
 		}
 	})
 	return err
+}
+
+// markCodeReviewed records head as code-reviewed when the pass read code.
+func markCodeReviewed(s *PRState, pass Pass, head string) {
+	if pass != PassLedger {
+		s.CodeReviewedHead = head
+	}
+}
+
+// labelSeverity marks a non-blocking finding as such so the author can tell
+// it does not hold up the approval it is posted with.
+func labelSeverity(body string, blocking bool) string {
+	if blocking {
+		return body
+	}
+	lower := strings.ToLower(strings.TrimSpace(body))
+	if strings.HasPrefix(lower, "nit:") || strings.HasPrefix(lower, "non-blocking:") {
+		return body
+	}
+	return "non-blocking: " + body
 }

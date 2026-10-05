@@ -404,3 +404,87 @@ func TestReviewSSHFallbackClearsPrompt(t *testing.T) {
 	assert.Equal(t, ActionApprove, out.Posted, "the SSH fetch worked and the pass completed")
 	assert.Empty(t, h.e.Status().Prompt, "the touch prompt is cleared once the fetch ends")
 }
+
+func TestReviewNonBlockingFindingApprovesWithLabelledComment(t *testing.T) {
+	h := newReviewHarness(t, "nit", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted)
+
+	require.Len(t, h.gh.posted, 1)
+	p := h.gh.posted[0]
+	assert.Equal(t, "APPROVE", p.Event)
+	require.Len(t, p.Comments, 1, "the non-blocking comment is posted with the approval")
+	assert.Equal(
+		t,
+		"non-blocking: `Sync` could return early when the feed is empty, which skips one allocation.",
+		p.Comments[0].Body,
+	)
+
+	st := h.state(t)
+	assert.Equal(t, StatusApproved, st.Status)
+	assert.Equal(t, h.head, st.ApprovedHead)
+	assert.Equal(t, h.head, st.CodeReviewedHead)
+	assert.False(t, st.DryRun)
+	require.Len(t, st.Ledger, 1)
+	assert.False(t, st.Ledger[0].Blocking)
+}
+
+func TestReviewCommentsOnlyPassNeverApprovesUnreadCode(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	h.job.Pass = PassLedger
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	assert.Empty(t, h.gh.posted, "nothing read the code at this head")
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	assert.Empty(t, st.CodeReviewedHead, "a comments-only pass never marks code as read")
+	assert.Empty(t, st.ApprovedHead)
+}
+
+func TestReviewCommentsOnlyPassApprovesCodeReadAtHead(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	_, err := h.e.update(h.job.Key, func(s *PRState) { s.CodeReviewedHead = h.head })
+	require.NoError(t, err)
+	h.job.Pass = PassLedger
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted)
+}
+
+func TestReviewDryRunMarksStatusAsUnposted(t *testing.T) {
+	h := newReviewHarness(t, "success", func(w *config.ReviewWatch) { w.DryRun = true })
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Empty(t, h.gh.posted)
+	st := h.state(t)
+	assert.Equal(t, StatusApproved, st.Status)
+	assert.True(t, st.DryRun)
+	assert.Equal(t, h.head, st.CodeReviewedHead)
+	assert.Empty(t, st.ApprovedHead, "nothing was posted")
+}
+
+func TestLabelSeverity(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		blocking bool
+		want     string
+	}{
+		{
+			"blocking is unlabelled",
+			"`run` leaks the goroutine.",
+			true,
+			"`run` leaks the goroutine.",
+		},
+		{"non-blocking gets a label", "Rename `x`.", false, "non-blocking: Rename `x`."},
+		{"nit label is kept", "nit: rename `x`.", false, "nit: rename `x`."},
+		{"existing label is kept", "Non-blocking: rename `x`.", false, "Non-blocking: rename `x`."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, labelSeverity(tt.body, tt.blocking))
+		})
+	}
+}

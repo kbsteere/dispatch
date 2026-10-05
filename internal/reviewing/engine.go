@@ -572,13 +572,7 @@ func (e *Engine) claimLocked(
 	if len(e.claimed) >= lim.MaxInFlight {
 		return Job{}, false
 	}
-	pass := PassLedger
-	switch {
-	case st.ReviewedSig == nil:
-		pass = PassFull
-	case st.ReviewedSig.Head != d.HeadOID:
-		pass = PassIncremental
-	}
+	pass := choosePass(st.CodeReviewedHead, d.HeadOID, st.ForceReview)
 	st.Claim = &Claim{Since: now, Head: d.HeadOID}
 	st.Status = StatusReviewing
 	st.ForceReview = false
@@ -689,4 +683,18 @@ func (e *Engine) setPrompt(p string) {
 	e.mu.Lock()
 	e.prompt = p
 	e.mu.Unlock()
+}
+
+// choosePass picks how much of a PR a pass reviews. Code never read, or a
+// review the user asked for, gets a full pass; a head that moved since the
+// last code review gets an incremental pass; otherwise only comments changed.
+func choosePass(codeReviewedHead, head string, forced bool) Pass {
+	switch {
+	case codeReviewedHead == "" || forced:
+		return PassFull
+	case codeReviewedHead != head:
+		return PassIncremental
+	default:
+		return PassLedger
+	}
 }

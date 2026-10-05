@@ -8,12 +8,13 @@ import (
 
 func cleanSnap() Snapshot {
 	return Snapshot{
-		State:      "OPEN",
-		Author:     "dnegreira",
-		Viewer:     "kbsteere",
-		Mergeable:  "MERGEABLE",
-		Head:       "h2",
-		RequiredCI: "SUCCESS",
+		State:        "OPEN",
+		Author:       "dnegreira",
+		Viewer:       "kbsteere",
+		Mergeable:    "MERGEABLE",
+		Head:         "h2",
+		RequiredCI:   "SUCCESS",
+		CodeReviewed: true,
 	}
 }
 
@@ -48,11 +49,18 @@ func TestDecide(t *testing.T) {
 			StatusChangesRequested,
 		},
 		{
-			"new nit only comments",
+			"new nit only approves with the comment",
 			nil,
 			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionApprove,
+			StatusApproved,
+		},
+		{
+			"new nit while ci is pending only comments",
+			func(s *Snapshot) { s.RequiredCI = "PENDING" },
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
 			ActionComment,
-			StatusWaitingOnAuthor,
+			StatusWaitingOnCI,
 		},
 		{
 			"blocking after own approval withdraws",
@@ -62,11 +70,18 @@ func TestDecide(t *testing.T) {
 			StatusChangesRequested,
 		},
 		{
-			"nit after own approval only comments",
+			"nit on a new head re-approves with the comment",
 			func(s *Snapshot) { s.ApprovedHead = "h1" },
 			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionApprove,
+			StatusApproved,
+		},
+		{
+			"nit at the approved head only comments",
+			func(s *Snapshot) { s.ApprovedHead = "h2" },
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
 			ActionComment,
-			StatusWaitingOnAuthor,
+			StatusApproved,
 		},
 		{
 			"outstanding old blocking, nothing new",
@@ -76,11 +91,25 @@ func TestDecide(t *testing.T) {
 			StatusChangesRequested,
 		},
 		{
-			"outstanding old nit, nothing new",
+			"outstanding old nit, nothing new, approves",
 			nil,
 			Tally{OutstandingNonBlocking: 1},
+			ActionApprove,
+			StatusApproved,
+		},
+		{
+			"code not reviewed at head never approves",
+			func(s *Snapshot) { s.CodeReviewed = false },
+			Tally{},
 			ActionNone,
-			StatusWaitingOnAuthor,
+			StatusNeedsAttention,
+		},
+		{
+			"code not reviewed at head with a nit only comments",
+			func(s *Snapshot) { s.CodeReviewed = false },
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionComment,
+			StatusNeedsAttention,
 		},
 		{
 			"ci pending waits",

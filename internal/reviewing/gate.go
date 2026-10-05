@@ -11,6 +11,9 @@ type Snapshot struct {
 	RequiredCI           string
 	ApprovedHead         string
 	OthersRequestChanges bool
+	// CodeReviewed reports that a full or incremental pass read the code at
+	// Head. A comments-only pass never does, so it alone cannot approve.
+	CodeReviewed bool
 }
 
 // Action is the single review event a pass posts.
@@ -33,36 +36,42 @@ type Tally struct {
 }
 
 // Decide picks the single review action for a pass and the resulting status.
-// It approves only an open, ready, mergeable PR by someone else whose
-// required checks passed and that has nothing outstanding.
+// It approves only an open, ready, mergeable PR by someone else whose code
+// was reviewed at its head, whose required checks passed, and that has no
+// outstanding blocking finding. Non-blocking findings are posted with the
+// approval.
 func Decide(s Snapshot, t Tally) (Action, Status) {
 	self := s.Author == s.Viewer
-	outstanding := StatusWaitingOnAuthor
 	if t.OutstandingBlocking > 0 {
-		outstanding = StatusChangesRequested
+		switch {
+		case t.NewBlocking > 0 && s.ApprovedHead != "" && !self:
+			return ActionRequestChanges, StatusChangesRequested
+		case t.NewFindings > 0:
+			return ActionComment, StatusChangesRequested
+		default:
+			return ActionNone, StatusChangesRequested
+		}
 	}
 
+	held := ActionNone
 	if t.NewFindings > 0 {
-		if t.NewBlocking > 0 && s.ApprovedHead != "" && !self {
-			return ActionRequestChanges, StatusChangesRequested
-		}
-		return ActionComment, outstanding
-	}
-	if t.OutstandingBlocking+t.OutstandingNonBlocking > 0 {
-		return ActionNone, outstanding
+		held = ActionComment
 	}
 	if s.State != "OPEN" || s.IsDraft || self || s.Mergeable == "CONFLICTING" {
-		return ActionNone, StatusWaitingOnAuthor
+		return held, StatusWaitingOnAuthor
+	}
+	if !s.CodeReviewed {
+		return held, StatusNeedsAttention
 	}
 	if s.RequiredCI != "SUCCESS" {
-		return ActionNone, StatusWaitingOnCI
+		return held, StatusWaitingOnCI
 	}
 	approved := StatusApproved
 	if s.OthersRequestChanges {
 		approved = StatusWaitingOnOthers
 	}
 	if s.ApprovedHead == s.Head {
-		return ActionNone, approved
+		return held, approved
 	}
 	return ActionApprove, approved
 }

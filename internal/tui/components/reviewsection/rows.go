@@ -115,6 +115,9 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 	if c.Status == "" {
 		c.Status = string(s.Status)
 	}
+	if s.DryRun {
+		c.Status += " (dry)"
+	}
 	if s.Pinned {
 		c.PR += " (added)"
 	}

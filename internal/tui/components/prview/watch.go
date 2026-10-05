@@ -56,6 +56,9 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 	clean := reviewing.SanitizeTerminal
 	var b strings.Builder
 	fmt.Fprintf(&b, "Watch: %s", common.ReviewStatusWord(st.Status))
+	if st.DryRun {
+		b.WriteString(" (dry run, not posted)")
+	}
 	if st.Pinned {
 		b.WriteString(" · added by hand")
 	}

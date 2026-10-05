@@ -21,6 +21,9 @@ case "${FAKE_CLAUDE_MODE:-success}" in
   finding)
     result 9 2 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"body":"`package kev` has no doc comment, and the repo CLAUDE.md requires one for every package."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one blocking"}'
     ;;
+  nit)
+    result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could return early when the feed is empty, which skips one allocation."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one nit"}'
+    ;;
   botspeak)
     result 9 2 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"body":"Verified at abc1234def: missing doc comment."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":""}'
     ;;

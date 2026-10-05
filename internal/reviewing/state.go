@@ -101,10 +101,15 @@ type PRState struct {
 	Pinned bool   `json:"pinned,omitempty"`
 	// Inactive marks a PR the watch's search no longer returns (merged,
 	// closed, back to draft, or out of scope). It is hidden until it returns.
-	Inactive     bool           `json:"inactive,omitempty"`
-	Status       Status         `json:"status,omitempty"`
-	UpdatedAt    string         `json:"updated_at,omitempty"`
-	ReviewedSig  *Signature     `json:"reviewed_sig,omitempty"`
+	Inactive    bool       `json:"inactive,omitempty"`
+	Status      Status     `json:"status,omitempty"`
+	UpdatedAt   string     `json:"updated_at,omitempty"`
+	ReviewedSig *Signature `json:"reviewed_sig,omitempty"`
+	// CodeReviewedHead is the head whose code a full or incremental pass last
+	// read. Baseline and comments-only passes never set it.
+	CodeReviewedHead string `json:"code_reviewed_head,omitempty"`
+	// DryRun marks a status recorded in dry run: nothing was posted.
+	DryRun       bool           `json:"dry_run,omitempty"`
 	HeadSeen     *HeadSeen      `json:"head_seen,omitempty"`
 	CIObs        CIObs          `json:"ci_obs"`
 	LastCIWake   time.Time      `json:"last_ci_wake"`
