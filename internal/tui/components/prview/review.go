@@ -2,7 +2,6 @@ package prview
 
 import (
 	goctx "context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/common"
 	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 	"github.com/kbsteere/dispatch/v4/internal/tui/context"
@@ -28,24 +28,6 @@ type PrReviewMsg struct {
 	Output    string
 	SessionId string
 	Err       error
-}
-
-// claudeResult is the shape of `claude -p --output-format json` output.
-type claudeResult struct {
-	Result    string `json:"result"`
-	SessionId string `json:"session_id"`
-	IsError   bool   `json:"is_error"`
-}
-
-func parseClaudeResult(out []byte) (claudeResult, error) {
-	var res claudeResult
-	if err := json.Unmarshal(out, &res); err != nil {
-		return res, fmt.Errorf("parsing claude output: %w", err)
-	}
-	if res.IsError {
-		return res, fmt.Errorf("claude returned an error: %s", res.Result)
-	}
-	return res, nil
 }
 
 // resolveReviewDir picks the working directory for the claude subprocess:
@@ -109,11 +91,14 @@ func (m *Model) StartReview() tea.Cmd {
 			return PrReviewMsg{Url: url, Err: err}
 		}
 
-		res, err := parseClaudeResult(out)
+		res, err := reviewing.ParseResult(out)
+		if err == nil {
+			err = res.Err()
+		}
 		if err != nil {
 			return PrReviewMsg{Url: url, Err: err}
 		}
-		return PrReviewMsg{Url: url, Output: res.Result, SessionId: res.SessionId}
+		return PrReviewMsg{Url: url, Output: res.Text, SessionId: res.SessionID}
 	}
 }
 
