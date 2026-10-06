@@ -25,6 +25,9 @@ type coverageInput struct {
 	Reads    []string
 	Searches int
 	Examined Examined
+	// SecurityRefs are the security guide reference files the session was
+	// given; when code changed, at least one must be read.
+	SecurityRefs []string
 }
 
 // reviewGaps lists what a full or incremental pass failed to read: the
@@ -88,6 +91,9 @@ func reviewGaps(in coverageInput) []string {
 		}
 		if in.Searches == 0 {
 			gaps = append(gaps, "never searched for usages of the changed code")
+		}
+		if len(in.SecurityRefs) > 0 && !slices.ContainsFunc(in.SecurityRefs, opened) {
+			gaps = append(gaps, "read none of the security review guide's references")
 		}
 	}
 	return capGaps(gaps)

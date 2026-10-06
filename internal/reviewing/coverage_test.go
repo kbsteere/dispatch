@@ -223,3 +223,32 @@ func TestReviewGapsConfigChangesNeedOnlyTheDiff(t *testing.T) {
 	})
 	assert.Empty(t, gaps)
 }
+
+func TestReviewGapsSecurityGuideReferences(t *testing.T) {
+	wt := coverageWorktree(t)
+	diff := "/state/sessions/s1/pr.diff"
+	refs := []string{
+		"/state/sessions/s1/security/command-injection.md",
+		"/state/sessions/s1/security/fail-open.md",
+	}
+	in := coverageInput{
+		Pass: PassFull, Worktree: wt, Diff: diff, Changed: []string{"bots/kev/sync.go"},
+		Reads: []string{
+			diff, filepath.Join(wt, "bots/kev/sync.go"), filepath.Join(wt, "bots/kev/sync_test.go"),
+			filepath.Join(wt, "bots/kev/README.md"),
+		},
+		Searches: 1, SecurityRefs: refs,
+	}
+	assert.Equal(t, []string{"read none of the security review guide's references"}, reviewGaps(in))
+
+	in.Reads = append(in.Reads, refs[1])
+	assert.Empty(t, reviewGaps(in), "reading the references that match the change is enough")
+
+	in.Changed, in.Reads = []string{
+		"bots/kev/README.md",
+	}, []string{
+		diff,
+		filepath.Join(wt, "bots/kev/README.md"),
+	}
+	assert.Empty(t, reviewGaps(in), "a docs-only change needs no security references")
+}

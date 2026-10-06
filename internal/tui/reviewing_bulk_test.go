@@ -12,7 +12,7 @@ import (
 func TestBaselinePrompt(t *testing.T) {
 	assert.Equal(
 		t,
-		"Press E again to queue full reviews of 37 baseline PRs (about $15–52; $2.55 of $100 spent today)",
+		"Queue full reviews of 37 baseline PRs (about $15–52; $2.55 of $100 spent today)?",
 		baselinePrompt(37, reviewing.WatchStatus{SpentToday: 2.55, DailyBudget: 100}),
 	)
 }
@@ -26,7 +26,7 @@ func TestPostPrompt(t *testing.T) {
 	}
 	assert.Equal(
 		t,
-		"Press U again to post 4 drafts (2 approvals, 1 change requests, 1 comments); approvals are checked again first",
+		"Post 4 drafts (2 approvals, 1 change requests, 1 comments)? Approvals are checked again first.",
 		postPrompt(drafts),
 	)
 }

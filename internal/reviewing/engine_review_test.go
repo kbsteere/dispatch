@@ -714,3 +714,23 @@ func TestPostAllDraftsReportsSkips(t *testing.T) {
 	assert.ErrorContains(t, results[0].Err, "changed since the review was written")
 	assert.Empty(t, h.gh.posted)
 }
+
+func TestReviewSecurityFindingIsAlwaysBlocking(t *testing.T) {
+	h := newReviewHarness(t, "security", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	require.Len(t, h.gh.posted, 1)
+	assert.NotEqual(
+		t,
+		"APPROVE",
+		h.gh.posted[0].Event,
+		"a security finding blocks approval even when marked non-blocking and the verdict says approve",
+	)
+	assert.False(t, strings.HasPrefix(h.gh.posted[0].Comments[0].Body, "non-blocking:"))
+	st := h.state(t)
+	require.Len(t, st.Ledger, 1)
+	assert.True(t, st.Ledger[0].Blocking)
+	assert.Equal(t, CategorySecurity, st.Ledger[0].Category)
+	assert.Equal(t, StatusChangesRequested, st.Status)
+}

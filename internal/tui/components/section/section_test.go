@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/stretchr/testify/require"
@@ -528,4 +529,19 @@ func TestViewRendersAtMainContentWidth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAskConfirmationRunsOnceOnYes(t *testing.T) {
+	ctx := &context.ProgramContext{View: config.ReviewingView}
+	m := BaseModel{Ctx: ctx, PromptConfirmationBox: prompt.NewModel(ctx)}
+	runs := 0
+	m.AskConfirmation("Post 4 drafts?", func() tea.Cmd { runs++; return nil })
+	require.True(t, m.IsPromptConfirmationShown)
+	require.Equal(t, AskedConfirmationAction, m.GetPromptConfirmationAction())
+	require.Equal(t, "Post 4 drafts?", m.askedPrompt)
+	require.Contains(t, m.GetPromptConfirmation(), "Post 4 drafts? (y/N)")
+
+	require.Nil(t, m.ConfirmedCmd())
+	require.Nil(t, m.ConfirmedCmd(), "a confirmation runs at most once")
+	require.Equal(t, 1, runs)
 }

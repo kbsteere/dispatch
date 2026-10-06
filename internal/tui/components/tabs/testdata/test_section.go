@@ -184,3 +184,6 @@ func (t *TestSection) View() string {
 func (t *TestSection) ViewCompletions() string {
 	panic("unimplemented")
 }
+
+// AskConfirmation implements section.Section.
+func (t *TestSection) AskConfirmation(string, func() tea.Cmd) tea.Cmd { return nil }

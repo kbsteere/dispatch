@@ -68,8 +68,6 @@ type Model struct {
 	positionOverride string // "" means no override, "right" or "bottom"
 	reviewers        reviewers
 	reviewSections   []section.Section // the Reviewing view's tables, one per watch
-	pendingSend      string            // PR URL whose review draft awaits a second S press
-	pendingBulk      string            // bulk review action awaiting a second press
 	statusTicking    bool              // the watch status refresh loop is running
 }
 

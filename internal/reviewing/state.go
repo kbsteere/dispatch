@@ -46,6 +46,8 @@ type Finding struct {
 	Blocking bool   `json:"blocking"`
 	Summary  string `json:"summary"`
 	Status   string `json:"status"`
+	// Category is bug, security, test-gap, design, or rule.
+	Category string `json:"category,omitempty"`
 	// Replied records that dispatch already answered pushback on this
 	// finding's thread; it never replies twice.
 	Replied bool `json:"replied,omitempty"`

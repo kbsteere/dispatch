@@ -49,6 +49,10 @@ type BaseModel struct {
 	ShowAuthorIcon            bool
 	IsFilteredByCurrentRemote bool
 	IsLoading                 bool
+	// askedPrompt and onConfirm back a confirmation asked with
+	// AskConfirmation rather than a built-in action.
+	askedPrompt string
+	onConfirm   func() tea.Cmd
 }
 
 type NewSectionOptions struct {
@@ -192,6 +196,7 @@ type PromptConfirmation interface {
 	SetPromptConfirmationAction(action string)
 	GetPromptConfirmationAction() string
 	GetPromptConfirmation() string
+	AskConfirmation(prompt string, onYes func() tea.Cmd) tea.Cmd
 }
 
 func (m *BaseModel) GetDimensions() constants.Dimensions {
@@ -495,6 +500,9 @@ func (m *BaseModel) GetPromptConfirmation() string {
 	if m.IsPromptConfirmationShown {
 		var prompt string
 		switch {
+		case m.PromptConfirmationAction == AskedConfirmationAction:
+			prompt = m.askedPrompt + " (y/N) "
+
 		case m.PromptConfirmationAction == "close" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to close this PR? (y/N) "
 
@@ -534,4 +542,27 @@ func (m *BaseModel) GetPromptConfirmation() string {
 	}
 
 	return ""
+}
+
+// AskedConfirmationAction is the prompt action for a confirmation asked
+// with AskConfirmation.
+const AskedConfirmationAction = "asked"
+
+// AskConfirmation shows prompt followed by (y/N) and runs onYes when the
+// user answers y. Sections run it from their confirmation handling through
+// ConfirmedCmd.
+func (m *BaseModel) AskConfirmation(prompt string, onYes func() tea.Cmd) tea.Cmd {
+	m.askedPrompt, m.onConfirm = prompt, onYes
+	m.PromptConfirmationAction = AskedConfirmationAction
+	return m.SetIsPromptConfirmationShown(true)
+}
+
+// ConfirmedCmd runs the callback of a confirmation the user accepted, once.
+func (m *BaseModel) ConfirmedCmd() tea.Cmd {
+	onYes := m.onConfirm
+	m.askedPrompt, m.onConfirm = "", nil
+	if onYes == nil {
+		return nil
+	}
+	return onYes()
 }

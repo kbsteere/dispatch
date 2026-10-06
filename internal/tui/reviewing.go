@@ -354,9 +354,8 @@ func (m *Model) addRef(ref string) tea.Cmd {
 	}
 }
 
-// sendDraft posts the review shown for the selected PR: a held review or a
-// dry-run draft. The first press arms it; a second press on the same PR
-// sends it.
+// sendDraft posts the review shown for the selected PR, a held review or a
+// dry-run draft, after the user confirms.
 func (m *Model) sendDraft(row data.RowData) tea.Cmd {
 	k, err := rowKey(row)
 	if err != nil {
@@ -365,22 +364,19 @@ func (m *Model) sendDraft(row data.RowData) tea.Cmd {
 	if _, ok := m.ctx.WatchDrafts[k.URL()]; !ok {
 		return func() tea.Msg { return reviewActionMsg{err: fmt.Errorf("%s has no review to post", k)} }
 	}
-	if m.pendingSend != k.URL() {
-		m.pendingSend = k.URL()
-		return m.notify(fmt.Sprintf("Press S again to post the review on %s", k))
-	}
-	m.pendingSend = ""
 	e := m.engineFor(k)
 	if e == nil {
 		return noWatches
 	}
-	return func() tea.Msg {
-		action, notApproved, err := e.PostDraft(context.Background(), k)
-		if err != nil {
-			return reviewActionMsg{err: err}
+	return m.confirm(fmt.Sprintf("Post the review on %s?", k), func() tea.Cmd {
+		return func() tea.Msg {
+			action, notApproved, err := e.PostDraft(context.Background(), k)
+			if err != nil {
+				return reviewActionMsg{err: err}
+			}
+			return reviewActionMsg{note: postedNote(k, action, notApproved)}
 		}
-		return reviewActionMsg{note: postedNote(k, action, notApproved)}
-	}
+	})
 }
 
 // postedNote tells the user what PostDraft sent.
@@ -448,8 +444,7 @@ func (m *Model) togglePause() tea.Cmd {
 }
 
 // reviewAllBaseline queues a full review of every baselined PR in the
-// current watch. The first press says what it will do; a second press
-// queues them.
+// current watch after the user confirms the count and estimated cost.
 func (m *Model) reviewAllBaseline() tea.Cmd {
 	e := m.targetEngine()
 	if e == nil {
@@ -464,19 +459,16 @@ func (m *Model) reviewAllBaseline() tea.Cmd {
 	if n == 0 {
 		return m.notify("No baseline PRs to review")
 	}
-	if token := "E:" + e.Name(); m.pendingBulk != token {
-		m.pendingBulk = token
-		return m.notify(baselinePrompt(n, e.Status()))
-	}
-	m.pendingBulk = ""
-	queued, err := e.ForceBaseline()
-	if err != nil {
-		return func() tea.Msg { return reviewActionMsg{err: err} }
-	}
-	return tea.Batch(
-		m.notify(fmt.Sprintf("Queued full reviews of %d baseline PRs", queued)),
-		manualPollCmd(e),
-	)
+	return m.confirm(baselinePrompt(n, e.Status()), func() tea.Cmd {
+		queued, err := e.ForceBaseline()
+		if err != nil {
+			return func() tea.Msg { return reviewActionMsg{err: err} }
+		}
+		return tea.Batch(
+			m.notify(fmt.Sprintf("Queued full reviews of %d baseline PRs", queued)),
+			manualPollCmd(e),
+		)
+	})
 }
 
 // Rough per-review cost bounds for a full review, used only to warn
@@ -488,7 +480,7 @@ const (
 
 func baselinePrompt(n int, ws reviewing.WatchStatus) string {
 	return fmt.Sprintf(
-		"Press E again to queue full reviews of %d baseline PRs (about $%.0f–%.0f; $%.2f of $%.0f spent today)",
+		"Queue full reviews of %d baseline PRs (about $%.0f–%.0f; $%.2f of $%.0f spent today)?",
 		n,
 		float64(n)*reviewCostLow,
 		float64(n)*reviewCostHigh,
@@ -498,7 +490,7 @@ func baselinePrompt(n int, ws reviewing.WatchStatus) string {
 }
 
 // postAllDrafts posts every unposted dry-run draft in the current watch.
-// The first press shows the counts; a second press posts them.
+// It asks first, showing what it will post.
 func (m *Model) postAllDrafts() tea.Cmd {
 	e := m.targetEngine()
 	if e == nil {
@@ -508,14 +500,11 @@ func (m *Model) postAllDrafts() tea.Cmd {
 	if len(drafts) == 0 {
 		return m.notify("No unposted drafts")
 	}
-	if token := "U:" + e.Name(); m.pendingBulk != token {
-		m.pendingBulk = token
-		return m.notify(postPrompt(drafts))
-	}
-	m.pendingBulk = ""
-	return func() tea.Msg {
-		return reviewActionMsg{note: postSummary(e.PostAllDrafts(context.Background()))}
-	}
+	return m.confirm(postPrompt(drafts), func() tea.Cmd {
+		return func() tea.Msg {
+			return reviewActionMsg{note: postSummary(e.PostAllDrafts(context.Background()))}
+		}
+	})
 }
 
 func postPrompt(drafts map[reviewing.PRKey]reviewing.Draft) string {
@@ -531,7 +520,7 @@ func postPrompt(drafts map[reviewing.PRKey]reviewing.Draft) string {
 		}
 	}
 	return fmt.Sprintf(
-		"Press U again to post %d drafts (%d approvals, %d change requests, %d comments); approvals are checked again first",
+		"Post %d drafts (%d approvals, %d change requests, %d comments)? Approvals are checked again first.",
 		len(drafts),
 		approve,
 		changes,
@@ -573,4 +562,14 @@ func postSummary(results []reviewing.PostResult) string {
 		}
 	}
 	return reviewing.SanitizeTerminal(s)
+}
+
+// confirm asks a y/N question in the current section and runs onYes when
+// the user answers y.
+func (m *Model) confirm(prompt string, onYes func() tea.Cmd) tea.Cmd {
+	s := m.getCurrSection()
+	if s == nil {
+		return nil
+	}
+	return s.AskConfirmation(prompt, onYes)
 }

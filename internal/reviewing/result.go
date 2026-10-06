@@ -17,6 +17,7 @@ type OutFinding struct {
 	StartLine int    `json:"start_line,omitempty"`
 	Blocking  bool   `json:"blocking"`
 	Body      string `json:"body"`
+	Category  string `json:"category,omitempty"`
 }
 
 // LedgerUpdate is the reviewer's verdict on one earlier finding.
@@ -183,3 +184,6 @@ func (r RunResult) Review() (ReviewOutput, error) {
 
 // VerdictApprove is the only reviewer verdict that allows an approval.
 const VerdictApprove = "approve"
+
+// CategorySecurity marks a security finding, which is always blocking.
+const CategorySecurity = "security"

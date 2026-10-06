@@ -45,6 +45,9 @@ case "${FAKE_CLAUDE_MODE:-success}" in
   hesitant)
     result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"nit: `Sync` could log the feed URL it failed on."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"comment","verdict_reason":"needs the author to confirm the retry budget"}'
     ;;
+  security)
+    result 8 1.5 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"category":"security","body":"`Sync` passes the feed URL from the advisory to `exec.Command(\"curl\", url)`, so a URL starting with `-o` writes an arbitrary file. Validate the scheme and pass `--` before it."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"only a hardening note"}'
+    ;;
   phantom)
     result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["docs/design.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;

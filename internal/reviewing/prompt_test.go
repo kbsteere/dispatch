@@ -232,3 +232,30 @@ func TestReviewSchemaRequiresExamined(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(ReviewSchema), &v))
 	assert.Contains(t, v.Required, "examined")
 }
+
+func TestBuildPromptSecurityGuide(t *testing.T) {
+	g := &SecurityGuide{
+		Dir:        "agents/skills/go-security-review",
+		Skill:      "Classify by RISK, not size.",
+		References: []string{"/s/security/command-injection.md", "/s/security/fail-open.md"},
+	}
+	full := BuildPrompt(PromptInput{Pass: PassFull, Security: g})
+	assert.Contains(
+		t,
+		full,
+		"## Security review guide (agents/skills/go-security-review, from the base branch)",
+	)
+	assert.Contains(t, full, "Classify by RISK, not size.")
+	assert.Contains(t, full, "- /s/security/fail-open.md")
+	assert.Contains(t, full, "describe the test or check in the finding instead")
+	assert.Contains(t, full, "7. Security. Run a security pass")
+
+	for name, in := range map[string]PromptInput{
+		"pr-only":       {Pass: PassFull, PROnly: true, Security: g},
+		"comments-only": {Pass: PassLedger, Security: g},
+	} {
+		assert.NotContains(t, BuildPrompt(in), "## Security review guide", name)
+	}
+	assert.Contains(t, BuildPrompt(PromptInput{Pass: PassFull, PROnly: true}),
+		"downloads without a pinned version or checksum")
+}

@@ -14,7 +14,8 @@
           "line": {"type": "integer", "minimum": 1},
           "start_line": {"type": "integer", "minimum": 1},
           "blocking": {"type": "boolean"},
-          "body": {"type": "string", "minLength": 1}
+          "body": {"type": "string", "minLength": 1},
+          "category": {"enum": ["bug", "security", "test-gap", "design", "rule"]}
         }
       }
     },

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kbsteere/dispatch/v4/internal/config"
@@ -161,4 +162,64 @@ func TestStatusTicksRunOnceAndStopWhenIdle(t *testing.T) {
 func TestManualPollDoesNotStartAnotherLoop(t *testing.T) {
 	require.True(t, reschedule(reviewPolledMsg{}))
 	require.False(t, reschedule(reviewPolledMsg{manual: true}))
+}
+
+func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
+	cfg, err := config.ParseConfig(config.Location{
+		ConfigFlag:       "../config/testdata/test-config.yml",
+		SkipGlobalConfig: true,
+	})
+	require.NoError(t, err)
+	w := config.ReviewWatch{
+		Name:    "sustaining-automation",
+		Authors: []string{"tcnghia"},
+		Scopes:  []string{"repo:chainguard-dev/stereo"},
+	}
+	cfg.ReviewingFor.Watches = []config.ReviewWatch{w}
+	m := NewModel(config.Location{}, Repositories{})
+	m.ctx.Config = &cfg
+	m.ctx.Theme = theme.ParseTheme(&cfg)
+	m.ctx.Styles = context.InitStyles(m.ctx.Theme)
+	m.ctx.ScreenWidth, m.ctx.ScreenHeight = 200, 50
+	m.ctx.MainContentWidth, m.ctx.MainContentHeight = 200, 30
+	e, err := reviewing.NewEngine(reviewing.Deps{
+		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(),
+		GitHub: viewGitHub{}, LookupPath: func(string) (string, bool) { return "", false },
+	})
+	require.NoError(t, err)
+	t.Cleanup(e.Shutdown)
+	m.reviewers = reviewers{e}
+	m.ctx.View = config.PRsView
+	m.switchSelectedView()
+	next, _ := m.Update(pollCmd(e)()) // the first poll baselines the PR
+	m = next.(Model)
+
+	press := func(k tea.KeyPressMsg) {
+		next, _ := m.Update(k)
+		m = next.(Model)
+	}
+	forced := func() bool {
+		for _, st := range e.States() {
+			if st.ForceReview {
+				return true
+			}
+		}
+		return false
+	}
+
+	press(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	require.True(t, m.getCurrSection().IsPromptConfirmationFocused(), "E asks before queueing")
+	assert.Contains(t, m.getCurrSection().GetPromptConfirmation(),
+		"Queue full reviews of 1 baseline PRs")
+	assert.False(t, forced(), "nothing is queued before the answer")
+
+	press(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	press(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.False(t, forced(), "answering n queues nothing")
+
+	press(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	press(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	press(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.False(t, m.getCurrSection().IsPromptConfirmationFocused())
+	assert.True(t, forced(), "answering y queues the baseline PR")
 }

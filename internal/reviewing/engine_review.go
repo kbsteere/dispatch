@@ -77,14 +77,15 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		return e.fail(job.Key, out, err)
 	}
 	gaps := reviewGaps(coverageInput{
-		Pass:     job.Pass,
-		PROnly:   e.prOnly(job.Key),
-		Worktree: slot,
-		Diff:     files.Diff,
-		Changed:  changedFor(job, files),
-		Reads:    res.Reads,
-		Searches: res.Searches,
-		Examined: review.Examined,
+		Pass:         job.Pass,
+		PROnly:       e.prOnly(job.Key),
+		Worktree:     slot,
+		Diff:         files.Diff,
+		Changed:      changedFor(job, files),
+		Reads:        res.Reads,
+		Searches:     res.Searches,
+		Examined:     review.Examined,
+		SecurityRefs: files.SecurityRefs,
 	})
 	_, _ = e.update(job.Key, func(s *PRState) {
 		s.Examined = &review.Examined
@@ -154,6 +155,12 @@ func (e *Engine) runSession(
 	files, err := WriteReviewFiles(ctx, repo, cwd, mergeBase, job.Detail.HeadOID, lastReviewed)
 	if err != nil {
 		return RunResult{}, ReviewFiles{}, "", err
+	}
+	if job.Pass != PassLedger && !prOnly {
+		if g, ok := LoadSecurityGuide(ctx, repo, job.Detail.BaseOID, cwd); ok {
+			in.Security = &g
+			files.SecurityRefs = g.References
+		}
 	}
 	in.Files = files
 	run, err := Start(ctx, RunSpec{
@@ -301,6 +308,9 @@ func (e *Engine) apply(
 
 	draft := Draft{Head: d.HeadOID, Verdict: review.Verdict, VerdictReason: review.VerdictReason}
 	for _, f := range review.Findings {
+		if f.Category == CategorySecurity {
+			f.Blocking = true
+		}
 		if !files[f.Path] || f.Line <= 0 {
 			// A finding dispatch cannot anchor to a changed line is still a
 			// finding; hold the pass for the user rather than dropping it,
@@ -326,6 +336,7 @@ func (e *Engine) apply(
 		draft.Findings = append(draft.Findings, Finding{
 			ID: nextFindingID(append(st.Ledger, draft.Findings...)), Path: f.Path, Line: f.Line,
 			Blocking: f.Blocking, Summary: summarize(f.Body), Status: FindingOutstanding,
+			Category: f.Category,
 		})
 	}
 	known := map[string]Finding{}

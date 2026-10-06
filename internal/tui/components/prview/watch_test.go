@@ -207,3 +207,12 @@ func TestRenderWatchBlockShowsTotalSpend(t *testing.T) {
 	assert.Contains(t, renderWatchBlock(st, 300, time.Now()),
 		"last run 4 turns · $0.11 · total $0.37 over 2 runs")
 }
+
+func TestRenderWatchBlockShowsFindingCategory(t *testing.T) {
+	st := reviewing.PRState{Ledger: []reviewing.Finding{{
+		Path: "bots/kev/sync.go", Line: 40, Blocking: true, Category: "security",
+		Summary: "feed URL reaches exec.Command", Status: reviewing.FindingOutstanding,
+	}}}
+	assert.Contains(t, renderWatchBlock(st, 300, time.Now()),
+		"- bots/kev/sync.go:40 (security, blocking) feed URL reaches exec.Command")
+}

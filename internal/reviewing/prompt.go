@@ -61,6 +61,8 @@ type PromptInput struct {
 	Standards   []StandardFile
 	// PROnly limits the review to the PR's own contents.
 	PROnly bool
+	// Security is the repository's security review guide, if it has one.
+	Security *SecurityGuide
 }
 
 func untrusted(s string) string {
@@ -118,6 +120,21 @@ func BuildPrompt(in PromptInput) string {
 		for _, s := range in.Standards {
 			fmt.Fprintf(&b, "\n### %s\n%s\n", s.Path, s.Content)
 		}
+	}
+	if g := in.Security; g != nil && in.Pass != PassLedger && !in.PROnly {
+		fmt.Fprintf(&b, "\n## Security review guide (%s, from the base branch)\n\n", g.Dir)
+		b.WriteString(
+			"Follow this guide's methodology for the security pass. You cannot write files or run commands: where it asks for a regression test or a tool run, describe the test or check in the finding instead.\n",
+		)
+		if len(g.References) > 0 {
+			b.WriteString(
+				"\nIts reference files, copied for you; read the ones that match what the diff touches:\n",
+			)
+			for _, r := range g.References {
+				fmt.Fprintf(&b, "- %s\n", r)
+			}
+		}
+		b.WriteString("\n" + g.Skill + "\n")
 	}
 	if len(in.Watch.Focus) > 0 {
 		b.WriteString("\n## Watch focus rules\n")

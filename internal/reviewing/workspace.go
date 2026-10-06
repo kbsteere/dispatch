@@ -162,6 +162,9 @@ type ReviewFiles struct {
 	// SinceLastFiles are the files changed since the last review; set only
 	// with SinceLast.
 	SinceLastFiles []string
+	// SecurityRefs are the security guide reference files copied into the
+	// session, if the repository has a guide.
+	SecurityRefs []string
 }
 
 // safeGitArgs keep git from running external programs configured in the

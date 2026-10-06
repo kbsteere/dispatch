@@ -179,7 +179,12 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 	case "enter":
 		var cmd tea.Cmd
 		pr := m.GetCurrRow()
-		if v := m.PromptConfirmationBox.Value(); pr != nil && (v == "y" || v == "Y") {
+		v := m.PromptConfirmationBox.Value()
+		if m.GetPromptConfirmationAction() == section.AskedConfirmationAction &&
+			(v == "y" || v == "Y") {
+			cmd = m.ConfirmedCmd()
+		} else if pr != nil &&
+			(v == "y" || v == "Y") {
 			sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
 			switch m.GetPromptConfirmationAction() {
 			case "close":

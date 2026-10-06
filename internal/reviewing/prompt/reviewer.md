@@ -27,6 +27,7 @@ Write like a colleague leaving a review comment:
 - Use a ```suggestion block for small mechanical fixes.
 - Start non-blocking items with "nit:" or "non-blocking:". Do not label blocking items.
 - `blocking` is true for bugs, regressions, security problems, missing tests for changed behaviour, and violations of mandatory rules. Otherwise false.
+- `category` is one of `bug`, `security`, `test-gap`, `design` (divergence from documented intent), or `rule` (a stated repository rule). Security findings are always blocking.
 - `line` is the line number in the new version of the file and must be inside a changed hunk; use `start_line` for a range.
 - In an incremental pass, review only the new changes and what they affect. Never repeat a finding that already exists in a thread.
 
