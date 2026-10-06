@@ -173,3 +173,62 @@ func TestManualPrompt(t *testing.T) {
 	assert.Contains(t, p, "gh pr view and gh pr diff")
 	assert.True(t, strings.HasSuffix(p, reviewerInstructions))
 }
+
+func TestBuildPromptScope(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      PromptInput
+		want    string
+		notWant []string
+	}{
+		{
+			"full pass searches the whole codebase",
+			PromptInput{Pass: PassFull},
+			"## Scope: the whole codebase (required)",
+			[]string{"## Scope: this pull request only", "## Scope: comments only"},
+		},
+		{
+			"incremental pass searches the whole codebase",
+			PromptInput{Pass: PassIncremental},
+			"## Scope: the whole codebase (required)",
+			nil,
+		},
+		{
+			"pr-only repo reviews the PR alone",
+			PromptInput{Pass: PassFull, PROnly: true},
+			"## Scope: this pull request only",
+			[]string{"## Scope: the whole codebase"},
+		},
+		{
+			"comments-only pass",
+			PromptInput{Pass: PassLedger},
+			"## Scope: comments only",
+			[]string{"## Scope: the whole codebase"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := BuildPrompt(tt.in)
+			assert.Contains(t, p, tt.want)
+			for _, s := range tt.notWant {
+				assert.NotContains(t, p, s)
+			}
+		})
+	}
+	full := BuildPrompt(PromptInput{Pass: PassFull})
+	for _, step := range []string{
+		"Read every changed file in full", "Grep the worktree and every context repo",
+		"Open the diagrams too", "Read the existing unit and integration tests",
+	} {
+		assert.Contains(t, full, step)
+	}
+	assert.NotContains(t, full, "only as far as needed")
+}
+
+func TestReviewSchemaRequiresExamined(t *testing.T) {
+	var v struct {
+		Required []string `json:"required"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(ReviewSchema), &v))
+	assert.Contains(t, v.Required, "examined")
+}

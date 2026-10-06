@@ -109,7 +109,11 @@ type PRState struct {
 	// read. Baseline and comments-only passes never set it.
 	CodeReviewedHead string `json:"code_reviewed_head,omitempty"`
 	// DryRun marks a status recorded in dry run: nothing was posted.
-	DryRun       bool           `json:"dry_run,omitempty"`
+	DryRun bool `json:"dry_run,omitempty"`
+	// Examined is what the last pass said it read; ReviewGaps is what it
+	// was required to read and did not.
+	Examined     *Examined      `json:"examined,omitempty"`
+	ReviewGaps   []string       `json:"review_gaps,omitempty"`
 	HeadSeen     *HeadSeen      `json:"head_seen,omitempty"`
 	CIObs        CIObs          `json:"ci_obs"`
 	LastCIWake   time.Time      `json:"last_ci_wake"`

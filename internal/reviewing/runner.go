@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -41,6 +42,8 @@ type RunSpec struct {
 	MaxTurns     int
 	MaxBudgetUSD float64
 	Timeout      time.Duration
+	// EventsPath, when set, receives a copy of the session's event stream.
+	EventsPath string
 }
 
 // BuildArgs returns the claude arguments for s. The prompt is not among
@@ -48,7 +51,10 @@ type RunSpec struct {
 func BuildArgs(s RunSpec) []string {
 	args := []string{
 		"-p",
-		"--output-format", "json",
+		// stream-json reports every tool call, which is how dispatch knows
+		// what the session read.
+		"--output-format", "stream-json",
+		"--verbose",
 		"--session-id", s.SessionID,
 		"--max-turns", strconv.Itoa(s.MaxTurns),
 		"--max-budget-usd", fmt.Sprintf("%.2f", s.MaxBudgetUSD),
@@ -85,6 +91,7 @@ type Run struct {
 	cancel context.CancelFunc
 	stdout bytes.Buffer
 	stderr bytes.Buffer
+	events *os.File
 	once   sync.Once
 }
 
@@ -113,8 +120,20 @@ func Start(ctx context.Context, s RunSpec) (*Run, error) {
 	r := &Run{cmd: cmd, cancel: cancel}
 	cmd.Stdout = &r.stdout
 	cmd.Stderr = &r.stderr
+	if s.EventsPath != "" {
+		f, err := os.OpenFile(s.EventsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		r.events = f
+		cmd.Stdout = io.MultiWriter(&r.stdout, f)
+	}
 	if err := cmd.Start(); err != nil {
 		cancel()
+		if r.events != nil {
+			r.events.Close()
+		}
 		return nil, err
 	}
 	return r, nil
@@ -135,6 +154,9 @@ func (r *Run) Kill() {
 func (r *Run) Wait() (RunResult, error) {
 	err := r.cmd.Wait()
 	r.cancel()
+	if r.events != nil {
+		r.events.Close()
+	}
 	if res, perr := ParseResult(r.stdout.Bytes()); perr == nil {
 		return res, nil
 	}

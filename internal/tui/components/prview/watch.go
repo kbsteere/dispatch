@@ -78,6 +78,21 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 	if st.Note != "" {
 		fmt.Fprintf(&b, "Note: %s\n", clean(st.Note))
 	}
+	if len(st.ReviewGaps) > 0 {
+		b.WriteString("\nReview incomplete, so it cannot approve:\n")
+		for _, g := range st.ReviewGaps {
+			fmt.Fprintf(&b, "- %s\n", clean(g))
+		}
+	}
+	if ex := st.Examined; ex != nil {
+		b.WriteString("\nExamined:\n")
+		for _, g := range []struct {
+			name  string
+			paths []string
+		}{{"docs", ex.Docs}, {"code", ex.Code}, {"usages", ex.Usages}, {"tests", ex.Tests}} {
+			fmt.Fprintf(&b, "  %s (%d): %s\n", g.name, len(g.paths), examinedList(g.paths))
+		}
+	}
 
 	outstanding := slices.DeleteFunc(slices.Clone(st.Ledger), func(f reviewing.Finding) bool {
 		return f.Status != reviewing.FindingOutstanding
@@ -199,4 +214,23 @@ func (m *Model) watchSessionCmd() tea.Cmd {
 		}
 		return nil
 	})
+}
+
+// maxExaminedShown bounds how many paths of one examined group are listed.
+const maxExaminedShown = 8
+
+// examinedList renders a group of examined paths, sanitised and capped.
+func examinedList(paths []string) string {
+	if len(paths) == 0 {
+		return "-"
+	}
+	shown := make([]string, 0, min(len(paths), maxExaminedShown))
+	for _, p := range paths[:min(len(paths), maxExaminedShown)] {
+		shown = append(shown, reviewing.SanitizeTerminal(p))
+	}
+	s := strings.Join(shown, ", ")
+	if n := len(paths) - maxExaminedShown; n > 0 {
+		s += fmt.Sprintf(" and %d more", n)
+	}
+	return s
 }

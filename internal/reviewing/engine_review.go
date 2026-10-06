@@ -51,7 +51,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	}
 	defer releaseSlot()
 
-	res, sessionID, err := e.runSession(ctx, job, repo, slot, mergeBase)
+	res, files, sessionID, err := e.runSession(ctx, job, repo, slot, mergeBase)
 	if sessionID == "" {
 		return e.fail(job.Key, out, err)
 	}
@@ -75,7 +75,21 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	if err != nil {
 		return e.fail(job.Key, out, err)
 	}
-	return e.apply(ctx, job, st, review)
+	gaps := reviewGaps(coverageInput{
+		Pass:     job.Pass,
+		PROnly:   e.prOnly(job.Key),
+		Worktree: slot,
+		Diff:     files.Diff,
+		Changed:  changedFor(job, files),
+		Reads:    res.Reads,
+		Searches: res.Searches,
+		Examined: review.Examined,
+	})
+	_, _ = e.update(job.Key, func(s *PRState) {
+		s.Examined = &review.Examined
+		s.ReviewGaps = gaps
+	})
+	return e.apply(ctx, job, st, review, gaps)
 }
 
 func (e *Engine) load(k PRKey) (PRState, error) {
@@ -107,13 +121,19 @@ func (e *Engine) runSession(
 	job Job,
 	repo LocalRepo,
 	slot, mergeBase string,
-) (RunResult, string, error) {
+) (RunResult, ReviewFiles, string, error) {
 	st, _ := e.load(job.Key)
+	prOnly := e.prOnly(job.Key)
+	var contextDirs []string
+	if !prOnly {
+		contextDirs = e.contextDirs()
+	}
 	viewer, _ := e.ensureViewer(ctx)
 	in := PromptInput{
 		Watch: e.d.Watch, Detail: job.Detail, Pass: job.Pass,
 		Head: job.Detail.HeadOID, Base: job.Detail.BaseOID, MergeBase: mergeBase,
-		Worktree: slot, ContextDirs: e.contextDirs(), Ledger: st.Ledger, Viewer: viewer,
+		Worktree: slot, ContextDirs: contextDirs, Ledger: st.Ledger, Viewer: viewer,
+		PROnly:    prOnly,
 		Standards: LoadStandards(ctx, repo, job.Detail.BaseOID, job.Detail.Files),
 	}
 	maxTurns := e.d.Limits.MaxTurns
@@ -123,7 +143,7 @@ func (e *Engine) runSession(
 	sessionID := NewSessionID()
 	cwd := filepath.Join(e.d.StateRoot, "sessions", sessionID)
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
-		return RunResult{}, "", err
+		return RunResult{}, ReviewFiles{}, "", err
 	}
 	lastReviewed := st.CodeReviewedHead
 	if job.Pass == PassFull {
@@ -131,10 +151,11 @@ func (e *Engine) runSession(
 	}
 	files, err := WriteReviewFiles(ctx, repo, cwd, mergeBase, job.Detail.HeadOID, lastReviewed)
 	if err != nil {
-		return RunResult{}, "", err
+		return RunResult{}, ReviewFiles{}, "", err
 	}
 	in.Files = files
 	run, err := Start(ctx, RunSpec{
+		EventsPath:   filepath.Join(cwd, "events.jsonl"),
 		Binary:       e.d.Claude,
 		SessionID:    sessionID,
 		Prompt:       BuildPrompt(in),
@@ -146,7 +167,7 @@ func (e *Engine) runSession(
 		Timeout:      e.d.Limits.RunTimeout,
 	})
 	if err != nil {
-		return RunResult{}, "", err
+		return RunResult{}, files, "", err
 	}
 
 	e.mu.Lock()
@@ -170,7 +191,7 @@ func (e *Engine) runSession(
 		delete(e.inflight, job.Key)
 	}
 	e.mu.Unlock()
-	return res, sessionID, err
+	return res, files, sessionID, err
 }
 
 // contextDirs are the configured local repos the agent may browse. Paths
@@ -249,8 +270,19 @@ func (e *Engine) fail(k PRKey, out Outcome, err error) Outcome {
 
 // apply validates and lints the reviewer's output, then posts it, holds it,
 // or writes it as a dry-run draft, and records the outcome.
-func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOutput) Outcome {
+func (e *Engine) apply(
+	ctx context.Context,
+	job Job,
+	st PRState,
+	review ReviewOutput,
+	gaps []string,
+) Outcome {
 	out := Outcome{Key: job.Key, Note: review.Note}
+	if len(gaps) > 0 {
+		out.Note = strings.TrimSpace(
+			"review incomplete: " + strings.Join(gaps, "; ") + ". " + review.Note,
+		)
+	}
 	d := job.Detail
 	files := map[string]bool{}
 	for _, f := range d.Files {
@@ -360,8 +392,10 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 	sig := e.signature(ctx, fresh[0], viewer)
 
 	// A comments-only pass reads no code, so it relies on an earlier full or
-	// incremental pass having read this head.
-	codeReviewed := job.Pass != PassLedger || st.CodeReviewedHead == fresh[0].HeadOID
+	// incremental pass having read this head. A pass with gaps read too little
+	// to count.
+	codeReviewed := len(gaps) == 0 &&
+		(job.Pass != PassLedger || st.CodeReviewedHead == fresh[0].HeadOID)
 	tally, ledger := tallyFor(st.Ledger, draft)
 	snap := Snapshot{
 		State:                fresh[0].State,
@@ -402,7 +436,7 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 			s.ReviewedSig = &sig
 			s.DesignRefs = review.DesignRefs
 			s.DryRun = true
-			markCodeReviewed(s, job.Pass, d.HeadOID)
+			markCodeReviewed(s, job.Pass, d.HeadOID, gaps)
 		})
 	}
 
@@ -417,7 +451,7 @@ func (e *Engine) apply(ctx context.Context, job Job, st PRState, review ReviewOu
 		s.ReviewedSig = &sig
 		s.DesignRefs = review.DesignRefs
 		s.DryRun = false
-		markCodeReviewed(s, job.Pass, d.HeadOID)
+		markCodeReviewed(s, job.Pass, d.HeadOID, gaps)
 		switch action {
 		case ActionApprove:
 			s.ApprovedHead = d.HeadOID
@@ -606,9 +640,10 @@ func (e *Engine) PostHeld(ctx context.Context, k PRKey) error {
 	return err
 }
 
-// markCodeReviewed records head as code-reviewed when the pass read code.
-func markCodeReviewed(s *PRState, pass Pass, head string) {
-	if pass != PassLedger {
+// markCodeReviewed records head as code-reviewed when the pass read the
+// code it was required to.
+func markCodeReviewed(s *PRState, pass Pass, head string, gaps []string) {
+	if pass != PassLedger && len(gaps) == 0 {
 		s.CodeReviewedHead = head
 	}
 }
@@ -624,4 +659,16 @@ func labelSeverity(body string, blocking bool) string {
 		return body
 	}
 	return "non-blocking: " + body
+}
+
+// prOnly reports whether k's repo is reviewed from the PR's contents alone.
+func (e *Engine) prOnly(k PRKey) bool { return e.d.Watch.PROnly(k.NameWithOwner()) }
+
+// changedFor is the files a pass must read: everything the PR changes, or on
+// an incremental pass only what changed since the last review.
+func changedFor(job Job, files ReviewFiles) []string {
+	if job.Pass == PassIncremental && files.SinceLast != "" {
+		return files.SinceLastFiles
+	}
+	return job.Detail.Files
 }

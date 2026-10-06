@@ -157,3 +157,27 @@ func TestRenderWatchBlockMarksDryRun(t *testing.T) {
 	st.DryRun = false
 	assert.NotContains(t, renderWatchBlock(st, 200, time.Now()), "dry run")
 }
+
+func TestRenderWatchBlockShowsExaminedAndGaps(t *testing.T) {
+	st := reviewing.PRState{
+		Status:     reviewing.StatusNeedsAttention,
+		ReviewGaps: []string{"read no existing tests for the changed code\x1b[2J"},
+		Examined: &reviewing.Examined{
+			Docs: []string{"bots/kev/README.md", "docs/version-pipeline/overview.svg"},
+			Code: []string{
+				"bots/kev/a.go", "bots/kev/b.go", "bots/kev/c.go", "bots/kev/d.go", "bots/kev/e.go",
+				"bots/kev/f.go", "bots/kev/g.go", "bots/kev/h.go", "bots/kev/i.go", "bots/kev/j.go",
+			},
+		},
+	}
+	out := renderWatchBlock(st, 400, time.Now())
+	assert.Contains(t, out, "Review incomplete, so it cannot approve:")
+	assert.Contains(t, out, "- read no existing tests for the changed code[2J")
+	assert.NotContains(t, out, "\x1b[2J")
+	assert.Contains(t, out, "docs (2): bots/kev/README.md, docs/version-pipeline/overview.svg")
+	assert.Contains(t, out, "code (10): bots/kev/a.go")
+	assert.Contains(t, out, "bots/kev/h.go and 2 more")
+	assert.Contains(t, out, "tests (0): -")
+
+	assert.NotContains(t, renderWatchBlock(reviewing.PRState{}, 200, time.Now()), "Examined")
+}

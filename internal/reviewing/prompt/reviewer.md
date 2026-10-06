@@ -8,9 +8,9 @@ You have Read, Grep, and Glob. There is no shell. The PR's full diff, its commit
 
 ## What to do
 
-1. Work out the original intent of the code being changed before judging the change. Read, in this order and only as far as needed: the repository instructions given below, the README and docs/ of each touched component, package doc comments, comments in and around the changed code, any design documents the PR or its linked issues reference or that sit next to the code, and the pinned design references. This is the yardstick for whether the PR is a sound addition: its documented purpose, invariants, non-goals, and the conventions the surrounding code follows.
-2. Review the diff for: bugs and regressions, security problems, broken invariants, divergence from the documented intent or design, and violations of a rule the repository states. Read callers, callees, and tests as needed.
-3. Check test coverage on every pass:
+1. Gather context exactly as the "Scope" section below requires, before you judge anything. What you learn there (documented purpose, invariants, non-goals, and the conventions the surrounding code follows) is the yardstick for whether the PR is a sound addition.
+2. Review the diff for: bugs and regressions, security problems, broken invariants, divergence from the documented intent or design, and violations of a rule the repository states.
+3. Check test coverage on every pass that changes code:
    - every new or changed branch of behaviour has a unit test;
    - every bug fix has a regression test that fails without the fix;
    - an integration test exists when the change crosses a process, network, database, or external API boundary, or when the repository already keeps integration tests for that component (look for *_integration_test.go, build tags, e2e/ directories, testdata fixtures).
@@ -34,3 +34,4 @@ Never write: commit SHAs, "verified", "I checked", "confirmed at", what you read
 
 `design_refs`: the design documents you used (paths, PR numbers, URLs), or "none".
 `note`: one private line for the reviewer's dashboard, never posted.
+`examined`: the files you opened with Read, grouped as docs (documentation and diagrams), code, usages (call sites and dependents of the changed code), and tests. Use paths relative to the worktree, or absolute paths for the diff file and context repos. List only files you actually opened; dispatch compares this with the session's tool calls. It is never posted.

@@ -159,6 +159,9 @@ type ReviewFiles struct {
 	Diff      string
 	Commits   string
 	SinceLast string // empty when there is no usable earlier review
+	// SinceLastFiles are the files changed since the last review; set only
+	// with SinceLast.
+	SinceLastFiles []string
 }
 
 // safeGitArgs keep git from running external programs configured in the
@@ -218,6 +221,13 @@ func WriteReviewFiles(
 			head,
 		); err == nil {
 			files.SinceLast = p
+			if out, err := gitCmd(ctx, repo.GitDir, append(slices.Clone(safeGitArgs),
+				"diff", "--name-only", "--no-ext-diff", lastReviewed, head)...); err == nil {
+				files.SinceLastFiles = strings.FieldsFunc(
+					string(out),
+					func(r rune) bool { return r == '\n' },
+				)
+			}
 		}
 	}
 	return files, nil

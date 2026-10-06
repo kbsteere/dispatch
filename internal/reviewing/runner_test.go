@@ -44,7 +44,7 @@ func TestBuildArgs(t *testing.T) {
 	s := fakeSpec(t)
 	args := strings.Join(BuildArgs(s), " ")
 	for _, want := range []string{
-		"-p", "--output-format json", "--session-id " + s.SessionID, "--max-turns 100", "--max-budget-usd 10.00",
+		"-p", "--output-format stream-json --verbose", "--session-id " + s.SessionID, "--max-turns 100", "--max-budget-usd 10.00",
 		"--setting-sources local", "--tools Read,Grep,Glob --permission-mode dontAsk",
 		"--add-dir /wt/slot-0", "--add-dir /home/u/Dev/cg/stereo", "--json-schema",
 	} {

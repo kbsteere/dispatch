@@ -23,6 +23,7 @@ reviewingFor:
       authors: [tcnghia, powersj, dnegreira, AdamIsrael, ca-scribner, philroche, anushkamittal20, vishal-chdhry]
       scopes: [repo:chainguard-dev/mono, repo:chainguard-dev/stereo, repo:chainguard-dev/omnibump]
       dryRun: true
+      prOnlyRepos: [chainguard-dev/stereo]
       focus:
         - every new gRPC handler records a latency metric
       limits:
@@ -46,6 +47,9 @@ func TestReviewingForParses(t *testing.T) {
 	assert.Len(t, w.Authors, 8)
 	assert.Equal(t, []string{"every new gRPC handler records a latency metric"}, w.Focus)
 	assert.Equal(t, 15*time.Minute, cfg.ReviewingFor.Limits.RunTimeout)
+	assert.True(t, w.PROnly("chainguard-dev/stereo"))
+	assert.True(t, w.PROnly("Chainguard-Dev/Stereo"), "GitHub names are case-insensitive")
+	assert.False(t, w.PROnly("chainguard-dev/mono"))
 
 	lim := cfg.ReviewingFor.LimitsFor(w)
 	assert.Equal(t, 10.0, lim.MaxBudgetUsd)
@@ -120,6 +124,10 @@ func TestReviewingForValidation(t *testing.T) {
 			"reviewingFor:\n  limits:\n    maxBudgetUsd: -1\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n",
 			"'maxBudgetUsd' failed on the 'gt' tag",
 		},
+		"bad pr-only repo": {
+			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n      prOnlyRepos: [stereo]\n",
+			"'reponame' tag",
+		},
 		"duplicate names": {
 			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n    - name: w\n      authors: [b]\n      scopes: [repo:o/r]\n",
 			"'unique' tag",
@@ -135,4 +143,8 @@ func TestReviewingForValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.rule)
 		})
 	}
+}
+
+func TestDefaultRunTimeoutCoversDeepReviews(t *testing.T) {
+	assert.Equal(t, 25*time.Minute, DefaultReviewingLimits().RunTimeout)
 }

@@ -62,7 +62,7 @@ reviewingFor:
     maxBudgetUsd: 10            # per claude run
     maxTurns: 100               # per claude run
     maxTurnsLedgerOnly: 15      # per run when only comments changed
-    runTimeout: 15m             # per claude run
+    runTimeout: 25m             # per claude run
     dailyBudgetUsd: 100         # per watch
     maxReviewsPerPrPerDay: 6
     maxInFlight: 3
@@ -76,6 +76,7 @@ reviewingFor:
       focus: []                 # optional rules every review checks
       designRefs: []            # optional designs PRs must conform to
       ignoreLogins: []          # optional: activity from these never triggers a review
+      prOnlyRepos: [chainguard-dev/stereo]  # optional: review only the PR itself, for data-heavy repos
 ```
 
 Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, last run (turns and cost), and last update. PRs needing your attention sort first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
@@ -86,6 +87,7 @@ How it behaves:
 - **New activity only.** On first start, open PRs are recorded as a baseline and not reviewed. A PR is reviewed when it gets a push (after it settles for 150s), a comment or resolution from someone other than you, or leaves draft. Drafts are never reviewed.
 - **Bounded sessions.** Every review is a fresh `claude -p` session with a fixed session id, turn and dollar caps, and a timeout that kills the whole process group. Sessions are never resumed by the loop, so context cannot grow across a PR's lifetime. A new push kills a review of the old head.
 - **No shell for agents.** Claude gets only Read/Grep/Glob over a worktree of the PR head and your other `repoPaths` checkouts. dispatch runs git itself (with external diff, textconv, and fsmonitor disabled) and hands the agent the PR diff, commit log, and diff since its last review as files. The agent cannot post; dispatch validates its output and does the posting. Your user Claude settings and hooks are not loaded into review sessions.
+- **Full context, checked.** Every full or incremental review must read the PR diff, every changed file, the docs and diagrams of each touched component (README, docs/, design docs, `CLAUDE.md`/`AGENTS.md`), the call sites of changed code across the repo and your other `repoPaths` checkouts, and the existing tests. Sessions stream their tool calls to `events.jsonl` in the session directory, and dispatch compares what was actually opened with these requirements and with the reviewer's own list of what it examined. A review that falls short cannot approve; its findings are still posted and the Review tab lists the gaps. Repos in `prOnlyRepos` are reviewed from the PR alone, with no other repos available, and only need the diff read.
 - **Fail closed.** A finding dispatch cannot place on a changed line holds the review for you instead of being dropped, every changed file is fetched (not just the first 100), and a failed required-checks lookup counts as "not passed".
 - **Tone check.** Every comment is checked for bot narration (commit SHAs, "verified at", "LGTM", praise, summaries). A review that fails is held instead of posted; edit the draft file shown in the Review tab and press `S` twice to send it.
 - **Approvals** are given only when dispatch reviewed the code at the current commit (a pass that only reconciled comments never counts), the PR is open, ready, mergeable, and not yours, required CI passed, and nothing blocking that dispatch raised or agreed with is outstanding. With no findings the approval has an empty body; non-blocking findings are posted with it, each marked `non-blocking:` or `nit:`. Activity on a baseline PR, or pressing `N`, runs a full review. In dry run the status is marked `(dry)` in the table, since nothing was posted.

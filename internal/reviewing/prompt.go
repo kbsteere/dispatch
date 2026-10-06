@@ -21,6 +21,15 @@ var reviewerInstructions string
 //go:embed prompt/schema.json
 var ReviewSchema string
 
+var (
+	//go:embed prompt/scope-full.md
+	scopeFull string
+	//go:embed prompt/scope-pr-only.md
+	scopePROnly string
+	//go:embed prompt/scope-comments.md
+	scopeComments string
+)
+
 // Pass is the kind of review pass.
 type Pass string
 
@@ -50,6 +59,8 @@ type PromptInput struct {
 	Ledger      []Finding
 	Viewer      string
 	Standards   []StandardFile
+	// PROnly limits the review to the PR's own contents.
+	PROnly bool
 }
 
 func untrusted(s string) string {
@@ -98,6 +109,9 @@ func BuildPrompt(in PromptInput) string {
 	for _, f := range in.Detail.Files {
 		fmt.Fprintf(&b, "- %s\n", f)
 	}
+
+	b.WriteString("\n")
+	b.WriteString(scopeFor(in))
 
 	if len(in.Standards) > 0 {
 		b.WriteString("\n## Repository instructions (from the base branch)\n")
@@ -225,4 +239,16 @@ func ManualPrompt(url string) string {
 	return "Review the pull request " + url + " using the instructions below, but return your findings as Markdown for a human to read, not JSON. " +
 		"Nothing will be posted. You are running inside the repository checkout. In this session the only commands you may run are gh pr view and gh pr diff; use them to read the PR and its diff.\n\n" +
 		reviewerInstructions
+}
+
+// scopeFor is the context the reviewer must gather for in's pass.
+func scopeFor(in PromptInput) string {
+	switch {
+	case in.Pass == PassLedger:
+		return scopeComments
+	case in.PROnly:
+		return scopePROnly
+	default:
+		return scopeFull
+	}
 }

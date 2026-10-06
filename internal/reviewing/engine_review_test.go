@@ -488,3 +488,78 @@ func TestLabelSeverity(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewShallowPassCannotApprove(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	t.Setenv("FAKE_CLAUDE_READS", "kev.go") // no docs, no tests
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	assert.Empty(t, h.gh.posted)
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	assert.Empty(t, st.CodeReviewedHead, "an incomplete pass never counts as reading the code")
+	assert.Equal(t, []string{
+		"listed README.md as examined but never opened it",
+		"listed kev_test.go as examined but never opened it",
+		"read no documentation or design docs",
+		"read no existing tests for the changed code",
+	}, st.ReviewGaps)
+	assert.True(t, strings.HasPrefix(st.Note, "review incomplete: "), st.Note)
+}
+
+func TestReviewShallowPassStillPostsFindings(t *testing.T) {
+	h := newReviewHarness(t, "finding", nil)
+	t.Setenv("FAKE_CLAUDE_READS", "")
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	require.Len(t, h.gh.posted, 1, "real problems are posted even from an incomplete review")
+	assert.Equal(t, "COMMENT", h.gh.posted[0].Event)
+	assert.NotEmpty(t, h.state(t).ReviewGaps)
+}
+
+func TestReviewClaimedReadThatNeverHappenedCannotApprove(t *testing.T) {
+	h := newReviewHarness(t, "phantom", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Empty(t, h.gh.posted)
+	assert.Equal(t,
+		[]string{"listed docs/design.md as examined but never opened it"},
+		h.state(t).ReviewGaps)
+}
+
+func TestReviewCompletePassRecordsWhatItRead(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted)
+
+	st := h.state(t)
+	assert.Empty(t, st.ReviewGaps)
+	require.NotNil(t, st.Examined)
+	assert.Equal(t, []string{"kev_test.go"}, st.Examined.Tests)
+
+	events := filepath.Join(h.e.d.StateRoot, "sessions", st.LastRun.SessionID, "events.jsonl")
+	b, err := os.ReadFile(events)
+	require.NoError(t, err, "the session's event stream is kept")
+	assert.Contains(t, string(b), `"name":"Read"`)
+}
+
+func TestReviewPROnlyRepoNeedsOnlyTheDiff(t *testing.T) {
+	stdin := filepath.Join(t.TempDir(), "stdin")
+	t.Setenv("FAKE_CLAUDE_STDIN", stdin)
+	h := newReviewHarness(t, "resolve", func(w *config.ReviewWatch) {
+		w.PROnlyRepos = []string{"chainguard-dev/mono"}
+	})
+	h.e.d.ContextDirs = []string{"/home/u/Dev/cg/mono/main"}
+	t.Setenv("FAKE_CLAUDE_READS", "")
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	assert.Equal(t, ActionApprove, out.Posted, "reading the diff is enough for a pr-only repo")
+	assert.Empty(t, h.state(t).ReviewGaps)
+	prompt, _ := os.ReadFile(stdin)
+	assert.Contains(t, string(prompt), "## Scope: this pull request only")
+	assert.NotContains(t, string(prompt), "context repos:", "pr-only reviews get no other repos")
+}

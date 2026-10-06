@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 )
 
 // OutFinding is one problem the reviewer reports, anchored to a line of the
@@ -31,6 +33,16 @@ type ReviewOutput struct {
 	AgreedThreads []string       `json:"agreed_threads"`
 	DesignRefs    string         `json:"design_refs"`
 	Note          string         `json:"note"`
+	Examined      Examined       `json:"examined"`
+}
+
+// Examined is the reviewer's private account of what it read. It is never
+// posted; dispatch checks it against the files the session really opened.
+type Examined struct {
+	Docs   []string `json:"docs"`
+	Code   []string `json:"code"`
+	Usages []string `json:"usages"`
+	Tests  []string `json:"tests"`
 }
 
 // RunResult is the final result event of a `claude -p --output-format json` run.
@@ -42,9 +54,16 @@ type RunResult struct {
 	Turns      int
 	CostUSD    float64
 	Structured json.RawMessage
+	// Reads are the files the session opened with Read, excluding reads
+	// that failed.
+	Reads []string
+	// Searches counts the session's Grep and Glob calls.
+	Searches int
 }
 
-type resultEvent struct {
+// streamEvent is one event of claude's output. Assistant events carry tool
+// calls; user events carry their results.
+type streamEvent struct {
 	Type       string          `json:"type"`
 	Subtype    string          `json:"subtype"`
 	Result     string          `json:"result"`
@@ -53,47 +72,92 @@ type resultEvent struct {
 	NumTurns   int             `json:"num_turns"`
 	TotalCost  float64         `json:"total_cost_usd"`
 	Structured json.RawMessage `json:"structured_output"`
+	Message    struct {
+		Content []contentBlock `json:"content"`
+	} `json:"message"`
 }
 
-// ParseResult reads claude's JSON output, which is either a single result
-// object or an array of events ending in a result event.
-func ParseResult(out []byte) (RunResult, error) {
+type contentBlock struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
+	Input     struct {
+		FilePath string `json:"file_path"`
+	} `json:"input"`
+}
+
+// decodeEvents reads claude's output: a JSON array of events, or one event
+// per line (stream-json).
+func decodeEvents(out []byte) ([]streamEvent, error) {
 	out = bytes.TrimSpace(out)
-	var events []resultEvent
 	if len(out) > 0 && out[0] == '[' {
-		if err := json.Unmarshal(out, &events); err != nil {
-			return RunResult{}, fmt.Errorf("parsing claude output: %w", err)
-		}
-	} else {
-		var ev resultEvent
-		if err := json.Unmarshal(out, &ev); err != nil {
-			return RunResult{}, fmt.Errorf("parsing claude output: %w", err)
-		}
-		events = []resultEvent{ev}
+		var events []streamEvent
+		return events, json.Unmarshal(out, &events)
 	}
-	for i := len(events) - 1; i >= 0; i-- {
-		ev := events[i]
+	var events []streamEvent
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var ev streamEvent
+		if err := dec.Decode(&ev); err != nil {
+			return events, err
+		}
+		events = append(events, ev)
+	}
+	return events, nil
+}
+
+// ParseResult extracts the final result and the session's file reads from
+// claude's output.
+func ParseResult(out []byte) (RunResult, error) {
+	events, err := decodeEvents(out)
+	if err != nil {
+		return RunResult{}, fmt.Errorf("parsing claude output: %w", err)
+	}
+	reads := map[string]string{} // tool_use id -> path
+	failed := map[string]struct{}{}
+	var res RunResult
+	found := false
+	for _, ev := range events {
+		for _, c := range ev.Message.Content {
+			switch {
+			case c.Type == "tool_use" && c.Name == "Read" && c.Input.FilePath != "":
+				reads[c.ID] = filepath.Clean(c.Input.FilePath)
+			case c.Type == "tool_use" && (c.Name == "Grep" || c.Name == "Glob"):
+				res.Searches++
+			case c.Type == "tool_result" && c.IsError:
+				failed[c.ToolUseID] = struct{}{}
+			}
+		}
 		if ev.Type != "result" {
 			continue
 		}
-		structured := ev.Structured
-		if bytes.Equal(structured, []byte("null")) {
-			structured = nil
+		found = true
+		res.SessionID, res.Subtype, res.Text = ev.SessionID, ev.Subtype, ev.Result
+		res.IsError, res.Turns, res.CostUSD = ev.IsError, ev.NumTurns, ev.TotalCost
+		res.Structured = ev.Structured
+		if bytes.Equal(res.Structured, []byte("null")) {
+			res.Structured = nil
 		}
-		return RunResult{
-			SessionID:  ev.SessionID,
-			Subtype:    ev.Subtype,
-			Text:       ev.Result,
-			IsError:    ev.IsError,
-			Turns:      ev.NumTurns,
-			CostUSD:    ev.TotalCost,
-			Structured: structured,
-		}, nil
 	}
-	return RunResult{}, errors.New("claude output has no result event")
+	if !found {
+		return RunResult{}, errors.New("claude output has no result event")
+	}
+	seen := map[string]struct{}{}
+	for id, p := range reads {
+		if _, bad := failed[id]; bad {
+			continue
+		}
+		if _, dup := seen[p]; !dup {
+			seen[p] = struct{}{}
+			res.Reads = append(res.Reads, p)
+		}
+	}
+	slices.Sort(res.Reads)
+	return res, nil
 }
 
-// Err reports a run that ended in an error or hit a cap.
 func (r RunResult) Err() error {
 	if r.IsError || r.Subtype != "success" {
 		return fmt.Errorf("claude run ended with %s: %s", r.Subtype, r.Text)

@@ -874,6 +874,7 @@ func initParser() ConfigParser {
 	validate.RegisterValidation("color", validateColor)
 	validate.RegisterValidation("watchname", validateWatchName)
 	validate.RegisterValidation("reviewscope", validateReviewScope)
+	validate.RegisterValidation("reponame", validateRepoName)
 
 	return ConfigParser{
 		k: koanf.NewWithConf(conf),
