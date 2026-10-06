@@ -51,7 +51,7 @@ func TestRenderWatchBlock(t *testing.T) {
 	assert.Contains(
 		t,
 		out,
-		"Watch: changes requested · added by hand · last run 9 turns · $2.50 · session 5c1e2a4f-9d1b-4a3e-8f2c-0b7d6e5a4c3b",
+		"Watch: changes requested · added by hand · last run 9 turns · $2.50 · total $2.50 over 1 run · session 5c1e2a4f-9d1b-4a3e-8f2c-0b7d6e5a4c3b",
 	)
 	assert.Contains(t, out, "Note: one blocking")
 	assert.NotContains(t, out, "already fixed", "only outstanding findings are listed")
@@ -196,4 +196,14 @@ func TestRenderWatchBlockShowsVerdict(t *testing.T) {
 	)
 	assert.NotContains(t, out, "\x1b[2J")
 	assert.NotContains(t, renderWatchBlock(reviewing.PRState{}, 200, time.Now()), "verdict")
+}
+
+func TestRenderWatchBlockShowsTotalSpend(t *testing.T) {
+	st := reviewing.PRState{
+		Status:       reviewing.StatusApproved,
+		LastRun:      &reviewing.RunRecord{SessionID: "s", Turns: 4, CostUSD: 0.11},
+		TotalCostUSD: 0.37, TotalTurns: 10, Runs: 2,
+	}
+	assert.Contains(t, renderWatchBlock(st, 300, time.Now()),
+		"last run 4 turns · $0.11 · total $0.37 over 2 runs")
 }

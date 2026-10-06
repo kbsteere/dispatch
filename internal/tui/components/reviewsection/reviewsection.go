@@ -54,7 +54,7 @@ func Columns() []table.Column {
 		{Title: "Author", Width: utils.IntPtr(14)},
 		{Title: "Open", Width: utils.IntPtr(7)},
 		{Title: "CI", Width: utils.IntPtr(4)},
-		{Title: "Last run", Width: utils.IntPtr(11)},
+		{Title: "Spend", Width: utils.IntPtr(11)},
 		{Title: "Updated", Width: utils.IntPtr(8)},
 	}
 }
@@ -95,7 +95,7 @@ func (m Model) BuildRows() []table.Row {
 		c := Cells(s, now)
 		rows = append(
 			rows,
-			table.Row{c.Status, c.PR, c.Author, c.Open, ciGlyph(c.CI), c.LastRun, c.Updated},
+			table.Row{c.Status, c.PR, c.Author, c.Open, ciGlyph(c.CI), c.Spend, c.Updated},
 		)
 	}
 	return rows

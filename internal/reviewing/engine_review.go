@@ -220,6 +220,10 @@ func (e *Engine) recordRun(k PRKey, sessionID string, res RunResult, err error) 
 		outcome = err.Error()
 	}
 	_, _ = e.update(k, func(st *PRState) {
+		st.TotalCostUSD, st.TotalTurns, st.Runs = st.Spend()
+		st.TotalCostUSD += res.CostUSD
+		st.TotalTurns += res.Turns
+		st.Runs++
 		st.LastRun = &RunRecord{
 			SessionID: sessionID,
 			Turns:     res.Turns,

@@ -63,11 +63,15 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 		b.WriteString(" · added by hand")
 	}
 	if r := st.LastRun; r != nil {
+		cost, _, runs := st.Spend()
 		fmt.Fprintf(
 			&b,
-			" · last run %d turns · $%.2f · session %s",
+			" · last run %d turns · $%.2f · total $%.2f over %d %s · session %s",
 			r.Turns,
 			r.CostUSD,
+			cost,
+			runs,
+			plural(runs, "run"),
 			clean(r.SessionID),
 		)
 	}

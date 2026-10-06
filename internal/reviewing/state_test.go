@@ -170,3 +170,21 @@ func TestLatestDraft(t *testing.T) {
 	_, ok = s.LatestDraft(PRKey{"..", "mono", 62436})
 	assert.False(t, ok, "invalid keys are refused")
 }
+
+func TestPRStateSpend(t *testing.T) {
+	var st PRState
+	cost, turns, runs := st.Spend()
+	assert.Zero(t, cost+float64(turns+runs), "never run")
+
+	st.LastRun = &RunRecord{Turns: 6, CostUSD: 0.26}
+	cost, turns, runs = st.Spend()
+	assert.Equal(t, 0.26, cost, "state from before totals counts its last run")
+	assert.Equal(t, 6, turns)
+	assert.Equal(t, 1, runs)
+
+	st.TotalCostUSD, st.TotalTurns, st.Runs = 0.37, 10, 2
+	cost, turns, runs = st.Spend()
+	assert.Equal(t, 0.37, cost)
+	assert.Equal(t, 10, turns)
+	assert.Equal(t, 2, runs)
+}

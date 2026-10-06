@@ -91,7 +91,7 @@ type RowCells struct {
 	Author  string
 	Open    string
 	CI      string
-	LastRun string
+	Spend   string
 	Updated string
 }
 
@@ -115,10 +115,10 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 			s.Key.Number,
 			clip(clean(s.Title), maxTitleRunes),
 		),
-		Author:  clip(clean(s.Author), 39),
-		Open:    "-",
-		CI:      s.CI,
-		LastRun: "-",
+		Author: clip(clean(s.Author), 39),
+		Open:   "-",
+		CI:     s.CI,
+		Spend:  "-",
 	}
 	if c.Status == "" {
 		c.Status = string(s.Status)
@@ -142,11 +142,11 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 		}
 		c.Open = strings.Join(parts, " ")
 	}
-	switch {
+	switch cost, _, runs := s.Spend(); {
 	case s.Status == reviewing.StatusReviewing:
-		c.LastRun = "…"
-	case s.LastRun != nil:
-		c.LastRun = fmt.Sprintf("%dt $%.2f", s.LastRun.Turns, s.LastRun.CostUSD)
+		c.Spend = "…"
+	case runs > 0:
+		c.Spend = fmt.Sprintf("$%.2f ·%d", cost, runs)
 	}
 	if t := updatedAt(s); !t.IsZero() {
 		c.Updated = shortElapsed(now.Sub(t))

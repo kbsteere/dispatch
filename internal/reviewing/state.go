@@ -118,22 +118,26 @@ type PRState struct {
 	Examined   *Examined `json:"examined,omitempty"`
 	ReviewGaps []string  `json:"review_gaps,omitempty"`
 	// Verdict and VerdictReason are the last pass's approval call.
-	Verdict       string         `json:"verdict,omitempty"`
-	VerdictReason string         `json:"verdict_reason,omitempty"`
-	HeadSeen      *HeadSeen      `json:"head_seen,omitempty"`
-	CIObs         CIObs          `json:"ci_obs"`
-	LastCIWake    time.Time      `json:"last_ci_wake"`
-	Ledger        []Finding      `json:"ledger,omitempty"`
-	OurThreads    []string       `json:"our_threads,omitempty"`
-	DesignRefs    string         `json:"design_refs,omitempty"`
-	ApprovedHead  string         `json:"approved_head,omitempty"`
-	Claim         *Claim         `json:"claim,omitempty"`
-	LastRun       *RunRecord     `json:"last_run,omitempty"`
-	ReviewsByDay  map[string]int `json:"reviews_by_day,omitempty"`
-	Backoff       Backoff        `json:"backoff"`
-	Note          string         `json:"note,omitempty"`
-	HeldDraft     string         `json:"held_draft,omitempty"`
-	ForceReview   bool           `json:"force_review,omitempty"`
+	Verdict       string     `json:"verdict,omitempty"`
+	VerdictReason string     `json:"verdict_reason,omitempty"`
+	HeadSeen      *HeadSeen  `json:"head_seen,omitempty"`
+	CIObs         CIObs      `json:"ci_obs"`
+	LastCIWake    time.Time  `json:"last_ci_wake"`
+	Ledger        []Finding  `json:"ledger,omitempty"`
+	OurThreads    []string   `json:"our_threads,omitempty"`
+	DesignRefs    string     `json:"design_refs,omitempty"`
+	ApprovedHead  string     `json:"approved_head,omitempty"`
+	Claim         *Claim     `json:"claim,omitempty"`
+	LastRun       *RunRecord `json:"last_run,omitempty"`
+	// TotalCostUSD, TotalTurns, and Runs add up every session run for the PR.
+	TotalCostUSD float64        `json:"total_cost_usd,omitempty"`
+	TotalTurns   int            `json:"total_turns,omitempty"`
+	Runs         int            `json:"runs,omitempty"`
+	ReviewsByDay map[string]int `json:"reviews_by_day,omitempty"`
+	Backoff      Backoff        `json:"backoff"`
+	Note         string         `json:"note,omitempty"`
+	HeldDraft    string         `json:"held_draft,omitempty"`
+	ForceReview  bool           `json:"force_review,omitempty"`
 }
 
 // OutstandingCounts counts outstanding findings by severity.
@@ -355,4 +359,13 @@ func writeJSONAtomic(path string, v any) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// Spend is everything the PR's review sessions cost. State written before
+// totals were kept counts only its last run.
+func (st PRState) Spend() (costUSD float64, turns, runs int) {
+	if st.Runs == 0 && st.LastRun != nil {
+		return st.LastRun.CostUSD, st.LastRun.Turns, 1
+	}
+	return st.TotalCostUSD, st.TotalTurns, st.Runs
 }

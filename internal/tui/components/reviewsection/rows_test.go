@@ -91,7 +91,7 @@ func TestCells(t *testing.T) {
 	)
 	assert.Equal(t, "tcnghia", c.Author)
 	assert.Equal(t, "2b 1n", c.Open)
-	assert.Equal(t, "9t $2.10", c.LastRun)
+	assert.Equal(t, "$2.10 ·1", c.Spend, "state from before totals counts its last run")
 	assert.Equal(t, "14m", c.Updated)
 	assert.Equal(t, "SUCCESS", c.CI)
 }
@@ -102,14 +102,14 @@ func TestCellsEdgeCases(t *testing.T) {
 	s.Title = strings.Repeat("x", 500)
 	c := Cells(s, now)
 	assert.Equal(t, "-", c.Open)
-	assert.Equal(t, "…", c.LastRun, "a running review shows progress, not the previous run")
+	assert.Equal(t, "…", c.Spend, "a running review shows progress, not the previous run")
 	assert.True(t, strings.HasSuffix(c.PR, "(added)"))
 	assert.LessOrEqual(t, len([]rune(c.PR)), maxTitleRunes+40, "titles are length-limited")
 
 	b := st("mono", 1, reviewing.StatusBaseline, 48*time.Hour)
 	c = Cells(b, now)
 	assert.Equal(t, "baseline", c.Status)
-	assert.Equal(t, "-", c.LastRun)
+	assert.Equal(t, "-", c.Spend)
 	assert.Equal(t, "2d", c.Updated)
 
 	b.UpdatedAt = "garbage"
@@ -201,4 +201,11 @@ func TestSortStatesPutsRequestedReviewsFirst(t *testing.T) {
 	assert.Equal(t, []int{367334, 66173, 59119, 66370}, order,
 		"requested first, each group in status order")
 	assert.Equal(t, "mono#66173 title (requested)", Cells(asked, now).PR)
+}
+
+func TestCellsShowsTotalSpend(t *testing.T) {
+	s := st("mono", 66173, reviewing.StatusApproved, time.Hour)
+	s.LastRun = &reviewing.RunRecord{Turns: 4, CostUSD: 0.11}
+	s.TotalCostUSD, s.TotalTurns, s.Runs = 0.37, 10, 2
+	assert.Equal(t, "$0.37 ·2", Cells(s, now).Spend, "every run, not just the last")
 }

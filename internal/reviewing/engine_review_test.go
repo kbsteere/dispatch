@@ -381,6 +381,8 @@ func TestReviewSupersededResultIsDropped(t *testing.T) {
 		h.e.store.Spend(Day(h.now)),
 		"spend is recorded even when the result is dropped",
 	)
+	_, _, runs := h.state(t).Spend()
+	assert.Equal(t, 1, runs, "a superseded run counts toward the PR's total")
 }
 
 func TestReviewMissedKeyTouchNeedsAttentionWithoutBackoff(t *testing.T) {
@@ -658,4 +660,30 @@ func TestPostDraftIgnoresOldDraftsWithoutVerdict(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ActionComment, action)
 	assert.Equal(t, "the review did not read everything it had to at this commit", why)
+}
+
+func TestReviewSpendAddsUpAcrossRuns(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	// A run from before totals were kept.
+	_, err := h.e.update(h.job.Key, func(s *PRState) {
+		s.LastRun = &RunRecord{SessionID: "old", Turns: 6, CostUSD: 0.26}
+	})
+	require.NoError(t, err)
+
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	cost, turns, runs := h.state(t).Spend()
+	assert.InDelta(t, 0.26+1.25, cost, 1e-9)
+	assert.Equal(t, 6+7, turns)
+	assert.Equal(t, 2, runs)
+}
+
+func TestReviewSpendCountsCappedRuns(t *testing.T) {
+	h := newReviewHarness(t, "max_turns", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.Error(t, out.Err)
+	cost, turns, runs := h.state(t).Spend()
+	assert.Equal(t, 3.5, cost, "a run that hit its cap still cost money")
+	assert.Equal(t, 100, turns)
+	assert.Equal(t, 1, runs)
 }
