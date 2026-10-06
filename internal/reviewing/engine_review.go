@@ -1,6 +1,7 @@
 package reviewing
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -88,6 +89,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	_, _ = e.update(job.Key, func(s *PRState) {
 		s.Examined = &review.Examined
 		s.ReviewGaps = gaps
+		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 	})
 	return e.apply(ctx, job, st, review, gaps)
 }
@@ -293,7 +295,7 @@ func (e *Engine) apply(
 		ourThreads[t] = true
 	}
 
-	draft := Draft{Head: d.HeadOID}
+	draft := Draft{Head: d.HeadOID, Verdict: review.Verdict, VerdictReason: review.VerdictReason}
 	for _, f := range review.Findings {
 		if !files[f.Path] || f.Line <= 0 {
 			// A finding dispatch cannot anchor to a changed line is still a
@@ -408,9 +410,11 @@ func (e *Engine) apply(
 		ApprovedHead:         st.ApprovedHead,
 		OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
 		CodeReviewed:         codeReviewed,
+		ReviewerApproves:     review.Verdict == VerdictApprove,
 	}
 	action, status := Decide(snap, tally)
 	draft.Event = string(action)
+	draft.CodeReviewed = codeReviewed
 
 	if len(draft.Reasons) > 0 {
 		path := e.store.DraftPath(job.Key, e.d.Now())
@@ -574,19 +578,21 @@ func (e *Engine) record(k PRKey, out Outcome, status Status, fn func(*PRState)) 
 	return out
 }
 
-// PostHeld posts a held draft, which the user may have edited on disk,
-// after linting it again and checking the head has not moved.
-func (e *Engine) PostHeld(ctx context.Context, k PRKey) error {
+// PostDraft posts the review shown for k: a held review, which the user may
+// have edited on disk, or the latest dry-run draft. It re-reads the PR,
+// lints the text again, and decides the review event afresh, so an
+// approval goes out only if the reviewer said approve and every approval
+// check still passes. It returns what was posted and, when a drafted
+// approval was not posted, why.
+func (e *Engine) PostDraft(ctx context.Context, k PRKey) (Action, string, error) {
 	st, err := e.load(k)
 	if err != nil {
-		return err
+		return ActionNone, "", err
 	}
-	if st.HeldDraft == "" {
-		return fmt.Errorf("%s has no held review", k)
-	}
-	draft, err := readDraft(st.HeldDraft)
-	if err != nil {
-		return err
+	held := st.HeldDraft != ""
+	draft, ok := e.DraftFor(st)
+	if !ok {
+		return ActionNone, "", fmt.Errorf("%s has no review to post", k)
 	}
 	var reasons []string
 	for _, c := range draft.Comments {
@@ -596,48 +602,117 @@ func (e *Engine) PostHeld(ctx context.Context, k PRKey) error {
 		reasons = append(reasons, LintBody(r.Body)...)
 	}
 	if len(reasons) > 0 {
-		return fmt.Errorf(
-			"held review still fails the tone check (%s); edit %s",
+		return ActionNone, "", fmt.Errorf(
+			"the review still fails the tone check (%s); edit %s",
 			strings.Join(reasons, "; "),
-			st.HeldDraft,
+			cmp.Or(st.HeldDraft, "the draft"),
 		)
 	}
+	viewer, _ := e.ensureViewer(ctx)
 	fresh, _, err := e.d.GitHub.Details(ctx, []string{st.NodeID})
 	if err != nil {
-		return err
+		return ActionNone, "", err
 	}
-	if len(fresh) == 0 || fresh[0].HeadOID != draft.Head {
-		return fmt.Errorf("%s moved since the review was held; it will be reviewed again", k)
+	if len(fresh) == 0 || fresh[0].HeadOID != draft.Head || fresh[0].State != "OPEN" ||
+		fresh[0].IsDraft {
+		return ActionNone, "", fmt.Errorf(
+			"%s changed since the review was written; it will be reviewed again",
+			k,
+		)
 	}
-	if draft.Event == string(ActionApprove) && len(draft.Unanchored) > 0 {
-		// The reviewer reported problems that never made it into comments.
-		draft.Event = string(ActionNone)
+	sig := e.signature(ctx, fresh[0], viewer)
+
+	ledger := st.Ledger
+	var tally Tally
+	if held {
+		// A held pass never recorded its findings.
+		tally, ledger = tallyFor(st.Ledger, draft)
+	} else {
+		tally = draftTally(st.Ledger, draft)
 	}
-	if draft.Event == string(ActionNone) && len(draft.Comments) > 0 {
-		draft.Event = string(ActionComment)
+	snap := Snapshot{
+		State:                fresh[0].State,
+		IsDraft:              fresh[0].IsDraft,
+		Author:               fresh[0].Author,
+		Viewer:               viewer,
+		Mergeable:            fresh[0].Mergeable,
+		Head:                 fresh[0].HeadOID,
+		RequiredCI:           sig.CI,
+		ApprovedHead:         st.ApprovedHead,
+		OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
+		// Findings that could not be anchored were never shown to the
+		// author, so they rule out an approval.
+		CodeReviewed:     draft.CodeReviewed && len(draft.Unanchored) == 0,
+		ReviewerApproves: draft.Verdict == VerdictApprove,
 	}
-	_, ledger := tallyFor(st.Ledger, draft)
+	action, status := Decide(snap, tally)
+	if action == ActionNone && len(draft.Comments) > 0 {
+		action = ActionComment
+	}
+	if action == ActionNone && len(draft.Replies)+len(draft.Resolve) == 0 {
+		return ActionNone, approvalBlocker(snap, tally), fmt.Errorf("%s has nothing to post", k)
+	}
+	var notApproved string
+	if action != ActionApprove {
+		notApproved = approvalBlocker(snap, tally)
+	}
+	draft.Event = string(action)
 	ledger, ourNew, err := e.post(ctx, k, draft, ledger)
 	if err != nil {
-		return err
-	}
-	b, nb := PRState{Ledger: ledger}.OutstandingCounts()
-	status := StatusWaitingOnAuthor
-	if b > 0 {
-		status = StatusChangesRequested
-	} else if nb == 0 && draft.Event == string(ActionApprove) {
-		status = StatusApproved
+		return ActionNone, "", err
 	}
 	_, err = e.update(k, func(s *PRState) {
 		s.Ledger = ledger
 		s.OurThreads = append(s.OurThreads, ourNew...)
 		s.HeldDraft = ""
+		s.DryRun = false
 		s.Status = status
-		if draft.Event == string(ActionApprove) {
+		switch action {
+		case ActionApprove:
 			s.ApprovedHead = draft.Head
+		case ActionRequestChanges:
+			s.ApprovedHead = ""
 		}
 	})
-	return err
+	return action, notApproved, err
+}
+
+// draftTally counts a dry-run draft against a ledger that already holds
+// its findings.
+func draftTally(ledger []Finding, draft Draft) Tally {
+	b, nb := PRState{Ledger: ledger}.OutstandingCounts()
+	t := Tally{NewFindings: len(draft.Findings), OutstandingBlocking: b, OutstandingNonBlocking: nb}
+	for _, f := range draft.Findings {
+		if f.Blocking {
+			t.NewBlocking++
+		}
+	}
+	return t
+}
+
+// approvalBlocker says why Decide would not approve s, checking in the same
+// order Decide does.
+func approvalBlocker(s Snapshot, t Tally) string {
+	switch {
+	case t.OutstandingBlocking > 0:
+		return "blocking findings are still open"
+	case s.State != "OPEN" || s.IsDraft:
+		return "the PR is not open and ready"
+	case s.Author == s.Viewer:
+		return "it is your own PR"
+	case s.Mergeable == "CONFLICTING":
+		return "the PR has merge conflicts"
+	case !s.CodeReviewed:
+		return "the review did not read everything it had to at this commit"
+	case !s.ReviewerApproves:
+		return "Claude's verdict was not approve"
+	case s.RequiredCI != "SUCCESS":
+		return "required CI is not green"
+	case s.ApprovedHead == s.Head:
+		return "you already approved this commit"
+	default:
+		return ""
+	}
 }
 
 // markCodeReviewed records head as code-reviewed when the pass read the

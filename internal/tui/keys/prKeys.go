@@ -133,7 +133,7 @@ var PRKeys = PRKeyMap{
 	),
 	ReviewSendHeld: key.NewBinding(
 		key.WithKeys("S"),
-		key.WithHelp("S", "send held review"),
+		key.WithHelp("S", "post the review draft"),
 	),
 	ReviewNow: key.NewBinding(
 		key.WithKeys("N"),

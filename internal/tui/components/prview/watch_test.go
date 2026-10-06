@@ -181,3 +181,19 @@ func TestRenderWatchBlockShowsExaminedAndGaps(t *testing.T) {
 
 	assert.NotContains(t, renderWatchBlock(reviewing.PRState{}, 200, time.Now()), "Examined")
 }
+
+func TestRenderWatchBlockShowsVerdict(t *testing.T) {
+	st := reviewing.PRState{
+		Status:        reviewing.StatusChangesRequested,
+		Verdict:       "request_changes",
+		VerdictReason: "the retry loop never honours ctx.Done()\x1b[2J",
+	}
+	out := renderWatchBlock(st, 400, time.Now())
+	assert.Contains(
+		t,
+		out,
+		"Claude's verdict: request changes — the retry loop never honours ctx.Done()[2J",
+	)
+	assert.NotContains(t, out, "\x1b[2J")
+	assert.NotContains(t, renderWatchBlock(reviewing.PRState{}, 200, time.Now()), "verdict")
+}

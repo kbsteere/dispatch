@@ -354,20 +354,20 @@ func (m *Model) addRef(ref string) tea.Cmd {
 	}
 }
 
-// sendHeld posts the selected PR's held review. The first press arms it;
-// a second press on the same PR sends it.
-func (m *Model) sendHeld(row data.RowData) tea.Cmd {
+// sendDraft posts the review shown for the selected PR: a held review or a
+// dry-run draft. The first press arms it; a second press on the same PR
+// sends it.
+func (m *Model) sendDraft(row data.RowData) tea.Cmd {
 	k, err := rowKey(row)
 	if err != nil {
 		return func() tea.Msg { return reviewActionMsg{err: err} }
 	}
-	st, ok := m.ctx.WatchPRs[k.URL()]
-	if !ok || st.HeldDraft == "" {
-		return func() tea.Msg { return reviewActionMsg{err: fmt.Errorf("%s has no held review", k)} }
+	if _, ok := m.ctx.WatchDrafts[k.URL()]; !ok {
+		return func() tea.Msg { return reviewActionMsg{err: fmt.Errorf("%s has no review to post", k)} }
 	}
 	if m.pendingSend != k.URL() {
 		m.pendingSend = k.URL()
-		return m.notify(fmt.Sprintf("Press S again to post the held review on %s", k))
+		return m.notify(fmt.Sprintf("Press S again to post the review on %s", k))
 	}
 	m.pendingSend = ""
 	e := m.engineFor(k)
@@ -375,10 +375,23 @@ func (m *Model) sendHeld(row data.RowData) tea.Cmd {
 		return noWatches
 	}
 	return func() tea.Msg {
-		if err := e.PostHeld(context.Background(), k); err != nil {
+		action, notApproved, err := e.PostDraft(context.Background(), k)
+		if err != nil {
 			return reviewActionMsg{err: err}
 		}
-		return reviewActionMsg{note: fmt.Sprintf("Posted the held review on %s", k)}
+		return reviewActionMsg{note: postedNote(k, action, notApproved)}
+	}
+}
+
+// postedNote tells the user what PostDraft sent.
+func postedNote(k reviewing.PRKey, action reviewing.Action, notApproved string) string {
+	switch {
+	case action == reviewing.ActionApprove:
+		return fmt.Sprintf("Approved %s", k)
+	case notApproved != "":
+		return fmt.Sprintf("Posted the review on %s without approving: %s", k, notApproved)
+	default:
+		return fmt.Sprintf("Posted the review on %s", k)
 	}
 }
 

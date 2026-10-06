@@ -46,7 +46,7 @@ The `repoPaths` mapping tells dispatch where repos live locally; AI reviews and 
 | `[` / `]` | Cycle preview tabs (Overview, Activity, Commits, Checks, Files, Diff, Review) |
 | `f` | Add the selected PR to the review watch, or remove a PR you added |
 | `F` | Add a PR to the review watch by `owner/repo#N` or URL |
-| `S` | Send a held review (press twice) |
+| `S` | Post the review shown in the Review tab, held or dry-run (press twice) |
 | `N` | Review the selected watched PR now |
 | `Z` | Pause or resume the review watch |
 
@@ -79,7 +79,7 @@ reviewingFor:
       prOnlyRepos: [chainguard-dev/stereo]  # optional: review only the PR itself, for data-heavy repos
 ```
 
-Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, last run (turns and cost), and last update. PRs needing your attention sort first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
+Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, last run (turns and cost), and last update. PRs where you or one of your teams is a requested reviewer sort first and are marked `(requested)`; within each group, PRs needing your attention come first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
 
 How it behaves:
 
@@ -90,7 +90,7 @@ How it behaves:
 - **Full context, checked.** Every full or incremental review must read the PR diff, every changed file, the docs and diagrams of each touched component (README, docs/, design docs, `CLAUDE.md`/`AGENTS.md`), the call sites of changed code across the repo and your other `repoPaths` checkouts, and the existing tests. Sessions stream their tool calls to `events.jsonl` in the session directory, and dispatch compares what was actually opened with these requirements and with the reviewer's own list of what it examined. A review that falls short cannot approve; its findings are still posted and the Review tab lists the gaps. Repos in `prOnlyRepos` are reviewed from the PR alone, with no other repos available, and only need the diff read.
 - **Fail closed.** A finding dispatch cannot place on a changed line holds the review for you instead of being dropped, every changed file is fetched (not just the first 100), and a failed required-checks lookup counts as "not passed".
 - **Tone check.** Every comment is checked for bot narration (commit SHAs, "verified at", "LGTM", praise, summaries). A review that fails is held instead of posted; edit the draft file shown in the Review tab and press `S` twice to send it.
-- **Approvals** are given only when dispatch reviewed the code at the current commit (a pass that only reconciled comments never counts), the PR is open, ready, mergeable, and not yours, required CI passed, and nothing blocking that dispatch raised or agreed with is outstanding. With no findings the approval has an empty body; non-blocking findings are posted with it, each marked `non-blocking:` or `nit:`. Activity on a baseline PR, or pressing `N`, runs a full review. In dry run the status is marked `(dry)` in the table, since nothing was posted.
+- **Approvals** are given only when Claude's verdict is `approve` (it returns `approve`, `comment`, or `request_changes` with a private reason, shown in the Review tab), dispatch reviewed the code at the current commit (a pass that only reconciled comments never counts), the PR is open, ready, mergeable, and not yours, required CI passed, and nothing blocking that dispatch raised or agreed with is outstanding. With no findings the approval has an empty body; non-blocking findings are posted with it, each marked `non-blocking:` or `nit:`. Activity on a baseline PR, or pressing `N`, runs a full review. In dry run the status is marked `(dry)` in the table, since nothing was posted. In dry run, `S` posts the draft as written; it approves only if the verdict was `approve` and every check above still passes at that moment, and otherwise posts just the comments and says why.
 - **Spend and quota.** Daily spend per watch and GitHub GraphQL quota are tracked; the footer shows `paused: budget` or `paused: github quota` when a limit is reached.
 
 State lives in `$XDG_STATE_HOME/dispatch/reviewing/` (default `~/.local/state/dispatch/reviewing/`): one JSON file per PR, daily spend, dry-run and held drafts, worktree slots, and session directories.

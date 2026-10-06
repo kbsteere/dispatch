@@ -78,6 +78,13 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 	if st.Note != "" {
 		fmt.Fprintf(&b, "Note: %s\n", clean(st.Note))
 	}
+	if st.Verdict != "" {
+		fmt.Fprintf(&b, "Claude's verdict: %s", clean(strings.ReplaceAll(st.Verdict, "_", " ")))
+		if st.VerdictReason != "" {
+			fmt.Fprintf(&b, " — %s", clean(st.VerdictReason))
+		}
+		b.WriteString("\n")
+	}
 	if len(st.ReviewGaps) > 0 {
 		b.WriteString("\nReview incomplete, so it cannot approve:\n")
 		for _, g := range st.ReviewGaps {

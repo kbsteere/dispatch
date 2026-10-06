@@ -37,28 +37,31 @@ result() {
 }
 case "${FAKE_CLAUDE_MODE:-success}" in
   success)
-    result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]}}'
+    result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;
   finding)
-    result 9 2 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"body":"`package kev` has no doc comment, and the repo CLAUDE.md requires one for every package."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one blocking"}'
+    result 9 2 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"body":"`package kev` has no doc comment, and the repo CLAUDE.md requires one for every package."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one blocking","verdict":"request_changes","verdict_reason":"blocking finding"}'
+    ;;
+  hesitant)
+    result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"nit: `Sync` could log the feed URL it failed on."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"comment","verdict_reason":"needs the author to confirm the retry budget"}'
     ;;
   phantom)
-    result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["docs/design.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]}}'
+    result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["docs/design.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;
   nit)
-    result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could return early when the feed is empty, which skips one allocation."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one nit"}'
+    result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could return early when the feed is empty, which skips one allocation."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one nit","verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;
   botspeak)
-    result 9 2 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"body":"Verified at abc1234def: missing doc comment."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":""}'
+    result 9 2 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"body":"Verified at abc1234def: missing doc comment."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","verdict":"request_changes","verdict_reason":"blocking finding"}'
     ;;
   resolve)
-    result 4 1 '{"findings":[],"ledger":[{"id":"f1","status":"addressed"}],"agreed_threads":[],"design_refs":"none","note":"fixed"}'
+    result 4 1 '{"findings":[],"ledger":[{"id":"f1","status":"addressed"}],"agreed_threads":[],"design_refs":"none","note":"fixed","verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;
   pushback)
-    result 4 1 '{"findings":[],"ledger":[{"id":"f1","status":"outstanding","reply":"`run` still ignores `ctx.Done()`, so cancelling the watch leaks the goroutine."}],"agreed_threads":[],"design_refs":"none","note":""}'
+    result 4 1 '{"findings":[],"ledger":[{"id":"f1","status":"outstanding","reply":"`run` still ignores `ctx.Done()`, so cancelling the watch leaks the goroutine."}],"agreed_threads":[],"design_refs":"none","note":"","verdict":"request_changes","verdict_reason":"blocking finding"}'
     ;;
   badpath)
-    result 4 1 '{"findings":[{"path":"not-in-pr.go","line":3,"blocking":true,"body":"Something is wrong here."}],"ledger":[{"id":"ghost","status":"addressed"}],"agreed_threads":[],"design_refs":"none","note":""}'
+    result 4 1 '{"findings":[{"path":"not-in-pr.go","line":3,"blocking":true,"body":"Something is wrong here."}],"ledger":[{"id":"ghost","status":"addressed"}],"agreed_threads":[],"design_refs":"none","note":"","verdict":"request_changes","verdict_reason":"blocking finding"}'
     ;;
   max_turns)
     printf '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":100,"total_cost_usd":3.5,"session_id":"%s","result":""}\n' "$sid"

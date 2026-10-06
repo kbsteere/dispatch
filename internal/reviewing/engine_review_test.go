@@ -147,7 +147,8 @@ func TestReviewBotspeakIsHeld(t *testing.T) {
 	require.NoError(t, err)
 	draft.Comments[0].Body = "`package kev` has no doc comment; the repo CLAUDE.md requires one for every package."
 	require.NoError(t, writeDraft(st.HeldDraft, draft))
-	require.NoError(t, h.e.PostHeld(context.Background(), h.job.Key))
+	_, _, err = h.e.PostDraft(t.Context(), h.job.Key)
+	require.NoError(t, err)
 	require.Len(t, h.gh.posted, 1)
 	assert.Equal(t, "COMMENT", h.gh.posted[0].Event)
 	st = h.state(t)
@@ -156,10 +157,10 @@ func TestReviewBotspeakIsHeld(t *testing.T) {
 	assert.Equal(t, []string{"PRRT_new"}, st.OurThreads)
 }
 
-func TestPostHeldRefusesUneditedBotspeak(t *testing.T) {
+func TestPostDraftRefusesUneditedBotspeak(t *testing.T) {
 	h := newReviewHarness(t, "botspeak", nil)
 	h.e.Review(context.Background(), h.job)
-	err := h.e.PostHeld(context.Background(), h.job.Key)
+	_, _, err := h.e.PostDraft(t.Context(), h.job.Key)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tone check")
 	assert.Empty(t, h.gh.posted)
@@ -304,11 +305,12 @@ func TestReviewHoldsFindingsOutsideTheDiff(t *testing.T) {
 	assert.Equal(t, "not-in-pr.go", draft.Unanchored[0].Path)
 	assert.Contains(t, strings.Join(draft.Reasons, "\n"), "not-in-pr.go:3")
 
-	// Sending the held review as is never approves.
-	require.NoError(t, h.e.PostHeld(context.Background(), h.job.Key))
-	for _, p := range h.gh.posted {
-		assert.NotEqual(t, "APPROVE", p.Event)
-	}
+	// Sending the held review as is never approves; with no comment to
+	// send it posts nothing.
+	_, why, err := h.e.PostDraft(t.Context(), h.job.Key)
+	require.ErrorContains(t, err, "nothing to post")
+	assert.Equal(t, "the review did not read everything it had to at this commit", why)
+	assert.Empty(t, h.gh.posted)
 }
 
 func TestReviewHeadMovedDiscards(t *testing.T) {
@@ -562,4 +564,98 @@ func TestReviewPROnlyRepoNeedsOnlyTheDiff(t *testing.T) {
 	prompt, _ := os.ReadFile(stdin)
 	assert.Contains(t, string(prompt), "## Scope: this pull request only")
 	assert.NotContains(t, string(prompt), "context repos:", "pr-only reviews get no other repos")
+}
+
+func TestReviewNeverApprovesWithoutReviewerVerdict(t *testing.T) {
+	h := newReviewHarness(t, "hesitant", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	require.Len(t, h.gh.posted, 1)
+	assert.Equal(t, "COMMENT", h.gh.posted[0].Event, "only nits, but Claude did not say approve")
+	st := h.state(t)
+	assert.Equal(t, StatusWaitingOnAuthor, st.Status)
+	assert.Equal(t, "comment", st.Verdict)
+	assert.Equal(t, "needs the author to confirm the retry budget", st.VerdictReason)
+	assert.Empty(t, st.ApprovedHead)
+}
+
+func dryRunHarness(t *testing.T, mode string) *reviewHarness {
+	t.Helper()
+	h := newReviewHarness(t, mode, func(w *config.ReviewWatch) { w.DryRun = true })
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	require.Empty(t, h.gh.posted, "dry run posts nothing")
+	require.True(t, h.state(t).DryRun)
+	return h
+}
+
+func TestPostDraftSendsDryRunApproval(t *testing.T) {
+	h := dryRunHarness(t, "nit")
+	action, why, err := h.e.PostDraft(t.Context(), h.job.Key)
+	require.NoError(t, err)
+	assert.Equal(t, ActionApprove, action)
+	assert.Empty(t, why)
+
+	require.Len(t, h.gh.posted, 1)
+	p := h.gh.posted[0]
+	assert.Equal(t, "APPROVE", p.Event)
+	require.Len(t, p.Comments, 1)
+	assert.True(t, strings.HasPrefix(p.Comments[0].Body, "non-blocking: "))
+
+	st := h.state(t)
+	assert.False(t, st.DryRun)
+	assert.Equal(t, StatusApproved, st.Status)
+	assert.Equal(t, h.head, st.ApprovedHead)
+	assert.Equal(t, []string{"PRRT_new"}, st.OurThreads)
+
+	_, _, err = h.e.PostDraft(t.Context(), h.job.Key)
+	require.ErrorContains(t, err, "has no review to post", "a draft is posted once")
+	assert.Len(t, h.gh.posted, 1)
+}
+
+func TestPostDraftKeepsVerdictFromApproving(t *testing.T) {
+	h := dryRunHarness(t, "hesitant")
+	action, why, err := h.e.PostDraft(t.Context(), h.job.Key)
+	require.NoError(t, err)
+	assert.Equal(t, ActionComment, action)
+	assert.Equal(t, "Claude's verdict was not approve", why)
+	require.Len(t, h.gh.posted, 1)
+	assert.Equal(t, "COMMENT", h.gh.posted[0].Event)
+}
+
+func TestPostDraftDropsApprovalWhenCIIsNotGreen(t *testing.T) {
+	h := dryRunHarness(t, "nit")
+	h.gh.requiredErr = errors.New("502 Bad Gateway")
+	action, why, err := h.e.PostDraft(t.Context(), h.job.Key)
+	require.NoError(t, err)
+	assert.Equal(t, ActionComment, action, "the nit is still posted")
+	assert.Equal(t, "required CI is not green", why)
+	assert.Equal(t, "COMMENT", h.gh.posted[0].Event)
+}
+
+func TestPostDraftRefusesAfterNewCommit(t *testing.T) {
+	h := dryRunHarness(t, "nit")
+	d := h.gh.details["N7"]
+	d.HeadOID = strings.Repeat("e", 40)
+	h.gh.details["N7"] = d
+	_, _, err := h.e.PostDraft(t.Context(), h.job.Key)
+	require.ErrorContains(t, err, "changed since the review was written")
+	assert.Empty(t, h.gh.posted)
+}
+
+func TestPostDraftIgnoresOldDraftsWithoutVerdict(t *testing.T) {
+	h := dryRunHarness(t, "nit")
+	st := h.state(t)
+	paths, _ := filepath.Glob(filepath.Join(string(h.e.store), "drafts", "*.json"))
+	require.Len(t, paths, 1)
+	draft, err := readDraft(paths[0])
+	require.NoError(t, err)
+	draft.Verdict, draft.CodeReviewed = "", false // written before verdicts existed
+	require.NoError(t, writeDraft(paths[0], draft))
+
+	action, why, err := h.e.PostDraft(t.Context(), st.Key)
+	require.NoError(t, err)
+	assert.Equal(t, ActionComment, action)
+	assert.Equal(t, "the review did not read everything it had to at this commit", why)
 }

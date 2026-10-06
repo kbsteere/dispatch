@@ -99,6 +99,9 @@ type PRState struct {
 	Author string `json:"author,omitempty"`
 	CI     string `json:"ci,omitempty"` // required-check state at the last poll
 	Pinned bool   `json:"pinned,omitempty"`
+	// ReviewRequested marks a PR where you, or a team you belong to, are a
+	// requested reviewer.
+	ReviewRequested bool `json:"review_requested,omitempty"`
 	// Inactive marks a PR the watch's search no longer returns (merged,
 	// closed, back to draft, or out of scope). It is hidden until it returns.
 	Inactive    bool       `json:"inactive,omitempty"`
@@ -112,22 +115,25 @@ type PRState struct {
 	DryRun bool `json:"dry_run,omitempty"`
 	// Examined is what the last pass said it read; ReviewGaps is what it
 	// was required to read and did not.
-	Examined     *Examined      `json:"examined,omitempty"`
-	ReviewGaps   []string       `json:"review_gaps,omitempty"`
-	HeadSeen     *HeadSeen      `json:"head_seen,omitempty"`
-	CIObs        CIObs          `json:"ci_obs"`
-	LastCIWake   time.Time      `json:"last_ci_wake"`
-	Ledger       []Finding      `json:"ledger,omitempty"`
-	OurThreads   []string       `json:"our_threads,omitempty"`
-	DesignRefs   string         `json:"design_refs,omitempty"`
-	ApprovedHead string         `json:"approved_head,omitempty"`
-	Claim        *Claim         `json:"claim,omitempty"`
-	LastRun      *RunRecord     `json:"last_run,omitempty"`
-	ReviewsByDay map[string]int `json:"reviews_by_day,omitempty"`
-	Backoff      Backoff        `json:"backoff"`
-	Note         string         `json:"note,omitempty"`
-	HeldDraft    string         `json:"held_draft,omitempty"`
-	ForceReview  bool           `json:"force_review,omitempty"`
+	Examined   *Examined `json:"examined,omitempty"`
+	ReviewGaps []string  `json:"review_gaps,omitempty"`
+	// Verdict and VerdictReason are the last pass's approval call.
+	Verdict       string         `json:"verdict,omitempty"`
+	VerdictReason string         `json:"verdict_reason,omitempty"`
+	HeadSeen      *HeadSeen      `json:"head_seen,omitempty"`
+	CIObs         CIObs          `json:"ci_obs"`
+	LastCIWake    time.Time      `json:"last_ci_wake"`
+	Ledger        []Finding      `json:"ledger,omitempty"`
+	OurThreads    []string       `json:"our_threads,omitempty"`
+	DesignRefs    string         `json:"design_refs,omitempty"`
+	ApprovedHead  string         `json:"approved_head,omitempty"`
+	Claim         *Claim         `json:"claim,omitempty"`
+	LastRun       *RunRecord     `json:"last_run,omitempty"`
+	ReviewsByDay  map[string]int `json:"reviews_by_day,omitempty"`
+	Backoff       Backoff        `json:"backoff"`
+	Note          string         `json:"note,omitempty"`
+	HeldDraft     string         `json:"held_draft,omitempty"`
+	ForceReview   bool           `json:"force_review,omitempty"`
 }
 
 // OutstandingCounts counts outstanding findings by severity.

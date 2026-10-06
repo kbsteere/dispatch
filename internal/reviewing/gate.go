@@ -14,6 +14,8 @@ type Snapshot struct {
 	// CodeReviewed reports that a full or incremental pass read the code at
 	// Head. A comments-only pass never does, so it alone cannot approve.
 	CodeReviewed bool
+	// ReviewerApproves reports that the reviewer's verdict was approve.
+	ReviewerApproves bool
 }
 
 // Action is the single review event a pass posts.
@@ -37,9 +39,9 @@ type Tally struct {
 
 // Decide picks the single review action for a pass and the resulting status.
 // It approves only an open, ready, mergeable PR by someone else whose code
-// was reviewed at its head, whose required checks passed, and that has no
-// outstanding blocking finding. Non-blocking findings are posted with the
-// approval.
+// was reviewed at its head, whose reviewer said approve, whose required
+// checks passed, and that has no outstanding blocking finding. Non-blocking
+// findings are posted with the approval.
 func Decide(s Snapshot, t Tally) (Action, Status) {
 	self := s.Author == s.Viewer
 	if t.OutstandingBlocking > 0 {
@@ -62,6 +64,9 @@ func Decide(s Snapshot, t Tally) (Action, Status) {
 	}
 	if !s.CodeReviewed {
 		return held, StatusNeedsAttention
+	}
+	if !s.ReviewerApproves {
+		return held, StatusWaitingOnAuthor
 	}
 	if s.RequiredCI != "SUCCESS" {
 		return held, StatusWaitingOnCI

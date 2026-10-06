@@ -68,7 +68,7 @@ type Model struct {
 	positionOverride string // "" means no override, "right" or "bottom"
 	reviewers        reviewers
 	reviewSections   []section.Section // the Reviewing view's tables, one per watch
-	pendingSend      string            // PR URL whose held review awaits a second S press
+	pendingSend      string            // PR URL whose review draft awaits a second S press
 	statusTicking    bool              // the watch status refresh loop is running
 }
 
@@ -507,7 +507,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.openSidebarForPRInput(m.prView.SetIsAddingReviewRef)
 
 			case key.Matches(msg, keys.PRKeys.ReviewSendHeld):
-				return m, m.sendHeld(currRowData)
+				return m, m.sendDraft(currRowData)
 
 			case key.Matches(msg, keys.PRKeys.ReviewNow):
 				return m, m.reviewNow(currRowData)

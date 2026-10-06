@@ -182,3 +182,23 @@ func TestCellsMarksDryRunStatus(t *testing.T) {
 	s.DryRun = true
 	assert.Equal(t, "approved (dry)", Cells(s, now).Status, "nothing was posted")
 }
+
+func TestSortStatesPutsRequestedReviewsFirst(t *testing.T) {
+	asked := st("mono", 66173, reviewing.StatusBaseline, 5*time.Hour)
+	asked.ReviewRequested = true
+	askedToo := st("stereo", 367334, reviewing.StatusApproved, time.Hour)
+	askedToo.ReviewRequested = true
+	got := SortStates([]reviewing.PRState{
+		st("mono", 59119, reviewing.StatusNeedsAttention, time.Minute),
+		asked,
+		askedToo,
+		st("mono", 66370, reviewing.StatusChangesRequested, time.Minute),
+	})
+	var order []int
+	for _, s := range got {
+		order = append(order, s.Key.Number)
+	}
+	assert.Equal(t, []int{367334, 66173, 59119, 66370}, order,
+		"requested first, each group in status order")
+	assert.Equal(t, "mono#66173 title (requested)", Cells(asked, now).PR)
+}

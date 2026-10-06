@@ -2,6 +2,7 @@ package reviewing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,13 +33,30 @@ type fakeGitHub struct {
 	headAfterRun string
 	detailCalls  int
 	requiredErr  error
+	// requested are the hits a review-requested:@me search returns;
+	// requestedErr fails that search.
+	requested    []SearchHit
+	requestedErr error
+	filters      []string
 }
 
 func (f *fakeGitHub) Viewer(context.Context) (string, error) { return f.viewer, nil }
-func (f *fakeGitHub) Search(context.Context, string, int) ([]SearchHit, RateLimit, error) {
+
+func (f *fakeGitHub) Search(
+	_ context.Context,
+	filter string,
+	_ int,
+) ([]SearchHit, RateLimit, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.filters = append(f.filters, filter)
 	hits := slices.Clone(f.hits)
+	if strings.HasSuffix(filter, " "+requestedQualifier) {
+		if f.requestedErr != nil {
+			return nil, RateLimit{}, f.requestedErr
+		}
+		hits = slices.Clone(f.requested)
+	}
 	return hits, RateLimit{Cost: 1, Remaining: 4000, ResetAt: t0.Add(time.Hour)}, nil
 }
 
@@ -523,7 +541,7 @@ func TestDraftFor(t *testing.T) {
 	k := PRKey{"chainguard-dev", "stereo", 367322}
 	approve := Draft{Event: "APPROVE", Head: "d5dcdad"}
 	require.NoError(t, writeDraft(e.store.DraftPath(k, now), approve))
-	st := PRState{Key: k, ReviewedSig: &Signature{Head: "d5dcdad"}}
+	st := PRState{Key: k, ReviewedSig: &Signature{Head: "d5dcdad"}, DryRun: true}
 
 	_, ok := e.DraftFor(st)
 	assert.False(t, ok, "a live watch shows no dry-run drafts")
@@ -532,6 +550,11 @@ func TestDraftFor(t *testing.T) {
 	d, ok := e.DraftFor(st)
 	require.True(t, ok)
 	assert.Equal(t, approve, d)
+
+	st.DryRun = false
+	_, ok = e.DraftFor(st)
+	assert.False(t, ok, "a draft that was posted is not shown again")
+	st.DryRun = true
 
 	st.ReviewedSig.Head = "e0f1a2b"
 	_, ok = e.DraftFor(st)
@@ -592,4 +615,37 @@ func TestChoosePass(t *testing.T) {
 			assert.Equal(t, tt.want, choosePass(tt.reviewed, b, tt.forced))
 		})
 	}
+}
+
+func TestPollMarksRequestedReviews(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k1, k2 := PRKey{"chainguard-dev", "mono", 1}, PRKey{"chainguard-dev", "mono", 2}
+	gh := &fakeGitHub{
+		viewer: "kbsteere",
+		hits: []SearchHit{
+			{Key: k1, NodeID: "N1", UpdatedAt: "u1"},
+			{Key: k2, NodeID: "N2", UpdatedAt: "u1"},
+		},
+		details:   map[string]PRDetail{},
+		requested: []SearchHit{{Key: k2, NodeID: "N2"}},
+	}
+	gh.details["N1"] = func() PRDetail { d := detail(1, a); d.Key = k1; return d }()
+	gh.details["N2"] = func() PRDetail { d := detail(2, a); d.Key = k2; return d }()
+	e := newTestEngine(t, gh, &now)
+	_, _, err := e.Poll(t.Context())
+	require.NoError(t, err)
+
+	assert.False(t, stateOf(t, e, k1).ReviewRequested)
+	assert.True(t, stateOf(t, e, k2).ReviewRequested)
+	assert.Contains(t, gh.filters, e.d.Watch.SearchFilter()+" review-requested:@me")
+
+	// A failed lookup keeps the marks; a later one clears a request that
+	// was answered.
+	gh.requestedErr = errors.New("502 Bad Gateway")
+	_, _, _ = e.Poll(t.Context())
+	assert.True(t, stateOf(t, e, k2).ReviewRequested)
+	gh.requestedErr, gh.requested = nil, nil
+	_, _, _ = e.Poll(t.Context())
+	assert.False(t, stateOf(t, e, k2).ReviewRequested)
 }

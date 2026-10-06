@@ -57,7 +57,8 @@ func updatedAt(s reviewing.PRState) time.Time {
 }
 
 // SortStates returns the active, valid states in display order without
-// modifying the input. Inactive PRs (merged, closed, back to draft) and
+// modifying the input: PRs requesting your review first, then by status
+// and most recent update. Inactive PRs (merged, closed, back to draft) and
 // states whose key fails validation are dropped.
 func SortStates(states []reviewing.PRState) []reviewing.PRState {
 	out := make([]reviewing.PRState, 0, len(states))
@@ -68,6 +69,13 @@ func SortStates(states []reviewing.PRState) []reviewing.PRState {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b reviewing.PRState) int {
+		// PRs that request your review come first.
+		if a.ReviewRequested != b.ReviewRequested {
+			if a.ReviewRequested {
+				return -1
+			}
+			return 1
+		}
 		if c := cmp.Compare(rank(a.Status), rank(b.Status)); c != 0 {
 			return c
 		}
@@ -117,6 +125,9 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 	}
 	if s.DryRun {
 		c.Status += " (dry)"
+	}
+	if s.ReviewRequested {
+		c.PR += " (requested)"
 	}
 	if s.Pinned {
 		c.PR += " (added)"

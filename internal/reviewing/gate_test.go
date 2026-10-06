@@ -8,13 +8,14 @@ import (
 
 func cleanSnap() Snapshot {
 	return Snapshot{
-		State:        "OPEN",
-		Author:       "dnegreira",
-		Viewer:       "kbsteere",
-		Mergeable:    "MERGEABLE",
-		Head:         "h2",
-		RequiredCI:   "SUCCESS",
-		CodeReviewed: true,
+		State:            "OPEN",
+		Author:           "dnegreira",
+		Viewer:           "kbsteere",
+		Mergeable:        "MERGEABLE",
+		Head:             "h2",
+		RequiredCI:       "SUCCESS",
+		CodeReviewed:     true,
+		ReviewerApproves: true,
 	}
 }
 
@@ -96,6 +97,20 @@ func TestDecide(t *testing.T) {
 			Tally{OutstandingNonBlocking: 1},
 			ActionApprove,
 			StatusApproved,
+		},
+		{
+			"reviewer did not say approve",
+			func(s *Snapshot) { s.ReviewerApproves = false },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnAuthor,
+		},
+		{
+			"reviewer did not say approve, only nits",
+			func(s *Snapshot) { s.ReviewerApproves = false },
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionComment,
+			StatusWaitingOnAuthor,
 		},
 		{
 			"code not reviewed at head never approves",

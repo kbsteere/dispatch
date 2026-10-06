@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["findings", "ledger", "agreed_threads", "design_refs", "note", "examined"],
+  "required": ["findings", "ledger", "agreed_threads", "design_refs", "note", "examined", "verdict", "verdict_reason"],
   "properties": {
     "findings": {
       "type": "array",
@@ -34,6 +34,8 @@
     "agreed_threads": {"type": "array", "items": {"type": "string"}},
     "design_refs": {"type": "string"},
     "note": {"type": "string"},
+    "verdict": {"enum": ["approve", "comment", "request_changes"]},
+    "verdict_reason": {"type": "string"},
     "examined": {
       "type": "object",
       "additionalProperties": false,

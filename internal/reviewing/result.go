@@ -34,6 +34,10 @@ type ReviewOutput struct {
 	DesignRefs    string         `json:"design_refs"`
 	Note          string         `json:"note"`
 	Examined      Examined       `json:"examined"`
+	// Verdict is the reviewer's call: approve, comment, or request_changes.
+	// dispatch never approves unless it is approve.
+	Verdict       string `json:"verdict"`
+	VerdictReason string `json:"verdict_reason"`
 }
 
 // Examined is the reviewer's private account of what it read. It is never
@@ -176,3 +180,6 @@ func (r RunResult) Review() (ReviewOutput, error) {
 	}
 	return out, nil
 }
+
+// VerdictApprove is the only reviewer verdict that allows an approval.
+const VerdictApprove = "approve"

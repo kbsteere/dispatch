@@ -466,6 +466,7 @@ func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
 			jobs = append(jobs, job)
 		}
 	}
+	e.markRequested(ctx, hits)
 	if !initialized {
 		if err := e.store.MarkInitialized(); err != nil {
 			e.setErr(err)
@@ -637,6 +638,11 @@ type Draft struct {
 	// Unanchored are findings that could not be placed on a changed line.
 	// They are never posted; move one into comments to send it.
 	Unanchored []OutFinding `json:"unanchored,omitempty"`
+	// Verdict is the reviewer's approve, comment, or request_changes call.
+	Verdict       string `json:"verdict,omitempty"`
+	VerdictReason string `json:"verdict_reason,omitempty"`
+	// CodeReviewed records that the pass read the code it had to at Head.
+	CodeReviewed bool `json:"code_reviewed,omitempty"`
 }
 
 type DraftReply struct {
@@ -650,7 +656,8 @@ func writeDraft(path string, d Draft) error {
 }
 
 // DraftFor returns the review dispatch would post for st: its held review,
-// or in dry run the latest draft written for the head it last reviewed.
+// or in dry run the latest unposted draft written for the head it last
+// reviewed.
 func (e *Engine) DraftFor(st PRState) (Draft, bool) {
 	if st.HeldDraft != "" {
 		drafts := filepath.Join(string(e.store), "drafts") + string(filepath.Separator)
@@ -660,7 +667,7 @@ func (e *Engine) DraftFor(st PRState) (Draft, bool) {
 		d, err := readDraft(st.HeldDraft)
 		return d, err == nil
 	}
-	if !e.d.Watch.DryRun || st.ReviewedSig == nil {
+	if !e.d.Watch.DryRun || !st.DryRun || st.ReviewedSig == nil {
 		return Draft{}, false
 	}
 	d, ok := e.store.LatestDraft(st.Key)
@@ -696,5 +703,37 @@ func choosePass(codeReviewedHead, head string, forced bool) Pass {
 		return PassIncremental
 	default:
 		return PassLedger
+	}
+}
+
+// requestedQualifier narrows a search to PRs where the viewer, or a team
+// the viewer belongs to, is a requested reviewer.
+const requestedQualifier = "review-requested:@me"
+
+// markRequested records which of hits request the viewer's review. A failed
+// search leaves the previous marks in place.
+func (e *Engine) markRequested(ctx context.Context, hits []SearchHit) {
+	requested, rl, err := e.d.GitHub.Search(
+		ctx,
+		e.d.Watch.SearchFilter()+" "+requestedQualifier,
+		1,
+	)
+	e.observe(rl)
+	if err != nil {
+		return
+	}
+	want := make(map[PRKey]struct{}, len(requested))
+	for _, h := range requested {
+		want[h.Key] = struct{}{}
+	}
+	for _, h := range hits {
+		_, req := want[h.Key]
+		e.mu.Lock()
+		st, err := e.store.LoadPR(h.Key)
+		e.mu.Unlock()
+		if err != nil || st.ReviewRequested == req {
+			continue
+		}
+		_, _ = e.update(h.Key, func(s *PRState) { s.ReviewRequested = req })
 	}
 }
