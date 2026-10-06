@@ -125,6 +125,9 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 	if c.Status == "" {
 		c.Status = string(s.Status)
 	}
+	if s.ForceReview && s.Status != reviewing.StatusReviewing {
+		c.Status = "queued"
+	}
 	if s.DryRun {
 		c.Status += " (dry)"
 	}
@@ -182,8 +185,8 @@ func Summary(ws reviewing.WatchStatus) string {
 	case ws.QuotaRemaining > 0:
 		quota = "quota " + thousands(ws.QuotaRemaining)
 	}
-	s := fmt.Sprintf("%s · %s · $%.2f/$%s today · %d reviewing · %s",
-		ws.Name, state, ws.SpentToday, trimFloat(ws.DailyBudget), ws.InFlight, quota)
+	s := fmt.Sprintf("%s · %s · $%.2f/$%s today · %s · %s",
+		ws.Name, state, ws.SpentToday, trimFloat(ws.DailyBudget), ReviewCounts(ws), quota)
 	if ws.Err != "" {
 		s += " · error: " + clip(reviewing.SanitizeTerminal(ws.Err), 80)
 	}
@@ -245,4 +248,14 @@ func youGlyph(state string, onHead bool) string {
 		g += "*"
 	}
 	return g
+}
+
+// ReviewCounts is how many reviews are running and, when any are waiting,
+// how many are queued.
+func ReviewCounts(ws reviewing.WatchStatus) string {
+	s := fmt.Sprintf("%d reviewing", ws.InFlight)
+	if ws.Queued > 0 {
+		s += fmt.Sprintf(" · %d queued", ws.Queued)
+	}
+	return s
 }

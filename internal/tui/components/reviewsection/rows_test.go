@@ -229,3 +229,29 @@ func TestYouGlyph(t *testing.T) {
 	s.MyReview, s.MyReviewOnHead = "APPROVED", true
 	assert.Equal(t, "✓", Cells(s, now).You)
 }
+
+func TestQueuedReviews(t *testing.T) {
+	s := st("mono", 47520, reviewing.StatusBaseline, time.Hour)
+	s.ForceReview = true
+	assert.Equal(t, "queued", Cells(s, now).Status)
+	s.Status = reviewing.StatusReviewing
+	assert.Equal(t, "reviewing", Cells(s, now).Status, "a claimed review shows as running")
+
+	assert.Equal(t, "3 reviewing", ReviewCounts(reviewing.WatchStatus{InFlight: 3}))
+	assert.Equal(t, "3 reviewing · 25 queued",
+		ReviewCounts(reviewing.WatchStatus{InFlight: 3, Queued: 25}))
+	assert.Contains(
+		t,
+		Summary(
+			reviewing.WatchStatus{
+				Name:        "w",
+				Mode:        "live",
+				DailyBudget: 100,
+				InFlight:    3,
+				Queued:      25,
+				LastPoll:    now,
+			},
+		),
+		"$0.00/$100 today · 3 reviewing · 25 queued · quota unknown",
+	)
+}

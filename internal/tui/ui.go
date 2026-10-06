@@ -873,6 +873,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		}
 		m.syncWatchState()
+		if e := m.reviewers.byName(msg.watch); e != nil && e.Status().Queued > 0 {
+			// Start the next queued review now instead of at the next poll.
+			cmds = append(cmds, manualPollCmd(e))
+		}
 		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())
 

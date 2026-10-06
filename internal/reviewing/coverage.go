@@ -27,10 +27,11 @@ type coverageInput struct {
 	Examined Examined
 }
 
-// reviewGaps lists what a full or incremental pass failed to read. A pass
-// with gaps has not reviewed the code and cannot approve. Comments-only
-// passes have no requirements. Paths from the reviewer are only compared,
-// never opened.
+// reviewGaps lists what a full or incremental pass failed to read: the
+// diff, every changed code file, documentation, and, when code changed,
+// existing tests and a search for usages. A pass with gaps has not
+// reviewed the code and cannot approve. Comments-only passes have no
+// requirements. Paths from the reviewer are only compared, never opened.
 func reviewGaps(in coverageInput) []string {
 	if in.Pass == PassLedger {
 		return nil
@@ -69,7 +70,9 @@ func reviewGaps(in coverageInput) []string {
 		if _, err := os.Stat(filepath.Join(in.Worktree, f)); err != nil {
 			continue // deleted by the PR
 		}
-		if !opened(f) {
+		// Config, data, and docs changes are fully visible in the diff;
+		// code needs its surrounding file read.
+		if isCode(f) && !opened(f) {
 			gaps = append(gaps, "never read changed file "+f)
 		}
 		if isCode(f) && !isTest(f) {
@@ -98,8 +101,16 @@ func capGaps(gaps []string) []string {
 }
 
 var lockfiles = []string{
-	"go.sum", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock",
-	"poetry.lock", "Gemfile.lock", "composer.lock", "uv.lock",
+	"go.sum",
+	".terraform.lock.hcl",
+	"package-lock.json",
+	"yarn.lock",
+	"pnpm-lock.yaml",
+	"Cargo.lock",
+	"poetry.lock",
+	"Gemfile.lock",
+	"composer.lock",
+	"uv.lock",
 }
 
 // skippable reports whether a changed file need not be read: lockfiles,

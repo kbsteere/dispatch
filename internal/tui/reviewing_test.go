@@ -59,3 +59,11 @@ func TestNextView(t *testing.T) {
 		assert.Equal(t, tt.want, nextView(tt.from, tt.reviewing, tt.repo), "from %s", tt.from)
 	}
 }
+
+func TestFooterTextShowsQueue(t *testing.T) {
+	assert.Equal(t,
+		"sustaining-automation · 3 reviewing · 25 queued · $7.17 today · live",
+		footerText([]reviewing.WatchStatus{{
+			Name: "sustaining-automation", Mode: "live", InFlight: 3, Queued: 25, SpentToday: 7.17,
+		}}))
+}

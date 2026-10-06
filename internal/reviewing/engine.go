@@ -57,8 +57,11 @@ type Outcome struct {
 
 // WatchStatus summarises a watch for the footer.
 type WatchStatus struct {
-	Name       string
-	InFlight   int
+	Name     string
+	InFlight int
+	// Queued counts PRs waiting for a review the user asked for (N or E)
+	// that has not started yet.
+	Queued     int
 	SpentToday float64
 	Mode       string
 	Paused     string
@@ -261,6 +264,7 @@ func (e *Engine) Status() WatchStatus {
 	return WatchStatus{
 		Name:           e.d.Watch.Name,
 		InFlight:       len(e.claimed),
+		Queued:         e.queuedLocked(),
 		SpentToday:     e.store.Spend(Day(e.d.Now())),
 		Mode:           mode,
 		Paused:         paused,
@@ -836,4 +840,17 @@ func myReview(reviews []Review, viewer, head string) (state string, onHead bool)
 		return commented.State, commented.CommitOID == head
 	}
 	return "", false
+}
+
+// queuedLocked counts open PRs with a requested review that has not been
+// claimed yet. e.mu must be held.
+func (e *Engine) queuedLocked() int {
+	states, _ := e.store.AllPRs()
+	n := 0
+	for _, st := range states {
+		if _, running := e.claimed[st.Key]; st.ForceReview && !st.Inactive && !running {
+			n++
+		}
+	}
+	return n
 }

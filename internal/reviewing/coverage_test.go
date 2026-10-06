@@ -192,3 +192,34 @@ func without(s []string, drop string) []string {
 	}
 	return out
 }
+
+func TestReviewGapsConfigChangesNeedOnlyTheDiff(t *testing.T) {
+	// mono#65969 changed Go code alongside CODEOWNERS, a service catalog
+	// manifest, a Terraform lock file, and boilerplate Terraform.
+	wt := coverageWorktree(t)
+	for _, f := range []string{
+		".github/CODEOWNERS", "bots/catalog/roots.json",
+		"env/400-package-metadata/.terraform.lock.hcl", "env/400-package-metadata/providers.tf",
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(wt, f)), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(wt, f), []byte("x\n"), 0o600))
+	}
+	diff := "/state/sessions/s1/pr.diff"
+	gaps := reviewGaps(coverageInput{
+		Pass:     PassFull,
+		Worktree: wt,
+		Diff:     diff,
+		Changed: []string{
+			"bots/kev/sync.go", ".github/CODEOWNERS", "bots/catalog/roots.json",
+			"env/400-package-metadata/.terraform.lock.hcl", "env/400-package-metadata/providers.tf",
+		},
+		Reads: []string{
+			diff,
+			filepath.Join(wt, "bots/kev/sync.go"),
+			filepath.Join(wt, "bots/kev/sync_test.go"),
+			filepath.Join(wt, "bots/kev/README.md"),
+		},
+		Searches: 2,
+	})
+	assert.Empty(t, gaps)
+}

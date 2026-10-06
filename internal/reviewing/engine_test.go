@@ -764,3 +764,23 @@ func TestForceBaselineQueuesOnlyBaselinedPRs(t *testing.T) {
 	assert.False(t, stateOf(t, e, keys["merged"]).ForceReview)
 	assert.False(t, stateOf(t, e, keys["reviewed"]).ForceReview)
 }
+
+func TestStatusCountsQueuedReviews(t *testing.T) {
+	now := t0
+	e := newTestEngine(t, &fakeGitHub{}, &now)
+	for n, mut := range map[int]func(*PRState){
+		1: func(s *PRState) { s.ForceReview = true },
+		2: func(s *PRState) { s.ForceReview = true },
+		3: func(s *PRState) { s.ForceReview, s.Inactive = true, true },
+		4: func(s *PRState) {},
+	} {
+		_, err := e.update(PRKey{"chainguard-dev", "mono", n}, mut)
+		require.NoError(t, err)
+	}
+	e.mu.Lock()
+	e.claimed[PRKey{"chainguard-dev", "mono", 2}] = true // already running
+	e.mu.Unlock()
+	ws := e.Status()
+	assert.Equal(t, 1, ws.InFlight)
+	assert.Equal(t, 1, ws.Queued, "running and merged PRs are not queued")
+}

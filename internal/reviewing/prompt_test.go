@@ -217,7 +217,7 @@ func TestBuildPromptScope(t *testing.T) {
 	}
 	full := BuildPrompt(PromptInput{Pass: PassFull})
 	for _, step := range []string{
-		"Read every changed file in full", "Grep the worktree and every context repo",
+		"Read every changed code file in full", "Grep the worktree and every context repo",
 		"Open the diagrams too", "Read the existing unit and integration tests",
 	} {
 		assert.Contains(t, full, step)
