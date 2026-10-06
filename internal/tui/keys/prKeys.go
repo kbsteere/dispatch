@@ -35,6 +35,8 @@ type PRKeyMap struct {
 	ReviewAddRef         key.Binding
 	ReviewSendHeld       key.Binding
 	ReviewNow            key.Binding
+	ReviewAllBaseline    key.Binding
+	PostAllDrafts        key.Binding
 	ReviewPause          key.Binding
 }
 
@@ -139,6 +141,14 @@ var PRKeys = PRKeyMap{
 		key.WithKeys("N"),
 		key.WithHelp("N", "review now"),
 	),
+	ReviewAllBaseline: key.NewBinding(
+		key.WithKeys("E"),
+		key.WithHelp("E", "review every baseline PR"),
+	),
+	PostAllDrafts: key.NewBinding(
+		key.WithKeys("U"),
+		key.WithHelp("U", "post every unposted draft"),
+	),
 	ReviewPause: key.NewBinding(
 		key.WithKeys("Z"),
 		key.WithHelp("Z", "pause/resume review watch"),
@@ -171,6 +181,8 @@ func PRFullHelp() []key.Binding {
 		PRKeys.ReviewAddRef,
 		PRKeys.ReviewSendHeld,
 		PRKeys.ReviewNow,
+		PRKeys.ReviewAllBaseline,
+		PRKeys.PostAllDrafts,
 		PRKeys.ReviewPause,
 	}
 }
@@ -250,6 +262,10 @@ func rebindPRKeys(keys []config.Keybinding) error {
 			key = &PRKeys.ReviewSendHeld
 		case "reviewNow":
 			key = &PRKeys.ReviewNow
+		case "reviewAllBaseline":
+			key = &PRKeys.ReviewAllBaseline
+		case "postAllDrafts":
+			key = &PRKeys.PostAllDrafts
 		case "reviewPause":
 			key = &PRKeys.ReviewPause
 		default:

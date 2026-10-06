@@ -89,6 +89,7 @@ type RowCells struct {
 	Status  string
 	PR      string
 	Author  string
+	You     string
 	Open    string
 	CI      string
 	Spend   string
@@ -116,6 +117,7 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 			clip(clean(s.Title), maxTitleRunes),
 		),
 		Author: clip(clean(s.Author), 39),
+		You:    youGlyph(s.MyReview, s.MyReviewOnHead),
 		Open:   "-",
 		CI:     s.CI,
 		Spend:  "-",
@@ -223,4 +225,24 @@ func PRData(s reviewing.PRState) *prrow.Data {
 	}
 	pr.Author.Login = reviewing.SanitizeTerminal(s.Author)
 	return &prrow.Data{Primary: pr}
+}
+
+// youGlyph shows your standing review: ✓ approved, ✗ changes requested,
+// 💬 commented, marked * when it was on an older commit than the head.
+func youGlyph(state string, onHead bool) string {
+	var g string
+	switch state {
+	case "APPROVED":
+		g = "✓"
+	case "CHANGES_REQUESTED":
+		g = "✗"
+	case "COMMENTED":
+		g = "💬"
+	default:
+		return "-"
+	}
+	if !onHead {
+		g += "*"
+	}
+	return g
 }

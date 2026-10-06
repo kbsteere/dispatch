@@ -57,7 +57,8 @@ func TestSectionShowsWatchStateInOrder(t *testing.T) {
 		"mono#66173 version-reconciler: enable heuristic Actions EOL for every project",
 		rows[0][1],
 	)
-	assert.Equal(t, "✓", rows[0][4])
+	assert.Equal(t, "-", rows[0][3], "you have not reviewed it")
+	assert.Equal(t, "✓", rows[0][5])
 
 	row, ok := m.GetCurrRow().(*prrow.Data)
 	require.True(t, ok)

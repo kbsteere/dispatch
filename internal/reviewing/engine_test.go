@@ -543,11 +543,12 @@ func TestDraftFor(t *testing.T) {
 	require.NoError(t, writeDraft(e.store.DraftPath(k, now), approve))
 	st := PRState{Key: k, ReviewedSig: &Signature{Head: "d5dcdad"}, DryRun: true}
 
-	_, ok := e.DraftFor(st)
-	assert.False(t, ok, "a live watch shows no dry-run drafts")
+	d, ok := e.DraftFor(st)
+	require.True(t, ok, "an unposted dry-run draft stays postable after the watch goes live")
+	assert.Equal(t, approve, d)
 
 	e.d.Watch.DryRun = true
-	d, ok := e.DraftFor(st)
+	d, ok = e.DraftFor(st)
 	require.True(t, ok)
 	assert.Equal(t, approve, d)
 
@@ -648,4 +649,118 @@ func TestPollMarksRequestedReviews(t *testing.T) {
 	gh.requestedErr, gh.requested = nil, nil
 	_, _, _ = e.Poll(t.Context())
 	assert.False(t, stateOf(t, e, k2).ReviewRequested)
+}
+
+func TestMyReview(t *testing.T) {
+	head, old := strings.Repeat("b", 40), strings.Repeat("a", 40)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	tests := []struct {
+		name       string
+		reviews    []Review
+		wantState  string
+		wantOnHead bool
+	}{
+		{"none", nil, "", false},
+		{
+			"approved at head",
+			[]Review{{Author: "kbsteere", State: "APPROVED", CommitOID: head, SubmittedAt: at(1)}},
+			"APPROVED", true,
+		},
+		{
+			"a later comment does not replace an approval",
+			[]Review{
+				{Author: "kbsteere", State: "APPROVED", CommitOID: old, SubmittedAt: at(1)},
+				{Author: "kbsteere", State: "COMMENTED", CommitOID: head, SubmittedAt: at(2)},
+			},
+			"APPROVED", false,
+		},
+		{
+			"changes requested after an approval",
+			[]Review{
+				{Author: "kbsteere", State: "APPROVED", CommitOID: old, SubmittedAt: at(1)},
+				{
+					Author:      "kbsteere",
+					State:       "CHANGES_REQUESTED",
+					CommitOID:   head,
+					SubmittedAt: at(2),
+				},
+			},
+			"CHANGES_REQUESTED",
+			true,
+		},
+		{
+			"a dismissed approval no longer stands",
+			[]Review{
+				{Author: "kbsteere", State: "COMMENTED", CommitOID: old, SubmittedAt: at(1)},
+				{Author: "kbsteere", State: "DISMISSED", CommitOID: old, SubmittedAt: at(2)},
+			},
+			"COMMENTED", false,
+		},
+		{
+			"other reviewers do not count",
+			[]Review{{Author: "powersj", State: "APPROVED", CommitOID: head, SubmittedAt: at(1)}},
+			"", false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, onHead := myReview(tt.reviews, "kbsteere", head)
+			assert.Equal(t, tt.wantState, state)
+			assert.Equal(t, tt.wantOnHead, onHead)
+		})
+	}
+}
+
+func TestPollRefreshesEveryPRAfterStartup(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	d := detail(1, a)
+	d.Reviews = []Review{{Author: "kbsteere", State: "APPROVED", CommitOID: a, SubmittedAt: t0}}
+	gh := &fakeGitHub{
+		viewer: "kbsteere", hits: []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: a}},
+		details: map[string]PRDetail{"N1": d},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, err := e.Poll(t.Context())
+	require.NoError(t, err)
+	st := stateOf(t, e, k)
+	assert.Equal(t, "APPROVED", st.MyReview)
+	assert.True(t, st.MyReviewOnHead)
+
+	calls := gh.detailCalls
+	_, _, _ = e.Poll(t.Context())
+	assert.Equal(t, calls, gh.detailCalls, "an unchanged PR is not re-read")
+
+	e.mu.Lock()
+	e.refreshed = false // a restarted dispatch
+	e.mu.Unlock()
+	_, _, _ = e.Poll(t.Context())
+	assert.Equal(t, calls+1, gh.detailCalls, "the first poll after startup re-reads every PR")
+}
+
+func TestForceBaselineQueuesOnlyBaselinedPRs(t *testing.T) {
+	now := t0
+	e := newTestEngine(t, &fakeGitHub{}, &now)
+	keys := map[string]PRKey{
+		"baseline": {"chainguard-dev", "mono", 1},
+		"merged":   {"chainguard-dev", "mono", 2},
+		"reviewed": {"chainguard-dev", "mono", 3},
+	}
+	for name, k := range keys {
+		_, err := e.update(k, func(s *PRState) {
+			s.Status = StatusBaseline
+			s.Inactive = name == "merged"
+			if name == "reviewed" {
+				s.Status = StatusApproved
+			}
+		})
+		require.NoError(t, err)
+	}
+	n, err := e.ForceBaseline()
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.True(t, stateOf(t, e, keys["baseline"]).ForceReview)
+	assert.False(t, stateOf(t, e, keys["merged"]).ForceReview)
+	assert.False(t, stateOf(t, e, keys["reviewed"]).ForceReview)
 }

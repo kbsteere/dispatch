@@ -69,6 +69,7 @@ type Model struct {
 	reviewers        reviewers
 	reviewSections   []section.Section // the Reviewing view's tables, one per watch
 	pendingSend      string            // PR URL whose review draft awaits a second S press
+	pendingBulk      string            // bulk review action awaiting a second press
 	statusTicking    bool              // the watch status refresh loop is running
 }
 
@@ -511,6 +512,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.PRKeys.ReviewNow):
 				return m, m.reviewNow(currRowData)
+
+			case key.Matches(msg, keys.PRKeys.ReviewAllBaseline):
+				return m, m.reviewAllBaseline()
+
+			case key.Matches(msg, keys.PRKeys.PostAllDrafts):
+				return m, m.postAllDrafts()
 
 			case key.Matches(msg, keys.PRKeys.ReviewPause):
 				return m, m.togglePause()

@@ -209,3 +209,23 @@ func TestCellsShowsTotalSpend(t *testing.T) {
 	s.TotalCostUSD, s.TotalTurns, s.Runs = 0.37, 10, 2
 	assert.Equal(t, "$0.37 ·2", Cells(s, now).Spend, "every run, not just the last")
 }
+
+func TestYouGlyph(t *testing.T) {
+	tests := []struct {
+		state  string
+		onHead bool
+		want   string
+	}{
+		{"", false, "-"},
+		{"APPROVED", true, "✓"},
+		{"APPROVED", false, "✓*"},
+		{"CHANGES_REQUESTED", true, "✗"},
+		{"COMMENTED", false, "💬*"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, youGlyph(tt.state, tt.onHead), tt.state)
+	}
+	s := st("mono", 66082, reviewing.StatusApproved, time.Hour)
+	s.MyReview, s.MyReviewOnHead = "APPROVED", true
+	assert.Equal(t, "✓", Cells(s, now).You)
+}

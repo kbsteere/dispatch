@@ -687,3 +687,30 @@ func TestReviewSpendCountsCappedRuns(t *testing.T) {
 	assert.Equal(t, 100, turns)
 	assert.Equal(t, 1, runs)
 }
+
+func TestPostAllDraftsAfterGoingLive(t *testing.T) {
+	h := dryRunHarness(t, "nit")
+	h.e.d.Watch.DryRun = false // the user turned dry run off
+
+	drafts := h.e.UnpostedDrafts()
+	require.Len(t, drafts, 1)
+	assert.Equal(t, "APPROVE", drafts[h.job.Key].Event)
+
+	results := h.e.PostAllDrafts(t.Context())
+	require.Len(t, results, 1)
+	assert.NoError(t, results[0].Err)
+	assert.Equal(t, ActionApprove, results[0].Action)
+	assert.Equal(t, "APPROVE", h.gh.posted[0].Event)
+	assert.Empty(t, h.e.UnpostedDrafts(), "posted drafts are not offered again")
+}
+
+func TestPostAllDraftsReportsSkips(t *testing.T) {
+	h := dryRunHarness(t, "nit")
+	d := h.gh.details["N7"]
+	d.HeadOID = strings.Repeat("e", 40)
+	h.gh.details["N7"] = d
+	results := h.e.PostAllDrafts(t.Context())
+	require.Len(t, results, 1)
+	assert.ErrorContains(t, results[0].Err, "changed since the review was written")
+	assert.Empty(t, h.gh.posted)
+}

@@ -1,12 +1,15 @@
 package reviewing
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +94,9 @@ type Engine struct {
 	lastPoll time.Time
 	prompt   string // an action the user must take now, such as touching a security key
 	closing  bool
+	// refreshed is set once a poll has re-read every PR's details, which
+	// the first poll after startup does so derived fields are current.
+	refreshed bool
 }
 
 // NewEngine opens the watch's state. When another dispatch holds the
@@ -416,11 +422,14 @@ func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
 	for _, st := range states {
 		byKey[st.Key] = st
 	}
+	e.mu.Lock()
+	refreshAll := !e.refreshed
+	e.mu.Unlock()
 	inResults := map[PRKey]bool{}
 	var ids []string
 	for _, h := range hits {
 		inResults[h.Key] = true
-		if needsDetail(byKey[h.Key], h.UpdatedAt, now) {
+		if refreshAll || needsDetail(byKey[h.Key], h.UpdatedAt, now) {
 			ids = append(ids, h.NodeID)
 		}
 	}
@@ -475,6 +484,7 @@ func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
 	e.setErr(nil)
 
 	e.mu.Lock()
+	e.refreshed = true
 	e.lastPoll = e.d.Now()
 	next, why := e.quota.Next(lim.PollInterval, lim.MaxGithubPointsPerHour, now)
 	e.mu.Unlock()
@@ -507,6 +517,7 @@ func (e *Engine) evaluate(
 	st.Title = d.Title
 	st.Author = d.Author
 	st.CI = sig.CI
+	st.MyReview, st.MyReviewOnHead = myReview(d.Reviews, viewer, d.HeadOID)
 
 	switch {
 	case d.State != "OPEN":
@@ -656,8 +667,9 @@ func writeDraft(path string, d Draft) error {
 }
 
 // DraftFor returns the review dispatch would post for st: its held review,
-// or in dry run the latest unposted draft written for the head it last
-// reviewed.
+// or the latest dry-run draft, if it was never posted and was written for
+// the head the watch last reviewed. Unposted drafts stay postable after
+// the watch leaves dry run.
 func (e *Engine) DraftFor(st PRState) (Draft, bool) {
 	if st.HeldDraft != "" {
 		drafts := filepath.Join(string(e.store), "drafts") + string(filepath.Separator)
@@ -667,7 +679,7 @@ func (e *Engine) DraftFor(st PRState) (Draft, bool) {
 		d, err := readDraft(st.HeldDraft)
 		return d, err == nil
 	}
-	if !e.d.Watch.DryRun || !st.DryRun || st.ReviewedSig == nil {
+	if !st.DryRun || st.ReviewedSig == nil {
 		return Draft{}, false
 	}
 	d, ok := e.store.LatestDraft(st.Key)
@@ -736,4 +748,92 @@ func (e *Engine) markRequested(ctx context.Context, hits []SearchHit) {
 		}
 		_, _ = e.update(h.Key, func(s *PRState) { s.ReviewRequested = req })
 	}
+}
+
+// ForceBaseline queues a full review of every open PR the watch has only
+// baselined, and returns how many it queued. Reviews still run a few at a
+// time and stop at the daily budget.
+func (e *Engine) ForceBaseline() (int, error) {
+	if e.readOnly {
+		return 0, errors.New("watch is read-only in this dispatch")
+	}
+	n := 0
+	for _, st := range e.States() {
+		if st.Inactive || st.Status != StatusBaseline {
+			continue
+		}
+		if err := e.Force(st.Key); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// UnpostedDrafts are the dry-run drafts that were never posted, keyed by PR.
+// Held reviews are left out; they wait for the user to edit them.
+func (e *Engine) UnpostedDrafts() map[PRKey]Draft {
+	out := map[PRKey]Draft{}
+	for _, st := range e.States() {
+		if st.Inactive || st.HeldDraft != "" {
+			continue
+		}
+		if d, ok := e.DraftFor(st); ok {
+			out[st.Key] = d
+		}
+	}
+	return out
+}
+
+// PostResult is what PostDraft did for one PR.
+type PostResult struct {
+	Key         PRKey
+	Action      Action
+	NotApproved string
+	Err         error
+}
+
+// PostAllDrafts posts every unposted dry-run draft, in PR order, with the
+// same checks PostDraft applies to each.
+func (e *Engine) PostAllDrafts(ctx context.Context) []PostResult {
+	drafts := e.UnpostedDrafts()
+	keys := slices.SortedFunc(maps.Keys(drafts), func(a, b PRKey) int {
+		return cmp.Compare(a.FileName(), b.FileName())
+	})
+	out := make([]PostResult, 0, len(keys))
+	for _, k := range keys {
+		action, why, err := e.PostDraft(ctx, k)
+		out = append(out, PostResult{Key: k, Action: action, NotApproved: why, Err: err})
+	}
+	return out
+}
+
+// myReview is viewer's standing review on a PR: their latest approval or
+// change request, or, with neither, COMMENTED if they commented in a
+// review. A dismissed review no longer stands. onHead reports that the
+// review was on head.
+func myReview(reviews []Review, viewer, head string) (state string, onHead bool) {
+	var decisive, commented *Review
+	for i, r := range reviews {
+		if !strings.EqualFold(r.Author, viewer) {
+			continue
+		}
+		switch r.State {
+		case "APPROVED", "CHANGES_REQUESTED", "DISMISSED":
+			if decisive == nil || !r.SubmittedAt.Before(decisive.SubmittedAt) {
+				decisive = &reviews[i]
+			}
+		case "COMMENTED":
+			if commented == nil || !r.SubmittedAt.Before(commented.SubmittedAt) {
+				commented = &reviews[i]
+			}
+		}
+	}
+	if decisive != nil && decisive.State != "DISMISSED" {
+		return decisive.State, decisive.CommitOID == head
+	}
+	if commented != nil {
+		return commented.State, commented.CommitOID == head
+	}
+	return "", false
 }

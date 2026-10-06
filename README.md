@@ -48,6 +48,8 @@ The `repoPaths` mapping tells dispatch where repos live locally; AI reviews and 
 | `F` | Add a PR to the review watch by `owner/repo#N` or URL |
 | `S` | Post the review shown in the Review tab, held or dry-run (press twice) |
 | `N` | Review the selected watched PR now |
+| `E` | Queue full reviews of every baseline PR in the watch (press twice; shows a cost estimate first) |
+| `U` | Post every unposted dry-run draft in the watch (press twice; approvals are checked again first) |
 | `Z` | Pause or resume the review watch |
 
 All upstream gh-dash keybindings and configuration continue to work; see the [upstream docs](https://gh-dash.dev) for the full reference.
@@ -79,7 +81,7 @@ reviewingFor:
       prOnlyRepos: [chainguard-dev/stereo]  # optional: review only the PR itself, for data-heavy repos
 ```
 
-Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, spend (total cost across all of the PR's review runs, and how many runs), and last update. PRs where you or one of your teams is a requested reviewer sort first and are marked `(requested)`; within each group, PRs needing your attention come first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
+Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, your own standing review on GitHub (`✓` approved, `✗` changes requested, `💬` commented, `*` when it was on an older commit), open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, spend (total cost across all of the PR's review runs, and how many runs), and last update. PRs where you or one of your teams is a requested reviewer sort first and are marked `(requested)`; within each group, PRs needing your attention come first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
 
 How it behaves:
 

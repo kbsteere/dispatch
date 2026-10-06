@@ -446,3 +446,131 @@ func (m *Model) togglePause() tea.Cmd {
 	}
 	return tea.Batch(m.notify(fmt.Sprintf("Resumed review watch %s", e.Name())), manualPollCmd(e))
 }
+
+// reviewAllBaseline queues a full review of every baselined PR in the
+// current watch. The first press says what it will do; a second press
+// queues them.
+func (m *Model) reviewAllBaseline() tea.Cmd {
+	e := m.targetEngine()
+	if e == nil {
+		return noWatches
+	}
+	n := 0
+	for _, st := range e.States() {
+		if !st.Inactive && st.Status == reviewing.StatusBaseline {
+			n++
+		}
+	}
+	if n == 0 {
+		return m.notify("No baseline PRs to review")
+	}
+	if token := "E:" + e.Name(); m.pendingBulk != token {
+		m.pendingBulk = token
+		return m.notify(baselinePrompt(n, e.Status()))
+	}
+	m.pendingBulk = ""
+	queued, err := e.ForceBaseline()
+	if err != nil {
+		return func() tea.Msg { return reviewActionMsg{err: err} }
+	}
+	return tea.Batch(
+		m.notify(fmt.Sprintf("Queued full reviews of %d baseline PRs", queued)),
+		manualPollCmd(e),
+	)
+}
+
+// Rough per-review cost bounds for a full review, used only to warn
+// before queueing many at once.
+const (
+	reviewCostLow  = 0.4
+	reviewCostHigh = 1.4
+)
+
+func baselinePrompt(n int, ws reviewing.WatchStatus) string {
+	return fmt.Sprintf(
+		"Press E again to queue full reviews of %d baseline PRs (about $%.0f–%.0f; $%.2f of $%.0f spent today)",
+		n,
+		float64(n)*reviewCostLow,
+		float64(n)*reviewCostHigh,
+		ws.SpentToday,
+		ws.DailyBudget,
+	)
+}
+
+// postAllDrafts posts every unposted dry-run draft in the current watch.
+// The first press shows the counts; a second press posts them.
+func (m *Model) postAllDrafts() tea.Cmd {
+	e := m.targetEngine()
+	if e == nil {
+		return noWatches
+	}
+	drafts := e.UnpostedDrafts()
+	if len(drafts) == 0 {
+		return m.notify("No unposted drafts")
+	}
+	if token := "U:" + e.Name(); m.pendingBulk != token {
+		m.pendingBulk = token
+		return m.notify(postPrompt(drafts))
+	}
+	m.pendingBulk = ""
+	return func() tea.Msg {
+		return reviewActionMsg{note: postSummary(e.PostAllDrafts(context.Background()))}
+	}
+}
+
+func postPrompt(drafts map[reviewing.PRKey]reviewing.Draft) string {
+	var approve, changes, comment int
+	for _, d := range drafts {
+		switch reviewing.Action(d.Event) {
+		case reviewing.ActionApprove:
+			approve++
+		case reviewing.ActionRequestChanges:
+			changes++
+		default:
+			comment++
+		}
+	}
+	return fmt.Sprintf(
+		"Press U again to post %d drafts (%d approvals, %d change requests, %d comments); approvals are checked again first",
+		len(drafts),
+		approve,
+		changes,
+		comment,
+	)
+}
+
+// maxSkippedShown bounds how many skipped PRs a post summary names.
+const maxSkippedShown = 3
+
+// postSummary reports what PostAllDrafts did.
+func postSummary(results []reviewing.PostResult) string {
+	var approved, changes, comments int
+	var skipped []string
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			skipped = append(skipped, fmt.Sprintf("%s#%d: %v", r.Key.Repo, r.Key.Number, r.Err))
+		case r.Action == reviewing.ActionApprove:
+			approved++
+		case r.Action == reviewing.ActionRequestChanges:
+			changes++
+		default:
+			comments++
+		}
+	}
+	s := fmt.Sprintf(
+		"Posted %d (%d approved, %d changes requested, %d comments)",
+		approved+changes+comments,
+		approved,
+		changes,
+		comments,
+	)
+	if n := len(skipped); n > 0 {
+		shown := skipped[:min(n, maxSkippedShown)]
+		s += fmt.Sprintf("; skipped %d: %s", n, strings.Join(shown, "; "))
+		if n > maxSkippedShown {
+			s += fmt.Sprintf("; and %d more", n-maxSkippedShown)
+		}
+	}
+	return reviewing.SanitizeTerminal(s)
+}

@@ -102,6 +102,11 @@ type PRState struct {
 	// ReviewRequested marks a PR where you, or a team you belong to, are a
 	// requested reviewer.
 	ReviewRequested bool `json:"review_requested,omitempty"`
+	// MyReview is your standing review on GitHub (APPROVED,
+	// CHANGES_REQUESTED, or COMMENTED), whether posted by dispatch or by
+	// you; MyReviewOnHead reports that it was on the current head.
+	MyReview       string `json:"my_review,omitempty"`
+	MyReviewOnHead bool   `json:"my_review_on_head,omitempty"`
 	// Inactive marks a PR the watch's search no longer returns (merged,
 	// closed, back to draft, or out of scope). It is hidden until it returns.
 	Inactive    bool       `json:"inactive,omitempty"`
