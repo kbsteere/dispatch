@@ -77,6 +77,11 @@ case "${FAKE_CLAUDE_MODE:-success}" in
   phantom)
     result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["docs/design.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;
+  offdiff)
+    # Like mono#67219: one finding on a changed line, one on a line the PR
+    # did not change.
+    result 7 1.25 '{"findings":[{"path":"kev.go","line":304,"blocking":false,"category":"test-gap","body":"no test covers the once-per-process guard in `SetupMetrics`."},{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could log the feed URL it failed on."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
+    ;;
   nit)
     result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could return early when the feed is empty, which skips one allocation."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one nit","verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;

@@ -47,6 +47,9 @@ type fakeGitHub struct {
 	// asked about.
 	open  map[PRKey]struct{}
 	asked []PRKey
+	// fileComments are the file-level threads opened; fileErr fails them.
+	fileComments []ReviewComment
+	fileErr      error
 }
 
 func (f *fakeGitHub) Viewer(context.Context) (string, error) { return f.viewer, nil }
@@ -1046,4 +1049,18 @@ func TestPollRetriesIncompleteReviewOnItsOwn(t *testing.T) {
 	now = now.Add(24 * time.Hour)
 	jobs, _, _ = e.Poll(context.Background())
 	assert.Len(t, jobs, 1, "the next day it retries again")
+}
+
+func (f *fakeGitHub) PostFileComment(
+	_ context.Context,
+	_ PRKey,
+	_, path, body string,
+) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fileErr != nil {
+		return "", f.fileErr
+	}
+	f.fileComments = append(f.fileComments, ReviewComment{Path: path, Body: body})
+	return fmt.Sprintf("PRRT_file%d", len(f.fileComments)), nil
 }

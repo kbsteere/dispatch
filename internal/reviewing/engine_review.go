@@ -141,7 +141,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 		s.CIAssessment = review.CI
 	})
-	applied := e.apply(ctx, job, st, review, gaps, files.CIBase)
+	applied := e.apply(ctx, job, st, review, gaps, files.CIBase, readDiffLines(files.Diff))
 	applied.CostUSD = out.CostUSD
 	return applied
 }
@@ -337,6 +337,7 @@ func (e *Engine) apply(
 	review ReviewOutput,
 	gaps []string,
 	ciBase map[string]string,
+	lines diffLines,
 ) Outcome {
 	// Findings the author never saw were offered to the reviewer to raise
 	// again; whatever it re-raised is in review.Findings.
@@ -376,13 +377,7 @@ func (e *Engine) apply(
 			)
 			continue
 		}
-		draft.Comments = append(
-			draft.Comments,
-			ReviewComment{
-				Path: f.Path, Line: f.Line, StartLine: f.StartLine,
-				Body: labelSeverity(f.Body, f.Blocking),
-			},
-		)
+		draft.Comments = append(draft.Comments, findingComment(f, lines))
 		draft.Findings = append(draft.Findings, Finding{
 			ID: nextFindingID(append(st.Ledger, draft.Findings...)), Path: f.Path, Line: f.Line,
 			Blocking: f.Blocking, Summary: summarize(f.Body), Status: FindingOutstanding,
@@ -650,15 +645,17 @@ func (e *Engine) post(
 	if draft.Event == string(ActionNone) || draft.Event == "" {
 		return ledger, nil, nil
 	}
-	// Non-blocking comments are posted with an approval.
+	// Non-blocking comments are posted with an approval. Findings GitHub
+	// cannot place inline follow the review as threads on their files.
+	inline, fileLevel := splitFileComments(draft.Comments)
 	p := ReviewPayload{
-		CommitID: draft.Head, Event: draft.Event, Body: draft.Body, Comments: draft.Comments,
+		CommitID: draft.Head, Event: draft.Event, Body: draft.Body, Comments: inline,
 	}
 	url, err := e.d.GitHub.PostReview(ctx, k, p)
 	if err != nil {
 		return ledger, nil, err
 	}
-	if len(p.Comments) == 0 {
+	if len(draft.Comments) == 0 {
 		return ledger, nil, nil
 	}
 	for i := range ledger {
@@ -669,22 +666,62 @@ func (e *Engine) post(
 			ledger[i].Posted = true
 		}
 	}
-	refs, err := e.d.GitHub.ReviewThreads(ctx, k, url)
-	if err != nil {
-		return ledger, nil, nil
-	}
 	var ours []string
-	for _, ref := range refs {
-		ours = append(ours, ref.ID)
-		for i := range ledger {
-			if ledger[i].ThreadID == "" && ledger[i].Path == ref.Path &&
-				ledger[i].Line == ref.Line {
-				ledger[i].ThreadID = ref.ID
-				break
+	if len(inline) > 0 {
+		if refs, err := e.d.GitHub.ReviewThreads(ctx, k, url); err == nil {
+			for _, ref := range refs {
+				ours = append(ours, ref.ID)
+				claimThread(ledger, ref.ID, ref.Path, ref.Line)
 			}
 		}
 	}
+	for _, c := range fileLevel {
+		id, err := e.d.GitHub.PostFileComment(ctx, k, draft.Head, c.Path, c.Body)
+		if err != nil {
+			// The review is already up; leave this finding unposted so the
+			// next pass offers it again rather than failing this one.
+			unpost(ledger, c.Path, c.Line)
+			continue
+		}
+		ours = append(ours, id)
+		claimThread(ledger, id, c.Path, c.Line)
+	}
 	return ledger, ours, nil
+}
+
+// splitFileComments separates the comments GitHub takes inline from those
+// posted as threads on whole files.
+func splitFileComments(cs []ReviewComment) (inline, fileLevel []ReviewComment) {
+	for _, c := range cs {
+		if c.SubjectType == "file" {
+			fileLevel = append(fileLevel, c)
+		} else {
+			inline = append(inline, c)
+		}
+	}
+	return inline, fileLevel
+}
+
+// claimThread records thread id on the first finding at path:line that has
+// no thread yet.
+func claimThread(ledger []Finding, id, path string, line int) {
+	for i := range ledger {
+		if ledger[i].ThreadID == "" && ledger[i].Path == path && ledger[i].Line == line {
+			ledger[i].ThreadID = id
+			return
+		}
+	}
+}
+
+// unpost marks the posted finding at path:line with no thread as never seen.
+func unpost(ledger []Finding, path string, line int) {
+	for i := range ledger {
+		if ledger[i].Posted && ledger[i].ThreadID == "" && ledger[i].Path == path &&
+			ledger[i].Line == line {
+			ledger[i].Posted = false
+			return
+		}
+	}
 }
 
 // record ends a pass that produced a review. An incomplete one is retried on
@@ -898,4 +935,29 @@ func (e *Engine) recordContinuation(k PRKey, res RunResult) {
 			st.LastRun.Continuations++
 		}
 	})
+}
+
+// readDiffLines reads the PR diff at path into the lines GitHub accepts
+// inline comments on, or nil, accepting every line, if it cannot be read.
+func readDiffLines(path string) diffLines {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return commentableLines(string(b))
+}
+
+// findingComment is the review comment for a finding: inline when GitHub
+// accepts a comment on its lines, otherwise a thread on the whole file that
+// says which lines it means.
+func findingComment(f OutFinding, lines diffLines) ReviewComment {
+	body := labelSeverity(f.Body, f.Blocking)
+	if lines.accepts(f.Path, f.StartLine, f.Line) {
+		return ReviewComment{Path: f.Path, Line: f.Line, StartLine: f.StartLine, Body: body}
+	}
+	where := fmt.Sprintf("Line %d", f.Line)
+	if f.StartLine > 0 && f.StartLine != f.Line {
+		where = fmt.Sprintf("Lines %d–%d", f.StartLine, f.Line)
+	}
+	return ReviewComment{Path: f.Path, Line: f.Line, SubjectType: "file", Body: where + ": " + body}
 }

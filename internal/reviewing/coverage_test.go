@@ -2,8 +2,10 @@ package reviewing
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -398,4 +400,65 @@ func mustRead(t *testing.T, p string) string {
 	b, err := os.ReadFile(p)
 	require.NoError(t, err)
 	return string(b)
+}
+
+func TestCommentableLines(t *testing.T) {
+	// A modified file with two hunks, a deletion, and a missing final
+	// newline, then a new file.
+	diff := `diff --git a/pkg/memusage/heartbeat.go b/pkg/memusage/heartbeat.go
+index 1111111..2222222 100644
+--- a/pkg/memusage/heartbeat.go
++++ b/pkg/memusage/heartbeat.go
+@@ -10,4 +10,5 @@ import (
+ 	"time"
+-	"sync"
++	"sync/atomic"
++	"os"
+ )
+@@ -110,3 +111,3 @@ func (b *beat) sample() {
+ 	cur := b.read()
+-	if cur > b.last {
++	if cur > b.peak {
+ 		b.log(cur)
+\ No newline at end of file
+diff --git a/pkg/memusage/heartbeat_test.go b/pkg/memusage/heartbeat_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/memusage/heartbeat_test.go
+@@ -0,0 +1,2 @@
++package memusage
++
+`
+	lines := commentableLines(diff)
+	keys := func(m map[int]struct{}) []int { return slices.Sorted(maps.Keys(m)) }
+	assert.Equal(t, []int{10, 11, 12, 13, 111, 112, 113}, keys(lines["pkg/memusage/heartbeat.go"]))
+	assert.Equal(t, []int{1, 2}, keys(lines["pkg/memusage/heartbeat_test.go"]))
+
+	assert.True(t, lines.accepts("pkg/memusage/heartbeat.go", 0, 112))
+	assert.False(t, lines.accepts("pkg/memusage/heartbeat.go", 0, 304), "mono#67219's line 304")
+	assert.True(t, lines.accepts("pkg/memusage/heartbeat.go", 10, 13))
+	assert.False(t, lines.accepts("pkg/memusage/heartbeat.go", 13, 111), "start outside a hunk")
+	assert.False(t, lines.accepts("pkg/other.go", 0, 1), "a file not in the diff")
+	assert.True(t, diffLines(nil).accepts("pkg/other.go", 0, 1), "no diff accepts everything")
+}
+
+func TestFindingComment(t *testing.T) {
+	lines := diffLines{"kev.go": {1: {}, 2: {}}}
+	in := findingComment(
+		OutFinding{Path: "kev.go", Line: 2, Body: "`Sync` drops the error."},
+		lines,
+	)
+	assert.Equal(t, ReviewComment{Path: "kev.go", Line: 2, Body: in.Body}, in)
+
+	file := findingComment(
+		OutFinding{Path: "kev.go", Line: 304, Body: "no test covers the guard."},
+		lines,
+	)
+	assert.Equal(t, "file", file.SubjectType)
+	assert.Equal(t, 304, file.Line, "the line is kept to match the thread to its finding")
+	assert.True(t, strings.HasPrefix(file.Body, "Line 304: "), file.Body)
+
+	rng := findingComment(OutFinding{Path: "kev.go", StartLine: 300, Line: 304, Body: "x"}, lines)
+	assert.True(t, strings.HasPrefix(rng.Body, "Lines 300–304: "), rng.Body)
+	assert.Zero(t, rng.StartLine)
 }

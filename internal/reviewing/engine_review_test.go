@@ -984,3 +984,50 @@ func TestReviewIncompleteSchedulesGrowingRetries(t *testing.T) {
 	assert.Empty(t, st.ReviewGaps)
 	assert.Equal(t, Backoff{}, st.Backoff)
 }
+
+func TestReviewPostsOffDiffFindingsAsFileThreads(t *testing.T) {
+	h := newReviewHarness(t, "offdiff", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted, "non-blocking findings ride along with an approval")
+
+	require.Len(t, h.gh.posted, 1)
+	require.Len(t, h.gh.posted[0].Comments, 1, "only the changed line is commented inline")
+	assert.Equal(t, 1, h.gh.posted[0].Comments[0].Line)
+	assert.Empty(t, h.gh.posted[0].Comments[0].SubjectType)
+
+	require.Len(t, h.gh.fileComments, 1, "line 304 is not in the diff, so it gets a file thread")
+	assert.Equal(t, "kev.go", h.gh.fileComments[0].Path)
+	assert.True(t, strings.HasPrefix(h.gh.fileComments[0].Body, "Line 304: non-blocking: "),
+		h.gh.fileComments[0].Body)
+	assert.NotContains(t, h.gh.posted[0].Body, "304", "nothing is folded into the review body")
+
+	st := h.state(t)
+	require.Len(t, st.Ledger, 2)
+	assert.Equal(t, "PRRT_file1", st.Ledger[0].ThreadID, "the file thread is tracked")
+	assert.True(t, st.Ledger[0].Posted)
+	assert.Contains(t, st.OurThreads, "PRRT_file1", "so dispatch can resolve it later")
+
+	// The author fixes it; the next pass resolves the file thread.
+	t.Setenv("FAKE_CLAUDE_MODE", "resolve")
+	_, _ = h.e.update(h.job.Key, func(s *PRState) { s.Claim = &Claim{Since: h.now, Head: h.head} })
+	h.e.claimed[h.job.Key] = struct{}{}
+	require.NoError(t, h.e.Review(t.Context(), Job{
+		Key: h.job.Key, Trigger: TriggerChange, Pass: PassLedger, Detail: h.job.Detail,
+	}).Err)
+	assert.Contains(t, h.gh.resolved, "PRRT_file1")
+}
+
+func TestReviewLeavesFailedFileThreadUnposted(t *testing.T) {
+	h := newReviewHarness(t, "offdiff", nil)
+	h.gh.fileErr = errors.New("HTTP 502: Bad Gateway")
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err, "the review itself was posted")
+	require.Len(t, h.gh.posted, 1)
+
+	st := h.state(t)
+	require.Len(t, st.Ledger, 2)
+	assert.False(t, st.Ledger[0].Posted, "the next pass offers the line-304 finding again")
+	assert.Empty(t, st.Ledger[0].ThreadID)
+	assert.True(t, st.Ledger[1].Posted)
+}

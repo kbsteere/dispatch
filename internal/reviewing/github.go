@@ -114,6 +114,10 @@ type ReviewComment struct {
 	StartLine int    `json:"start_line,omitempty"`
 	Side      string `json:"side"`
 	Body      string `json:"body"`
+	// SubjectType "file" marks a finding on a line GitHub cannot take an
+	// inline comment on: it is posted as a thread on the whole file, and
+	// Line is kept only to say where in the file it is.
+	SubjectType string `json:"subject_type,omitempty"`
 }
 
 type ReviewPayload struct {
@@ -135,6 +139,7 @@ type GitHub interface {
 	ReplyThread(ctx context.Context, threadID, body string) (string, error)
 	ResolveThread(ctx context.Context, threadID string) error
 	ReviewThreads(ctx context.Context, k PRKey, reviewURL string) ([]ThreadRef, error)
+	PostFileComment(ctx context.Context, k PRKey, commitID, path, body string) (string, error)
 	CheckReport(ctx context.Context, k PRKey, checkRunID int64) (CheckReport, error)
 	BaseChecks(ctx context.Context, k PRKey, branch string) (map[string]string, error)
 }
@@ -856,6 +861,15 @@ func (g *ghClient) ReviewThreads(
 		return nil, fmt.Errorf("no review id in %q", reviewURL)
 	}
 	reviewID, _ := strconv.Atoi(m[1])
+	return g.threadsOfReview(ctx, k, reviewID)
+}
+
+// threadsOfReview returns the threads review reviewID opened on k.
+func (g *ghClient) threadsOfReview(
+	ctx context.Context,
+	k PRKey,
+	reviewID int,
+) ([]ThreadRef, error) {
 	var resp struct {
 		Repository struct {
 			PullRequest struct {
@@ -1051,4 +1065,51 @@ func (f failingGitHub) BaseChecks(context.Context, PRKey, string) (map[string]st
 
 func (f failingGitHub) OpenPRs(context.Context, []PRKey) ([]PRKey, error) {
 	return nil, f.err
+}
+
+// PostFileComment opens a review thread on the whole of path at commitID,
+// for a finding on a line GitHub cannot take an inline comment on, and
+// returns the thread's id.
+func (g *ghClient) PostFileComment(
+	ctx context.Context,
+	k PRKey,
+	commitID, path, body string,
+) (string, error) {
+	var resp struct {
+		ReviewID int `json:"pull_request_review_id"`
+	}
+	err := g.postJSON(
+		ctx,
+		fmt.Sprintf("repos/%s/%s/pulls/%d/comments", k.Owner, k.Repo, k.Number),
+		map[string]string{
+			"commit_id":    commitID,
+			"path":         path,
+			"subject_type": "file",
+			"body":         WithMarker(body),
+		},
+		&resp,
+	)
+	if err != nil {
+		return "", fmt.Errorf("posting file comment on %s %s: %w", k, path, err)
+	}
+	refs, err := g.threadsOfReview(ctx, k, resp.ReviewID)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range refs {
+		if r.Path == path {
+			return r.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no thread found for the file comment on %s %s", k, path)
+}
+
+func (f failingGitHub) PostFileComment(
+	context.Context,
+	PRKey,
+	string,
+	string,
+	string,
+) (string, error) {
+	return "", f.err
 }

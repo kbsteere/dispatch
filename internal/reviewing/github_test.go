@@ -665,3 +665,34 @@ func TestOpenPRsOtherErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rate limit")
 }
+
+func TestPostFileComment(t *testing.T) {
+	var got map[string]any
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		require.Contains(t, r.Query, "reviewThreads")
+		// The PR's threads: an older one by someone else, and the new file
+		// thread from review 9001.
+		return `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+		  {"id":"PRRT_old","path":"pkg/memusage/heartbeat.go","line":115,
+		   "comments":{"nodes":[{"pullRequestReview":{"databaseId":17}}]}},
+		  {"id":"PRRT_file","path":"pkg/memusage/heartbeat.go","line":null,
+		   "comments":{"nodes":[{"pullRequestReview":{"databaseId":9001}}]}}]}}}}}`
+	}, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/repos/chainguard-dev/mono/pulls/62436/comments", r.URL.Path)
+		b, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(b, &got))
+		_, _ = w.Write([]byte(`{"id":5,"node_id":"PRRC_5","pull_request_review_id":9001}`))
+	})
+	sha := strings.Repeat("a", 40)
+	id, err := gh.PostFileComment(context.Background(), monoKey, sha,
+		"pkg/memusage/heartbeat.go", "Line 304: non-blocking: no test covers the guard.")
+	require.NoError(t, err)
+	assert.Equal(t, "PRRT_file", id)
+	assert.Equal(t, map[string]any{
+		"commit_id":    sha,
+		"path":         "pkg/memusage/heartbeat.go",
+		"subject_type": "file",
+		"body":         "Line 304: non-blocking: no test covers the guard.\n\n" + Marker,
+	}, got, "a file thread sends no line")
+}

@@ -1,11 +1,13 @@
 package reviewing
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -275,4 +277,81 @@ func covers(read []LineRange, want LineRange) bool {
 		next = max(next, r.To+1)
 	}
 	return next > want.To
+}
+
+// diffLines are the lines of each file GitHub accepts an inline review
+// comment on: those inside the diff's hunks on the new side.
+type diffLines map[string]map[int]struct{}
+
+// commentableLines reads a git diff into the lines GitHub accepts inline
+// comments on.
+func commentableLines(diff string) diffLines {
+	out := diffLines{}
+	var lines map[int]struct{}
+	next := 0
+	for _, l := range strings.Split(diff, "\n") {
+		if header, ok := strings.CutPrefix(l, "diff --git "); ok {
+			lines = nil
+			next = 0
+			if j := strings.LastIndex(header, " b/"); j >= 0 {
+				lines = map[int]struct{}{}
+				out[header[j+len(" b/"):]] = lines
+			}
+			continue
+		}
+		if lines == nil {
+			continue
+		}
+		if hunk, ok := strings.CutPrefix(l, "@@ "); ok {
+			next = hunkStart(hunk)
+			continue
+		}
+		if next == 0 {
+			continue // file headers before the first hunk
+		}
+		switch {
+		case strings.HasPrefix(l, "+"), strings.HasPrefix(l, " "):
+			lines[next] = struct{}{}
+			next++
+		case strings.HasPrefix(l, "-"), strings.HasPrefix(l, `\`):
+		default:
+			next = 0
+		}
+	}
+	return out
+}
+
+// hunkStart is the new-side start line of a hunk header such as
+// "-12,7 +14,9 @@ func f()", or 0 if it cannot be read.
+func hunkStart(hunk string) int {
+	_, after, ok := strings.Cut(hunk, "+")
+	if !ok {
+		return 0
+	}
+	num, _, _ := strings.Cut(after, " ")
+	num, _, _ = strings.Cut(num, ",")
+	n, err := strconv.Atoi(num)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// accepts reports whether GitHub takes an inline comment on path from
+// startLine (0 for one line) to line: every line between must be inside the
+// diff's hunks. Without a diff to judge by, every line is accepted.
+func (d diffLines) accepts(path string, startLine, line int) bool {
+	if d == nil {
+		return true
+	}
+	if startLine > line {
+		return false
+	}
+	lines := d[path]
+	for n := cmp.Or(startLine, line); n <= line; n++ {
+		if _, ok := lines[n]; !ok {
+			return false
+		}
+	}
+	return line > 0
 }
