@@ -292,14 +292,14 @@ func TestCellsMarksApprovalsThatNeverReachedGitHub(t *testing.T) {
 	assert.Equal(t, "approved", Cells(s, now).Status, "dispatch posted it")
 }
 
-func TestSortStatesKeepsPRsClosedThisWeek(t *testing.T) {
+func TestSortStatesKeepsPRsClosedInTheLastFiveMinutes(t *testing.T) {
 	merged := st("mono", 64516, reviewing.StatusApproved, 30*time.Hour)
-	merged.Inactive, merged.ClosedState, merged.ClosedAt = true, "MERGED", now.Add(-30*time.Hour)
+	merged.Inactive, merged.ClosedState, merged.ClosedAt = true, "MERGED", now.Add(-3*time.Minute)
 	merged.MyReview, merged.MyReviewOnHead = "APPROVED", true
 	closed := st("mono", 66155, reviewing.StatusFailed, time.Hour)
-	closed.Inactive, closed.ClosedState, closed.ClosedAt = true, "CLOSED", now.Add(-time.Hour)
+	closed.Inactive, closed.ClosedState, closed.ClosedAt = true, "CLOSED", now.Add(-time.Minute)
 	old := st("mono", 60001, reviewing.StatusApproved, 10*24*time.Hour)
-	old.Inactive, old.ClosedState, old.ClosedAt = true, "MERGED", now.Add(-8*24*time.Hour)
+	old.Inactive, old.ClosedState, old.ClosedAt = true, "MERGED", now.Add(-6*time.Minute)
 	drafted := st("mono", 60002, reviewing.StatusReviewing, time.Hour)
 	drafted.Inactive = true // back to draft: not shown
 	open := st("stereo", 135128, reviewing.StatusApproved, 2*time.Hour)
@@ -309,8 +309,12 @@ func TestSortStatesKeepsPRsClosedThisWeek(t *testing.T) {
 	for _, s := range got {
 		order = append(order, s.Key.Number)
 	}
-	assert.Equal(t, []int{135128, 66155, 64516}, order,
-		"open PRs first, then this week's closed PRs newest first; older and drafted ones hidden")
+	assert.Equal(
+		t,
+		[]int{135128, 66155, 64516},
+		order,
+		"open PRs first, then PRs closed in the last five minutes newest first; older and drafted ones hidden",
+	)
 
 	c := Cells(merged, now)
 	assert.Equal(t, "merged", c.Status)

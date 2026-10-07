@@ -391,3 +391,13 @@ func (st PRState) Spend() (costUSD float64, turns, runs int) {
 func (f Finding) Unposted() bool {
 	return f.Status == FindingOutstanding && f.ThreadID == "" && !f.Posted
 }
+
+// ClosedShownFor is how long a merged or closed PR stays listed.
+const ClosedShownFor = 5 * time.Minute
+
+// ShownClosed reports whether st is a PR merged or closed within
+// ClosedShownFor of now.
+func (st PRState) ShownClosed(now time.Time) bool {
+	return st.Inactive && (st.ClosedState == "MERGED" || st.ClosedState == "CLOSED") &&
+		now.Sub(st.ClosedAt) <= ClosedShownFor
+}

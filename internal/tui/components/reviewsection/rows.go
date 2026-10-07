@@ -56,25 +56,15 @@ func updatedAt(s reviewing.PRState) time.Time {
 	return t
 }
 
-// closedShownFor is how long a merged or closed PR stays in the table.
-const closedShownFor = 7 * 24 * time.Hour
-
-// shownClosed reports whether s is a PR merged or closed within
-// closedShownFor of now.
-func shownClosed(s reviewing.PRState, now time.Time) bool {
-	return s.Inactive && (s.ClosedState == "MERGED" || s.ClosedState == "CLOSED") &&
-		now.Sub(s.ClosedAt) <= closedShownFor
-}
-
 // SortStates returns the states to show, in display order, without
 // modifying the input: open PRs requesting your review first, then other
 // open PRs by status and most recent update, then PRs merged or closed in
-// the last week, newest first. Other inactive PRs (back to draft, out of
+// the last few minutes, newest first. Other inactive PRs (back to draft, out of
 // scope) and states whose key fails validation are dropped.
 func SortStates(states []reviewing.PRState, now time.Time) []reviewing.PRState {
 	out := make([]reviewing.PRState, 0, len(states))
 	for _, s := range states {
-		if (!s.Inactive || shownClosed(s, now)) && reviewing.ValidName(s.Key.Owner) &&
+		if (!s.Inactive || s.ShownClosed(now)) && reviewing.ValidName(s.Key.Owner) &&
 			reviewing.ValidName(s.Key.Repo) && s.Key.Number > 0 {
 			out = append(out, s)
 		}

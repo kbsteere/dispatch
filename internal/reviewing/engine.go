@@ -955,15 +955,12 @@ func (e *Engine) requeue(k PRKey, out Outcome, err error) Outcome {
 	return out
 }
 
-// closedShownFor is how long a merged or closed PR stays in the table.
-const closedShownFor = 7 * 24 * time.Hour
-
 // maxClosedLookups bounds how many PRs that left the search one poll reads.
 const maxClosedLookups = 20
 
 func recentlyUpdated(st PRState, now time.Time) bool {
 	t, err := time.Parse(time.RFC3339, st.UpdatedAt)
-	return err == nil && now.Sub(t) < closedShownFor
+	return err == nil && now.Sub(t) < ClosedShownFor
 }
 
 // recordClosed reads PRs that left the watch's search and records whether

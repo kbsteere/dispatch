@@ -907,7 +907,7 @@ func TestPollLearnsHowEarlierPRsEndedAfterStartup(t *testing.T) {
 	// Left the search before this dispatch started, as mono#64516 did.
 	_, err := e.update(k, func(s *PRState) {
 		s.NodeID, s.Inactive, s.Status = "N1", true, StatusApproved
-		s.UpdatedAt = t0.Add(-time.Hour).Format(time.RFC3339)
+		s.UpdatedAt = t0.Add(-2 * time.Minute).Format(time.RFC3339)
 	})
 	require.NoError(t, err)
 	_, _, err = e.Poll(t.Context())
