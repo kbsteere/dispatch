@@ -373,19 +373,6 @@ func (pr *PullRequest) RenderState() string {
 	}
 }
 
-func (pr *PullRequest) RenderMergeStateStatus() string {
-	switch pr.Data.Primary.MergeStateStatus {
-	case "CLEAN":
-		return constants.SuccessIcon + " Up-to-date"
-	case "BLOCKED":
-		return constants.BlockedIcon + " Blocked"
-	case "BEHIND":
-		return constants.BehindIcon + " Behind"
-	default:
-		return ""
-	}
-}
-
 func (pr *PullRequest) renderClaudeReviewStatus() string {
 	if pr.Data.Primary == nil {
 		return ""

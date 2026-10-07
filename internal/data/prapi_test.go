@@ -1,6 +1,9 @@
 package data
 
 import (
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	gh "github.com/cli/go-gh/v2/pkg/api"
@@ -77,4 +80,43 @@ func TestSetClient(t *testing.T) {
 		require.Nil(t, client)
 		require.True(t, IsEnrichmentCacheCleared())
 	})
+}
+
+// queryRecorder captures each GraphQL request body and answers with an
+// empty result.
+type queryRecorder struct{ bodies []string }
+
+func (r *queryRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	b, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	r.bodies = append(r.bodies, string(b))
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":{}}`)),
+		Request:    req,
+	}, nil
+}
+
+func TestMergeStateStatusOnlyFetchedForSinglePR(t *testing.T) {
+	original := client
+	t.Cleanup(func() { client = original })
+	rec := &queryRecorder{}
+	c, err := gh.NewGraphQLClient(
+		gh.ClientOptions{Host: "github.com", AuthToken: "fake-token", Transport: rec},
+	)
+	require.NoError(t, err)
+	client = c
+
+	_, err = FetchPullRequests("is:open author:@me", 30, nil)
+	require.NoError(t, err)
+	_, err = FetchPullRequest("https://github.com/chainguard-dev/mono/pull/1")
+	require.NoError(t, err)
+
+	require.Len(t, rec.bodies, 2)
+	require.NotContains(t, rec.bodies[0], "mergeStateStatus",
+		"searches must not ask GitHub to compute merge state for every result")
+	require.Contains(t, rec.bodies[1], "mergeStateStatus")
 }

@@ -41,12 +41,15 @@ type EnrichedPullRequestData struct {
 	UpdatedAt         time.Time
 	CreatedAt         time.Time
 	Mergeable         string
-	ReviewDecision    string
-	Additions         int
-	Deletions         int
-	HeadRefName       string
-	BaseRefName       string
-	HeadRepository    struct {
+	// MergeStateStatus is costly for GitHub to compute, so it is fetched
+	// only for a single PR, never in a search.
+	MergeStateStatus MergeStateStatus
+	ReviewDecision   string
+	Additions        int
+	Deletions        int
+	HeadRefName      string
+	BaseRefName      string
+	HeadRepository   struct {
 		Name string
 	}
 	HeadRef struct {
@@ -88,17 +91,16 @@ type PullRequestData struct {
 	HeadRef struct {
 		Name string
 	}
-	Repository       Repository
-	Assignees        Assignees            `graphql:"assignees(first: 3)"`
-	Comments         Comments             `graphql:"comments"`
-	ReviewThreads    ReviewThreads        `graphql:"reviewThreads"`
-	Reviews          ReviewsNumber        `graphql:"reviews"`
-	ReviewRequests   ReviewRequestsNumber `graphql:"reviewRequests"`
-	IsDraft          bool
-	IsInMergeQueue   bool
-	Commits          LastCommitStatus `graphql:"commits(last: 1)"`
-	Labels           PRLabels         `graphql:"labels(first: 6)"`
-	MergeStateStatus MergeStateStatus `graphql:"mergeStateStatus"`
+	Repository     Repository
+	Assignees      Assignees            `graphql:"assignees(first: 3)"`
+	Comments       Comments             `graphql:"comments"`
+	ReviewThreads  ReviewThreads        `graphql:"reviewThreads"`
+	Reviews        ReviewsNumber        `graphql:"reviews"`
+	ReviewRequests ReviewRequestsNumber `graphql:"reviewRequests"`
+	IsDraft        bool
+	IsInMergeQueue bool
+	Commits        LastCommitStatus `graphql:"commits(last: 1)"`
+	Labels         PRLabels         `graphql:"labels(first: 6)"`
 }
 
 type LastCommitStatus struct {

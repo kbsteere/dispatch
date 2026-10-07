@@ -139,8 +139,8 @@ func (m *Model) viewMergeStatus() (string, checkSectionStatus) {
 	var icon, title, subtitle string
 	var status checkSectionStatus
 	numReviewOwners := m.numRequestedReviewOwners()
-	if m.pr.Data.Primary.MergeStateStatus == "CLEAN" ||
-		m.pr.Data.Primary.MergeStateStatus == "UNSTABLE" {
+	if m.pr.Data.Enriched.MergeStateStatus == "CLEAN" ||
+		m.pr.Data.Enriched.MergeStateStatus == "UNSTABLE" {
 		icon = m.ctx.Styles.Common.SuccessGlyph
 		title = "No conflicts with base branch"
 		subtitle = "Changes can be cleanly merged"
@@ -150,7 +150,7 @@ func (m *Model) viewMergeStatus() (string, checkSectionStatus) {
 		title = "This pull request is still a work in progress"
 		subtitle = "Draft pull requests cannot be merged"
 		status = statusWaiting
-	} else if m.pr.Data.Primary.MergeStateStatus == "BLOCKED" {
+	} else if m.pr.Data.Enriched.MergeStateStatus == "BLOCKED" {
 		icon = m.ctx.Styles.Common.FailureGlyph
 		title = "Merging is blocked"
 		if numReviewOwners > 0 {
@@ -161,7 +161,7 @@ func (m *Model) viewMergeStatus() (string, checkSectionStatus) {
 		icon = m.ctx.Styles.Common.FailureGlyph
 		title = "This branch has conflicts that must be resolved"
 		status = statusFailure
-		if m.pr.Data.Primary.MergeStateStatus == "CLEAN" {
+		if m.pr.Data.Enriched.MergeStateStatus == "CLEAN" {
 			subtitle = "Changes can be cleanly merged"
 		}
 	}
