@@ -16,6 +16,9 @@ type Snapshot struct {
 	CodeReviewed bool
 	// ReviewerApproves reports that the reviewer's verdict was approve.
 	ReviewerApproves bool
+	// CIExcused reports that every required check that has not passed is
+	// stuck or was judged unrelated to the change; see ciExcuse.
+	CIExcused bool
 }
 
 // Action is the single review event a pass posts.
@@ -40,8 +43,9 @@ type Tally struct {
 // Decide picks the single review action for a pass and the resulting status.
 // It approves only an open, ready, mergeable PR by someone else whose code
 // was reviewed at its head, whose reviewer said approve, whose required
-// checks passed, and that has no outstanding blocking finding. Non-blocking
-// findings are posted with the approval.
+// checks passed (or are excused as stuck or unrelated), and that has no
+// outstanding blocking finding. Non-blocking findings are posted with the
+// approval.
 func Decide(s Snapshot, t Tally) (Action, Status) {
 	self := s.Author == s.Viewer
 	if t.OutstandingBlocking > 0 {
@@ -68,7 +72,7 @@ func Decide(s Snapshot, t Tally) (Action, Status) {
 	if !s.ReviewerApproves {
 		return held, StatusWaitingOnAuthor
 	}
-	if s.RequiredCI != "SUCCESS" {
+	if s.RequiredCI != "SUCCESS" && !s.CIExcused {
 		return held, StatusWaitingOnCI
 	}
 	approved := StatusApproved

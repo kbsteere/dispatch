@@ -165,6 +165,9 @@ type ReviewFiles struct {
 	// SecurityRefs are the security guide reference files copied into the
 	// session, if the repository has a guide.
 	SecurityRefs []string
+	// CIBase is how each check fared on the base branch, when a required
+	// check had failed or stuck at the start of the pass.
+	CIBase map[string]string
 }
 
 // safeGitArgs keep git from running external programs configured in the

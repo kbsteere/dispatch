@@ -101,8 +101,9 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		s.Examined = &review.Examined
 		s.ReviewGaps = gaps
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
+		s.CIAssessment = review.CI
 	})
-	return e.apply(ctx, job, st, review, gaps)
+	return e.apply(ctx, job, st, review, gaps, files.CIBase)
 }
 
 func (e *Engine) load(k PRKey) (PRState, error) {
@@ -166,6 +167,7 @@ func (e *Engine) runSession(
 	if err != nil {
 		return RunResult{}, ReviewFiles{}, "", err
 	}
+	in.CI, files.CIBase = e.loadCIProblems(ctx, job.Detail, cwd)
 	if job.Pass != PassLedger && !prOnly {
 		if g, ok := LoadSecurityGuide(ctx, repo, job.Detail.BaseOID, cwd); ok {
 			in.Security = &g
@@ -299,6 +301,7 @@ func (e *Engine) apply(
 	st PRState,
 	review ReviewOutput,
 	gaps []string,
+	ciBase map[string]string,
 ) Outcome {
 	// Findings the author never saw were offered to the reviewer to raise
 	// again; whatever it re-raised is in review.Findings.
@@ -319,7 +322,10 @@ func (e *Engine) apply(
 		ourThreads[t] = true
 	}
 
-	draft := Draft{Head: d.HeadOID, Verdict: review.Verdict, VerdictReason: review.VerdictReason}
+	draft := Draft{
+		Head: d.HeadOID, Verdict: review.Verdict, VerdictReason: review.VerdictReason,
+		CI: review.CI, CIBase: ciBase,
+	}
 	for _, f := range review.Findings {
 		if f.Category == CategorySecurity {
 			f.Blocking = true
@@ -440,8 +446,18 @@ func (e *Engine) apply(
 		CodeReviewed:         codeReviewed,
 		ReviewerApproves:     review.Verdict == VerdictApprove,
 	}
+	var ciNote string
+	if sig.CI != "SUCCESS" {
+		if req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef); err == nil {
+			snap.CIExcused, ciNote = ciExcuse(
+				RequiredChecks(fresh[0].Checks, req, e.d.Now()), review.CI, ciBase)
+		}
+	}
 	action, status := Decide(snap, tally)
 	draft.Event = string(action)
+	if action == ActionApprove && snap.CIExcused {
+		draft.Body = ciNote
+	}
 	draft.CodeReviewed = codeReviewed
 
 	if len(draft.Reasons) > 0 {
@@ -565,7 +581,9 @@ func (e *Engine) post(
 		return ledger, nil, nil
 	}
 	// Non-blocking comments are posted with an approval.
-	p := ReviewPayload{CommitID: draft.Head, Event: draft.Event, Comments: draft.Comments}
+	p := ReviewPayload{
+		CommitID: draft.Head, Event: draft.Event, Body: draft.Body, Comments: draft.Comments,
+	}
 	url, err := e.d.GitHub.PostReview(ctx, k, p)
 	if err != nil {
 		return ledger, nil, err
@@ -681,7 +699,19 @@ func (e *Engine) PostDraft(ctx context.Context, k PRKey) (Action, string, error)
 		CodeReviewed:     draft.CodeReviewed && len(draft.Unanchored) == 0,
 		ReviewerApproves: draft.Verdict == VerdictApprove,
 	}
+	// The explanation is recomputed: CI may have changed since the draft.
+	var ciNote string
+	if sig.CI != "SUCCESS" {
+		if req, err := e.d.GitHub.RequiredContexts(ctx, k, fresh[0].BaseRef); err == nil {
+			snap.CIExcused, ciNote = ciExcuse(
+				RequiredChecks(fresh[0].Checks, req, e.d.Now()), draft.CI, draft.CIBase)
+		}
+	}
 	action, status := Decide(snap, tally)
+	draft.Body = ""
+	if action == ActionApprove && snap.CIExcused {
+		draft.Body = ciNote
+	}
 	if action == ActionNone && len(draft.Comments) > 0 {
 		action = ActionComment
 	}
@@ -742,7 +772,7 @@ func approvalBlocker(s Snapshot, t Tally) string {
 		return "the review did not read everything it had to at this commit"
 	case !s.ReviewerApproves:
 		return "Claude's verdict was not approve"
-	case s.RequiredCI != "SUCCESS":
+	case s.RequiredCI != "SUCCESS" && !s.CIExcused:
 		return "required CI is not green"
 	case s.ApprovedHead == s.Head:
 		return "you already approved this commit"

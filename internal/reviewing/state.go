@@ -128,17 +128,19 @@ type PRState struct {
 	Examined   *Examined `json:"examined,omitempty"`
 	ReviewGaps []string  `json:"review_gaps,omitempty"`
 	// Verdict and VerdictReason are the last pass's approval call.
-	Verdict       string     `json:"verdict,omitempty"`
-	VerdictReason string     `json:"verdict_reason,omitempty"`
-	HeadSeen      *HeadSeen  `json:"head_seen,omitempty"`
-	CIObs         CIObs      `json:"ci_obs"`
-	LastCIWake    time.Time  `json:"last_ci_wake"`
-	Ledger        []Finding  `json:"ledger,omitempty"`
-	OurThreads    []string   `json:"our_threads,omitempty"`
-	DesignRefs    string     `json:"design_refs,omitempty"`
-	ApprovedHead  string     `json:"approved_head,omitempty"`
-	Claim         *Claim     `json:"claim,omitempty"`
-	LastRun       *RunRecord `json:"last_run,omitempty"`
+	Verdict       string `json:"verdict,omitempty"`
+	VerdictReason string `json:"verdict_reason,omitempty"`
+	// CIAssessment is the last pass's call on failing required checks.
+	CIAssessment []CIAssessment `json:"ci_assessment,omitempty"`
+	HeadSeen     *HeadSeen      `json:"head_seen,omitempty"`
+	CIObs        CIObs          `json:"ci_obs"`
+	LastCIWake   time.Time      `json:"last_ci_wake"`
+	Ledger       []Finding      `json:"ledger,omitempty"`
+	OurThreads   []string       `json:"our_threads,omitempty"`
+	DesignRefs   string         `json:"design_refs,omitempty"`
+	ApprovedHead string         `json:"approved_head,omitempty"`
+	Claim        *Claim         `json:"claim,omitempty"`
+	LastRun      *RunRecord     `json:"last_run,omitempty"`
 	// TotalCostUSD, TotalTurns, and Runs add up every session run for the PR.
 	TotalCostUSD float64        `json:"total_cost_usd,omitempty"`
 	TotalTurns   int            `json:"total_turns,omitempty"`

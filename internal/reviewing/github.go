@@ -130,6 +130,8 @@ type GitHub interface {
 	ReplyThread(ctx context.Context, threadID, body string) (string, error)
 	ResolveThread(ctx context.Context, threadID string) error
 	ReviewThreads(ctx context.Context, k PRKey, reviewURL string) ([]ThreadRef, error)
+	CheckReport(ctx context.Context, k PRKey, checkRunID int64) (CheckReport, error)
+	BaseChecks(ctx context.Context, k PRKey, branch string) (map[string]string, error)
 }
 
 // WithMarker appends the hidden dispatch marker to a body.
@@ -969,4 +971,12 @@ func (g *ghClient) remainingChecks(
 		page = ctxs.PageInfo
 	}
 	return nodes, cost, nil
+}
+
+func (f failingGitHub) CheckReport(context.Context, PRKey, int64) (CheckReport, error) {
+	return CheckReport{}, f.err
+}
+
+func (f failingGitHub) BaseChecks(context.Context, PRKey, string) (map[string]string, error) {
+	return nil, f.err
 }

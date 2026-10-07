@@ -37,6 +37,19 @@
     "note": {"type": "string"},
     "verdict": {"enum": ["approve", "comment", "request_changes"]},
     "verdict_reason": {"type": "string"},
+    "ci": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "related", "reason"],
+        "properties": {
+          "check": {"type": "string"},
+          "related": {"type": "boolean"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
     "examined": {
       "type": "object",
       "additionalProperties": false,

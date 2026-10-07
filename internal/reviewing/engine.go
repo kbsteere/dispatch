@@ -715,6 +715,11 @@ type Draft struct {
 	VerdictReason string `json:"verdict_reason,omitempty"`
 	// CodeReviewed records that the pass read the code it had to at Head.
 	CodeReviewed bool `json:"code_reviewed,omitempty"`
+	// Body is the review's text: empty, or the line explaining an approval
+	// with checks set aside. CI and CIBase are what that decision used.
+	Body   string            `json:"body,omitempty"`
+	CI     []CIAssessment    `json:"ci,omitempty"`
+	CIBase map[string]string `json:"ci_base,omitempty"`
 }
 
 type DraftReply struct {

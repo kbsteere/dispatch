@@ -38,7 +38,11 @@ type fakeGitHub struct {
 	requested    []SearchHit
 	requestedErr error
 	searchErr    error
-	filters      []string
+	// reports are failing check runs' output by id; base is how checks
+	// fared on the base branch.
+	reports map[int64]CheckReport
+	base    map[string]string
+	filters []string
 }
 
 func (f *fakeGitHub) Viewer(context.Context) (string, error) { return f.viewer, nil }
@@ -844,4 +848,16 @@ func TestPollSkipsWhileOneIsRunning(t *testing.T) {
 	assert.Zero(t, next)
 	assert.Empty(t, gh.filters, "no second poll runs alongside the first")
 	assert.False(t, e.PollDue(now), "nothing is due while a poll runs")
+}
+
+func (f *fakeGitHub) CheckReport(_ context.Context, _ PRKey, id int64) (CheckReport, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reports[id], nil
+}
+
+func (f *fakeGitHub) BaseChecks(context.Context, PRKey, string) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.base, nil
 }

@@ -39,6 +39,8 @@ type ReviewOutput struct {
 	// dispatch never approves unless it is approve.
 	Verdict       string `json:"verdict"`
 	VerdictReason string `json:"verdict_reason"`
+	// CI is the reviewer's call on each failing required check it was shown.
+	CI []CIAssessment `json:"ci,omitempty"`
 }
 
 // Examined is the reviewer's private account of what it read. It is never
@@ -187,3 +189,10 @@ const VerdictApprove = "approve"
 
 // CategorySecurity marks a security finding, which is always blocking.
 const CategorySecurity = "security"
+
+// CIAssessment is the reviewer's call on one failing required check.
+type CIAssessment struct {
+	Check   string `json:"check"`
+	Related bool   `json:"related"`
+	Reason  string `json:"reason"`
+}

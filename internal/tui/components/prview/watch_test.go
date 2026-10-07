@@ -243,3 +243,18 @@ func TestRenderWatchBlockMarksUnpostedFindings(t *testing.T) {
 		"- policies.yaml.tpl:275 (non-blocking) nit: add the policy to the test",
 	)
 }
+
+func TestRenderWatchBlockShowsCIAssessment(t *testing.T) {
+	st := reviewing.PRState{CIAssessment: []reviewing.CIAssessment{
+		{Check: "scan-urls", Reason: "the URL scanner flags links that already exist on main"},
+		{Check: "unit", Related: true, Reason: "TestSync fails on the new nil check\x1b[2J"},
+	}}
+	out := renderWatchBlock(st, 300, time.Now())
+	assert.Contains(
+		t,
+		out,
+		"CI: scan-urls ✗ unrelated: the URL scanner flags links that already exist on main",
+	)
+	assert.Contains(t, out, "CI: unit ✗ caused by this PR: TestSync fails on the new nil check[2J")
+	assert.NotContains(t, out, "\x1b[2J")
+}

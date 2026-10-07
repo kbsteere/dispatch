@@ -140,3 +140,14 @@ func TestNeedsReview(t *testing.T) {
 		)
 	})
 }
+
+func TestNeedsReviewWakesForStuckCI(t *testing.T) {
+	now := t0
+	st := &PRState{
+		Status:      StatusWaitingOnCI,
+		ReviewedSig: &Signature{Head: "h", Digest: "d", CI: "PENDING"},
+		CIObs:       CIObs{State: CIStuck, N: CIStablePolls},
+	}
+	assert.Equal(t, TriggerCI, NeedsReview(st, Signature{Head: "h", Digest: "d", CI: CIStuck}, now),
+		"a check stuck for over two hours gets a pass that can set it aside")
+}

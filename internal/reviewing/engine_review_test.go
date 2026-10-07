@@ -793,3 +793,73 @@ func TestReviewPostsUnpostedFindingRaisedAgain(t *testing.T) {
 	assert.Equal(t, "PRRT_new", st.Ledger[0].ThreadID)
 	assert.False(t, st.Ledger[0].Unposted())
 }
+
+// failScanURLs makes a required URL scanner fail on the harness PR.
+func failScanURLs(h *reviewHarness) {
+	d := h.gh.details["N7"]
+	d.Checks = append(d.Checks, CheckNode{
+		Typename: "CheckRun", Name: "scan-urls", Status: "COMPLETED", Conclusion: "FAILURE",
+		IsRequired: true, ID: 4242, StartedAt: t0,
+	})
+	h.gh.details["N7"] = d
+	h.job.Detail = d
+	h.gh.reports = map[int64]CheckReport{4242: {
+		Title:       "1 URL failed",
+		Annotations: []string{"README.md:3 failure: https://example.invalid returned 404"},
+	}}
+	h.gh.base = map[string]string{"scan-urls": "fail", "build": "pass"}
+}
+
+func TestReviewApprovesPastAnUnrelatedCIFailure(t *testing.T) {
+	stdin := filepath.Join(t.TempDir(), "stdin")
+	t.Setenv("FAKE_CLAUDE_STDIN", stdin)
+	h := newReviewHarness(t, "ci_unrelated", nil)
+	failScanURLs(h)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	require.Len(t, h.gh.posted, 1)
+	p := h.gh.posted[0]
+	assert.Equal(t, "APPROVE", p.Event)
+	assert.Equal(
+		t,
+		"`scan-urls` is failing for a reason unrelated to this change: the URL scanner flags links that already exist on main.",
+		p.Body,
+		"one plain line says why it was approved with red CI",
+	)
+	st := h.state(t)
+	assert.Equal(t, StatusApproved, st.Status)
+	require.Len(t, st.CIAssessment, 1)
+	assert.False(t, st.CIAssessment[0].Related)
+
+	prompt, _ := os.ReadFile(stdin)
+	assert.Contains(t, string(prompt), "- scan-urls: failing (on base: fail); output in ")
+	report := filepath.Join(
+		h.e.d.StateRoot,
+		"sessions",
+		st.LastRun.SessionID,
+		"ci",
+		"scan-urls.txt",
+	)
+	b, err := os.ReadFile(report)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "https://example.invalid returned 404")
+}
+
+func TestReviewWaitsOnARelatedCIFailure(t *testing.T) {
+	h := newReviewHarness(t, "ci_related", nil)
+	failScanURLs(h)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Empty(t, h.gh.posted)
+	assert.Equal(t, StatusWaitingOnCI, h.state(t).Status)
+}
+
+func TestReviewWaitsWhenTheCheckPassesOnMain(t *testing.T) {
+	h := newReviewHarness(t, "ci_unrelated", nil)
+	failScanURLs(h)
+	h.gh.base["scan-urls"] = "pass"
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Empty(t, h.gh.posted, "a check that passes on main was broken by the PR")
+}

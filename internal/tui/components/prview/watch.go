@@ -89,6 +89,13 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 		}
 		b.WriteString("\n")
 	}
+	for _, c := range st.CIAssessment {
+		verdict := "unrelated"
+		if c.Related {
+			verdict = "caused by this PR"
+		}
+		fmt.Fprintf(&b, "CI: %s ✗ %s: %s\n", clean(c.Check), verdict, clean(c.Reason))
+	}
 	if len(st.ReviewGaps) > 0 {
 		b.WriteString("\nReview incomplete, so it cannot approve:\n")
 		for _, g := range st.ReviewGaps {
