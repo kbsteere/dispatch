@@ -358,3 +358,34 @@ func TestStatusTone(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenedAt(t *testing.T) {
+	loc := time.FixedZone("CDT", -5*60*60)
+	orig := time.Local
+	t.Cleanup(func() { time.Local = orig })
+	time.Local = loc
+	at := time.Date(2026, 10, 7, 11, 20, 0, 0, loc)
+
+	for _, tc := range []struct {
+		name   string
+		opened time.Time
+		want   string
+	}{
+		{"today shows the time", time.Date(2026, 10, 7, 14, 41, 0, 0, time.UTC), "09:41"},
+		{"yesterday late UTC is still yesterday locally", time.Date(2026, 10, 7, 2, 0, 0, 0, time.UTC), "Oct 06 21:00"},
+		{"this year shows date and time", time.Date(2026, 3, 2, 15, 4, 0, 0, loc), "Mar 02 15:04"},
+		{"older shows the date", time.Date(2025, 12, 30, 8, 0, 0, 0, loc), "2025-12-30"},
+		{"unknown", time.Time{}, "-"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, openedAt(tc.opened, at))
+		})
+	}
+}
+
+func TestCellsShowOpened(t *testing.T) {
+	s := st("mono", 66370, reviewing.StatusWaitingOnCI, time.Hour)
+	assert.Equal(t, "-", Cells(s, now).Opened, "state saved before the open time was recorded")
+	s.CreatedAt = time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	assert.Equal(t, "2025-06-01", Cells(s, now).Opened)
+}

@@ -74,6 +74,8 @@ type PRDetail struct {
 	BaseOID   string
 	Mergeable string
 	UpdatedAt string
+	// CreatedAt is when the PR was opened.
+	CreatedAt time.Time
 	// ClosedAt is when the PR was merged or closed; zero while open.
 	ClosedAt time.Time
 	Files    []string
@@ -306,7 +308,7 @@ func (g *ghClient) Search(
 const detailQuery = `query($id: ID!) {
   rateLimit { cost remaining resetAt }
   node(id: $id) { ... on PullRequest {
-    id number state isDraft title body updatedAt closedAt mergeable
+    id number state isDraft title body createdAt updatedAt closedAt mergeable
     author { login }
     headRefOid baseRefName baseRefOid
     repository { name owner { login } }
@@ -341,6 +343,7 @@ type detailJSON struct {
 	IsDraft    bool          `json:"isDraft"`
 	Title      string        `json:"title"`
 	Body       string        `json:"body"`
+	CreatedAt  time.Time     `json:"createdAt"`
 	UpdatedAt  string        `json:"updatedAt"`
 	ClosedAt   time.Time     `json:"closedAt"`
 	Mergeable  string        `json:"mergeable"`
@@ -397,6 +400,7 @@ func (n detailJSON) toDetail() PRDetail {
 		BaseRef:   n.BaseRef,
 		BaseOID:   n.BaseRefOid,
 		Mergeable: n.Mergeable,
+		CreatedAt: n.CreatedAt,
 		UpdatedAt: n.UpdatedAt,
 		ClosedAt:  n.ClosedAt,
 	}

@@ -117,9 +117,12 @@ type PRState struct {
 	Inactive bool `json:"inactive,omitempty"`
 	// ClosedState is MERGED or CLOSED once an inactive PR is known to have
 	// been merged or closed, at ClosedAt.
-	ClosedState string     `json:"closed_state,omitempty"`
-	ClosedAt    time.Time  `json:"closed_at,omitempty"`
-	Status      Status     `json:"status,omitempty"`
+	ClosedState string    `json:"closed_state,omitempty"`
+	ClosedAt    time.Time `json:"closed_at,omitempty"`
+	Status      Status    `json:"status,omitempty"`
+	// CreatedAt is when the PR was opened; zero in state saved before it was
+	// recorded.
+	CreatedAt   time.Time  `json:"created_at,omitzero"`
 	UpdatedAt   string     `json:"updated_at,omitempty"`
 	ReviewedSig *Signature `json:"reviewed_sig,omitempty"`
 	// CodeReviewedHead is the head whose code a full or incremental pass last

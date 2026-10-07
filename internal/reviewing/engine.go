@@ -585,6 +585,7 @@ func (e *Engine) evaluate(
 	st.NodeID = d.NodeID
 	st.Inactive = false
 	st.UpdatedAt = d.UpdatedAt
+	st.CreatedAt = d.CreatedAt
 	st.Title = d.Title
 	st.Author = d.Author
 	st.CI = sig.CI

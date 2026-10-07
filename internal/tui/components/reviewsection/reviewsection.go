@@ -57,6 +57,7 @@ func Columns() []table.Column {
 		{Title: "Open", Width: utils.IntPtr(7)},
 		{Title: "CI", Width: utils.IntPtr(4)},
 		{Title: "Spend", Width: utils.IntPtr(11)},
+		{Title: "Opened", Width: utils.IntPtr(13)},
 		{Title: "Updated", Width: utils.IntPtr(8)},
 	}
 }
@@ -98,7 +99,17 @@ func (m Model) BuildRows() []table.Row {
 		status := lipgloss.NewStyle().Foreground(m.toneColor(StatusTone(s))).Render(c.Status)
 		rows = append(
 			rows,
-			table.Row{status, c.PR, c.Author, c.You, c.Open, ciGlyph(c.CI), c.Spend, c.Updated},
+			table.Row{
+				status,
+				c.PR,
+				c.Author,
+				c.You,
+				c.Open,
+				ciGlyph(c.CI),
+				c.Spend,
+				c.Opened,
+				c.Updated,
+			},
 		)
 	}
 	return rows

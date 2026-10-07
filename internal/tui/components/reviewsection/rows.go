@@ -103,6 +103,7 @@ type RowCells struct {
 	Open    string
 	CI      string
 	Spend   string
+	Opened  string
 	Updated string
 }
 
@@ -131,6 +132,7 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 		Open:   "-",
 		CI:     s.CI,
 		Spend:  "-",
+		Opened: openedAt(s.CreatedAt, now),
 	}
 	if c.Status == "" {
 		c.Status = string(s.Status)
@@ -172,6 +174,23 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 		c.Updated = shortElapsed(now.Sub(t))
 	}
 	return c
+}
+
+// openedAt shows when a PR was opened in local time: the time today, the
+// date and time this year, and the date before that. Unknown times show "-".
+func openedAt(t, now time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	t, now = t.Local(), now.Local()
+	switch {
+	case reviewing.Day(t) == reviewing.Day(now):
+		return t.Format("15:04")
+	case t.Year() == now.Year():
+		return t.Format("Jan 02 15:04")
+	default:
+		return t.Format("2006-01-02")
+	}
 }
 
 func shortElapsed(d time.Duration) string {
@@ -236,6 +255,7 @@ func PRData(s reviewing.PRState) *prrow.Data {
 			NameWithOwner: s.Key.NameWithOwner(),
 			Owner:         data.Owner{Login: s.Key.Owner},
 		},
+		CreatedAt: s.CreatedAt,
 		UpdatedAt: updatedAt(s),
 	}
 	pr.Author.Login = reviewing.SanitizeTerminal(s.Author)

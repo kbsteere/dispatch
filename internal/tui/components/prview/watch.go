@@ -51,6 +51,9 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 		)
 	}
 	b.WriteString("\n")
+	if line := datesLine(st); line != "" {
+		b.WriteString(line + "\n")
+	}
 	if st.Status == reviewing.StatusFailed || st.Status == reviewing.StatusThrottled {
 		b.WriteString(retryLine(st.Backoff.Until, now))
 	}
@@ -232,4 +235,17 @@ func examinedList(paths []string) string {
 		s += fmt.Sprintf(" and %d more", n)
 	}
 	return s
+}
+
+// datesLine shows when the PR was opened and last updated, in local time.
+func datesLine(st reviewing.PRState) string {
+	const layout = "2006-01-02 15:04"
+	var parts []string
+	if !st.CreatedAt.IsZero() {
+		parts = append(parts, "Opened "+st.CreatedAt.Local().Format(layout))
+	}
+	if t, err := time.Parse(time.RFC3339, st.UpdatedAt); err == nil {
+		parts = append(parts, "Updated "+t.Local().Format(layout))
+	}
+	return strings.Join(parts, " · ")
 }

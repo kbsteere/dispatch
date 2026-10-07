@@ -258,3 +258,19 @@ func TestRenderWatchBlockShowsCIAssessment(t *testing.T) {
 	assert.Contains(t, out, "CI: unit ✗ caused by this PR: TestSync fails on the new nil check[2J")
 	assert.NotContains(t, out, "\x1b[2J")
 }
+
+func TestRenderWatchBlockShowsDates(t *testing.T) {
+	orig := time.Local
+	t.Cleanup(func() { time.Local = orig })
+	time.Local = time.FixedZone("CDT", -5*60*60)
+	st := reviewing.PRState{
+		Status:    reviewing.StatusWaitingOnCI,
+		CreatedAt: time.Date(2026, 10, 6, 19, 2, 0, 0, time.UTC),
+		UpdatedAt: "2026-10-07T14:41:00Z",
+	}
+	out := renderWatchBlock(st, 120, time.Now())
+	assert.Contains(t, out, "Opened 2026-10-06 14:02 · Updated 2026-10-07 09:41")
+
+	assert.NotContains(t, renderWatchBlock(reviewing.PRState{}, 120, time.Now()), "Opened",
+		"no dates line without known times")
+}

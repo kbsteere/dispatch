@@ -259,7 +259,7 @@ func TestSearch(t *testing.T) {
 }
 
 const detailResp = `{"data":{"rateLimit":{"cost":1,"remaining":4000,"resetAt":"2026-10-05T16:11:29Z"},"node":{
- "id":"PR_kwDOA1","number":1234,"state":"OPEN","isDraft":false,"title":"kev: bump","body":"Fixes CVE-2026-1234","updatedAt":"2026-10-05T15:00:00Z","mergeable":"MERGEABLE",
+ "id":"PR_kwDOA1","number":1234,"state":"OPEN","isDraft":false,"title":"kev: bump","body":"Fixes CVE-2026-1234","createdAt":"2026-10-01T09:41:00Z","updatedAt":"2026-10-05T15:00:00Z","mergeable":"MERGEABLE",
  "author":null,
  "headRefOid":"1111111111111111111111111111111111111111","baseRefName":"main","baseRefOid":"2222222222222222222222222222222222222222",
  "repository":{"name":"stereo","owner":{"login":"chainguard-dev"}},
@@ -289,6 +289,7 @@ func TestDetails(t *testing.T) {
 	assert.Equal(t, "ghost", d.Author)
 	assert.Equal(t, "1111111111111111111111111111111111111111", d.HeadOID)
 	assert.Equal(t, "main", d.BaseRef)
+	assert.Equal(t, time.Date(2026, 10, 1, 9, 41, 0, 0, time.UTC), d.CreatedAt)
 	assert.Equal(t, []string{"kev.yaml"}, d.Files)
 	require.Len(t, d.Threads, 1)
 	assert.Equal(t, Thread{

@@ -134,6 +134,7 @@ func detail(n int, head string) PRDetail {
 		BaseRef:   "main",
 		BaseOID:   strings.Repeat("0", 40),
 		Mergeable: "MERGEABLE",
+		CreatedAt: time.Date(2026, 10, 1, 9, 41, 0, 0, time.UTC),
 		UpdatedAt: head,
 		Files: []string{
 			"kev.yaml",
@@ -222,6 +223,12 @@ func TestPollRecordsDisplayFieldsAndStatus(t *testing.T) {
 	assert.Equal(t, "kev: bump to 1.4.2", st.Title)
 	assert.Equal(t, "dnegreira", st.Author)
 	assert.Equal(t, "SUCCESS", st.CI)
+	assert.Equal(
+		t,
+		time.Date(2026, 10, 1, 9, 41, 0, 0, time.UTC),
+		st.CreatedAt,
+		"the open time is kept for display",
+	)
 
 	ws := e.Status()
 	assert.Equal(t, 4000, ws.QuotaRemaining)
