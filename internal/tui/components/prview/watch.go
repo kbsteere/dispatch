@@ -128,6 +128,9 @@ func renderWatchBlock(st reviewing.PRState, width int, now time.Time) string {
 			if f.Category != "" {
 				kind = clean(f.Category) + ", " + kind
 			}
+			if f.Unposted() {
+				kind += ", not posted"
+			}
 			fmt.Fprintf(&b, "- %s:%d (%s) %s\n", clean(f.Path), f.Line, kind, clean(f.Summary))
 		}
 	}

@@ -149,11 +149,16 @@ func BuildPrompt(in PromptInput) string {
 		}
 	}
 
+	posted := slices.DeleteFunc(slices.Clone(in.Ledger), Finding.Unposted)
+	unposted := slices.DeleteFunc(
+		slices.Clone(in.Ledger),
+		func(f Finding) bool { return !f.Unposted() },
+	)
 	b.WriteString("\n## Earlier findings (yours)\n")
-	if len(in.Ledger) == 0 {
+	if len(posted) == 0 {
 		b.WriteString("none\n")
 	}
-	for _, f := range in.Ledger {
+	for _, f := range posted {
 		fmt.Fprintf(
 			&b,
 			"- id=%s thread=%s %s:%d blocking=%t status=%s: %s\n",
@@ -165,6 +170,14 @@ func BuildPrompt(in PromptInput) string {
 			f.Status,
 			f.Summary,
 		)
+	}
+	if len(unposted) > 0 {
+		b.WriteString(
+			"\n## Earlier findings never shown to the author\n\nThese were recorded but never posted. Do not put them in `ledger`. If one still applies at head, raise it again in `findings` at its current line; otherwise leave it out.\n",
+		)
+		for _, f := range unposted {
+			fmt.Fprintf(&b, "- %s:%d blocking=%t: %s\n", f.Path, f.Line, f.Blocking, f.Summary)
+		}
 	}
 
 	b.WriteString("\n## Pull request\n\ntitle:\n")

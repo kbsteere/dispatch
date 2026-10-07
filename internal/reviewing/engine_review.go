@@ -300,6 +300,9 @@ func (e *Engine) apply(
 	review ReviewOutput,
 	gaps []string,
 ) Outcome {
+	// Findings the author never saw were offered to the reviewer to raise
+	// again; whatever it re-raised is in review.Findings.
+	st.Ledger = slices.DeleteFunc(slices.Clone(st.Ledger), Finding.Unposted)
 	out := Outcome{Key: job.Key, Note: review.Note}
 	if len(gaps) > 0 {
 		out.Note = strings.TrimSpace(
@@ -569,6 +572,14 @@ func (e *Engine) post(
 	}
 	if len(p.Comments) == 0 {
 		return ledger, nil, nil
+	}
+	for i := range ledger {
+		if slices.ContainsFunc(
+			draft.Findings,
+			func(f Finding) bool { return f.ID == ledger[i].ID },
+		) {
+			ledger[i].Posted = true
+		}
 	}
 	refs, err := e.d.GitHub.ReviewThreads(ctx, k, url)
 	if err != nil {

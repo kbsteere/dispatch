@@ -259,3 +259,22 @@ func TestBuildPromptSecurityGuide(t *testing.T) {
 	assert.Contains(t, BuildPrompt(PromptInput{Pass: PassFull, PROnly: true}),
 		"downloads without a pinned version or checksum")
 }
+
+func TestBuildPromptOffersUnpostedFindingsToRaiseAgain(t *testing.T) {
+	p := BuildPrompt(PromptInput{Pass: PassFull, Ledger: []Finding{
+		{
+			ID: "f1", Path: "policies.yaml.tpl", Line: 242, Blocking: true,
+			Summary: "runs at 13:00 with dlq", Status: FindingOutstanding,
+		},
+		{
+			ID: "f2", ThreadID: "PRRT_1", Posted: true, Path: "policies.yaml.tpl", Line: 275,
+			Summary: "add the policy to the test", Status: FindingOutstanding,
+		},
+	}})
+	earlier, unposted, ok := strings.Cut(p, "## Earlier findings never shown to the author")
+	require.True(t, ok)
+	assert.Contains(t, earlier, "id=f2 thread=PRRT_1")
+	assert.NotContains(t, earlier, "id=f1")
+	assert.Contains(t, unposted, "raise it again in `findings` at its current line")
+	assert.Contains(t, unposted, "- policies.yaml.tpl:242 blocking=true: runs at 13:00 with dlq")
+}

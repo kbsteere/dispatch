@@ -756,3 +756,40 @@ func TestReviewFailureWithoutSleepBacksOff(t *testing.T) {
 	assert.False(t, st.ForceReview)
 	assert.Equal(t, 1, st.Backoff.Step)
 }
+
+// seedUnposted records a blocking finding from a dry-run pass that never
+// reached the PR, as mono#66370's f1 did.
+func seedUnposted(t *testing.T, h *reviewHarness) {
+	t.Helper()
+	_, err := h.e.update(h.job.Key, func(s *PRState) {
+		s.Ledger = []Finding{{
+			ID: "f1", Path: "kev.go", Line: 1, Blocking: true,
+			Summary: "runs at 13:00 with dlq", Status: FindingOutstanding,
+		}}
+	})
+	require.NoError(t, err)
+}
+
+func TestReviewDropsUnpostedFindingTheReviewerDidNotRaiseAgain(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	seedUnposted(t, h)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted, "a finding the author never saw no longer blocks")
+	assert.Empty(t, h.state(t).Ledger)
+}
+
+func TestReviewPostsUnpostedFindingRaisedAgain(t *testing.T) {
+	h := newReviewHarness(t, "finding", nil)
+	seedUnposted(t, h)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	require.Len(t, h.gh.posted, 1)
+	require.Len(t, h.gh.posted[0].Comments, 1, "raised again, it reaches the PR")
+	st := h.state(t)
+	require.Len(t, st.Ledger, 1, "no duplicate of the old finding")
+	assert.True(t, st.Ledger[0].Posted)
+	assert.Equal(t, "PRRT_new", st.Ledger[0].ThreadID)
+	assert.False(t, st.Ledger[0].Unposted())
+}

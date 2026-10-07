@@ -209,10 +209,37 @@ func TestRenderWatchBlockShowsTotalSpend(t *testing.T) {
 }
 
 func TestRenderWatchBlockShowsFindingCategory(t *testing.T) {
-	st := reviewing.PRState{Ledger: []reviewing.Finding{{
-		Path: "bots/kev/sync.go", Line: 40, Blocking: true, Category: "security",
-		Summary: "feed URL reaches exec.Command", Status: reviewing.FindingOutstanding,
-	}}}
+	st := reviewing.PRState{Ledger: []reviewing.Finding{
+		{
+			Path:     "bots/kev/sync.go",
+			Line:     40,
+			Blocking: true,
+			Category: "security",
+			Summary:  "feed URL reaches exec.Command",
+			Status:   reviewing.FindingOutstanding,
+			ThreadID: "PRRT_1",
+		},
+	}}
 	assert.Contains(t, renderWatchBlock(st, 300, time.Now()),
 		"- bots/kev/sync.go:40 (security, blocking) feed URL reaches exec.Command")
+}
+
+func TestRenderWatchBlockMarksUnpostedFindings(t *testing.T) {
+	st := reviewing.PRState{Ledger: []reviewing.Finding{
+		{
+			Path: "policies.yaml.tpl", Line: 242, Blocking: true, Summary: "runs at 13:00 with dlq",
+			Status: reviewing.FindingOutstanding,
+		},
+		{
+			Path: "policies.yaml.tpl", Line: 275, Summary: "nit: add the policy to the test",
+			Status: reviewing.FindingOutstanding, ThreadID: "PRRT_1", Posted: true,
+		},
+	}}
+	out := renderWatchBlock(st, 300, time.Now())
+	assert.Contains(t, out, "- policies.yaml.tpl:242 (blocking, not posted) runs at 13:00 with dlq")
+	assert.Contains(
+		t,
+		out,
+		"- policies.yaml.tpl:275 (non-blocking) nit: add the policy to the test",
+	)
 }

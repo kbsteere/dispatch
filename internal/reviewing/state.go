@@ -48,6 +48,9 @@ type Finding struct {
 	Status   string `json:"status"`
 	// Category is bug, security, test-gap, design, or rule.
 	Category string `json:"category,omitempty"`
+	// Posted records that the finding went out in a review. A finding
+	// recorded in dry run has neither Posted nor a ThreadID.
+	Posted bool `json:"posted,omitempty"`
 	// Replied records that dispatch already answered pushback on this
 	// finding's thread; it never replies twice.
 	Replied bool `json:"replied,omitempty"`
@@ -375,4 +378,10 @@ func (st PRState) Spend() (costUSD float64, turns, runs int) {
 		return st.LastRun.CostUSD, st.LastRun.Turns, 1
 	}
 	return st.TotalCostUSD, st.TotalTurns, st.Runs
+}
+
+// Unposted reports whether f is an outstanding finding the author never
+// saw: recorded in dry run, or held, and not posted since.
+func (f Finding) Unposted() bool {
+	return f.Status == FindingOutstanding && f.ThreadID == "" && !f.Posted
 }
