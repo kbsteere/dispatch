@@ -313,11 +313,9 @@ const detailQuery = `query($id: ID!) {
       id isResolved isOutdated path line resolvedBy { login }
       comments(first: 20) { nodes { id body createdAt author { login } } }
     } }
-    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
-      __typename
-      ... on CheckRun { name status conclusion isRequired(pullRequestId: $id) checkSuite { app { databaseId } } }
-      ... on StatusContext { context state isRequired(pullRequestId: $id) }
-    } } } } } }
+    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
+      pageInfo { hasNextPage endCursor } nodes { ` + contextFields + ` }
+    } } } } }
   } }
 }`
 
@@ -374,30 +372,7 @@ type detailJSON struct {
 			} `json:"comments"`
 		} `json:"nodes"`
 	} `json:"reviewThreads"`
-	Commits struct {
-		Nodes []struct {
-			Commit struct {
-				StatusCheckRollup *struct {
-					Contexts struct {
-						Nodes []struct {
-							Typename   string `json:"__typename"`
-							Name       string `json:"name"`
-							Context    string `json:"context"`
-							Status     string `json:"status"`
-							Conclusion string `json:"conclusion"`
-							State      string `json:"state"`
-							IsRequired bool   `json:"isRequired"`
-							CheckSuite *struct {
-								App *struct {
-									DatabaseID int `json:"databaseId"`
-								} `json:"app"`
-							} `json:"checkSuite"`
-						} `json:"nodes"`
-					} `json:"contexts"`
-				} `json:"statusCheckRollup"`
-			} `json:"commit"`
-		} `json:"nodes"`
-	} `json:"commits"`
+	Commits commitsJSON `json:"commits"`
 }
 
 func (n detailJSON) toDetail() PRDetail {
@@ -451,27 +426,8 @@ func (n detailJSON) toDetail() PRDetail {
 		}
 		d.Threads = append(d.Threads, th)
 	}
-	for _, c := range n.Commits.Nodes {
-		if c.Commit.StatusCheckRollup == nil {
-			continue
-		}
-		for _, x := range c.Commit.StatusCheckRollup.Contexts.Nodes {
-			node := CheckNode{
-				Typename:   x.Typename,
-				Name:       x.Name,
-				Status:     x.Status,
-				Conclusion: x.Conclusion,
-				State:      x.State,
-				IsRequired: x.IsRequired,
-			}
-			if x.Typename == "StatusContext" {
-				node.Name = x.Context
-			}
-			if x.CheckSuite != nil && x.CheckSuite.App != nil {
-				node.AppID = x.CheckSuite.App.DatabaseID
-			}
-			d.Checks = append(d.Checks, node)
-		}
+	for _, x := range n.Commits.contexts().Nodes {
+		d.Checks = append(d.Checks, x.toCheckNode())
 	}
 	return d
 }
@@ -547,6 +503,12 @@ func (g *ghClient) detail(ctx context.Context, id string) (*PRDetail, RateLimit,
 		return nil, rl, err
 	}
 	d.Files = append(d.Files, more...)
+	checks, cost, err := g.remainingChecks(ctx, id, resp.Node.Commits.contexts().PageInfo)
+	rl.Cost += cost
+	if err != nil {
+		return nil, rl, err
+	}
+	d.Checks = append(d.Checks, checks...)
 	return &d, rl, nil
 }
 
@@ -894,4 +856,117 @@ func (f failingGitHub) ReplyThread(
 func (f failingGitHub) ResolveThread(context.Context, string) error { return f.err }
 func (f failingGitHub) ReviewThreads(context.Context, PRKey, string) ([]ThreadRef, error) {
 	return nil, f.err
+}
+
+type commitsJSON struct {
+	Nodes []struct {
+		Commit struct {
+			StatusCheckRollup *struct {
+				Contexts contextsPageJSON `json:"contexts"`
+			} `json:"statusCheckRollup"`
+		} `json:"commit"`
+	} `json:"nodes"`
+}
+
+// contexts is the head commit's check page, if it has one.
+func (c commitsJSON) contexts() contextsPageJSON {
+	for _, n := range c.Nodes {
+		if n.Commit.StatusCheckRollup != nil {
+			return n.Commit.StatusCheckRollup.Contexts
+		}
+	}
+	return contextsPageJSON{}
+}
+
+type contextsPageJSON struct {
+	PageInfo pageInfoJSON  `json:"pageInfo"`
+	Nodes    []contextJSON `json:"nodes"`
+}
+
+type contextJSON struct {
+	Typename   string    `json:"__typename"`
+	Name       string    `json:"name"`
+	DatabaseID int64     `json:"databaseId"`
+	StartedAt  time.Time `json:"startedAt"`
+	CreatedAt  time.Time `json:"createdAt"`
+	Context    string    `json:"context"`
+	Status     string    `json:"status"`
+	Conclusion string    `json:"conclusion"`
+	State      string    `json:"state"`
+	IsRequired bool      `json:"isRequired"`
+	CheckSuite *struct {
+		App *struct {
+			DatabaseID int `json:"databaseId"`
+		} `json:"app"`
+	} `json:"checkSuite"`
+}
+
+func (x contextJSON) toCheckNode() CheckNode {
+	node := CheckNode{
+		Typename:   x.Typename,
+		Name:       x.Name,
+		Status:     x.Status,
+		Conclusion: x.Conclusion,
+		State:      x.State,
+		IsRequired: x.IsRequired,
+		ID:         x.DatabaseID,
+		StartedAt:  x.StartedAt,
+	}
+	if x.Typename == "StatusContext" {
+		node.Name = x.Context
+		node.StartedAt = x.CreatedAt
+	}
+	if x.CheckSuite != nil && x.CheckSuite.App != nil {
+		node.AppID = x.CheckSuite.App.DatabaseID
+	}
+	return node
+}
+
+// contextFields are the check fields fetched on every page.
+const contextFields = `__typename
+      ... on CheckRun { databaseId name status conclusion startedAt isRequired(pullRequestId: $id) checkSuite { app { databaseId } } }
+      ... on StatusContext { context state createdAt isRequired(pullRequestId: $id) }`
+
+const checksPageQuery = `query($id: ID!, $after: String) {
+  rateLimit { cost }
+  node(id: $id) { ... on PullRequest {
+    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100, after: $after) {
+      pageInfo { hasNextPage endCursor } nodes { ` + contextFields + ` }
+    } } } } }
+  } }
+}`
+
+// maxCheckPages bounds check pagination. A large repository can report
+// well over 100 checks on one commit, and a required one may be on any page.
+const maxCheckPages = 10
+
+// remainingChecks fetches the head commit's checks beyond the first page.
+func (g *ghClient) remainingChecks(
+	ctx context.Context,
+	id string,
+	page pageInfoJSON,
+) ([]CheckNode, int, error) {
+	var nodes []CheckNode
+	cost := 0
+	for i := 0; page.HasNextPage && i < maxCheckPages; i++ {
+		var resp struct {
+			RateLimit struct {
+				Cost int `json:"cost"`
+			} `json:"rateLimit"`
+			Node struct {
+				Commits commitsJSON `json:"commits"`
+			} `json:"node"`
+		}
+		vars := map[string]any{"id": id, "after": page.EndCursor}
+		if err := g.gql.DoWithContext(ctx, checksPageQuery, vars, &resp); err != nil {
+			return nodes, cost, err
+		}
+		cost += resp.RateLimit.Cost
+		ctxs := resp.Node.Commits.contexts()
+		for _, x := range ctxs.Nodes {
+			nodes = append(nodes, x.toCheckNode())
+		}
+		page = ctxs.PageInfo
+	}
+	return nodes, cost, nil
 }

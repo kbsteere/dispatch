@@ -380,7 +380,7 @@ func (e *Engine) signature(ctx context.Context, d PRDetail, viewer string) Signa
 	events, resolved := d.Events()
 	ci := ciUnknown
 	if req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef); err == nil {
-		ci = RequiredState(d.Checks, req)
+		ci = RequiredState(d.Checks, req, e.d.Now())
 	}
 	return Signature{
 		Head:   d.HeadOID,

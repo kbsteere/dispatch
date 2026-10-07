@@ -85,7 +85,9 @@ func ObserveCI(st *PRState, ci string) {
 	st.CIObs = CIObs{State: ci, N: 1}
 }
 
-func terminalCI(ci string) bool { return ci == "SUCCESS" || ci == "FAILURE" }
+// terminalCI reports a CI state that will not change on its own soon:
+// passed, failed, or stuck.
+func terminalCI(ci string) bool { return ci == "SUCCESS" || ci == "FAILURE" || ci == CIStuck }
 
 // NeedsReview decides whether the current signature warrants a pass.
 func NeedsReview(st *PRState, sig Signature, now time.Time) Trigger {

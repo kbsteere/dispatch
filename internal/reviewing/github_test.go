@@ -582,3 +582,51 @@ func TestPostReviewReportsBothErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "Line could not be resolved", "the first reason is kept")
 	assert.Contains(t, err.Error(), "Review body too long")
 }
+
+func TestDetailsPaginatesChecks(t *testing.T) {
+	// mono#66370 reports 182 checks; the required codeowners-gate and
+	// acid-sandbox (presubmit) were on the second page, so reading only the
+	// first left the PR pending forever.
+	firstPage := strings.Replace(
+		detailResp,
+		`"statusCheckRollup":{"contexts":{"nodes":[`,
+		`"statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29yOjEwMA=="},"nodes":[`,
+		1,
+	)
+	var cursors []any
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		if strings.Contains(r.Query, "contexts(first: 100, after: $after)") {
+			cursors = append(cursors, r.Variables["after"])
+			return `{"data":{"rateLimit":{"cost":1},"node":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{` +
+				`"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[` +
+				`{"__typename":"CheckRun","databaseId":112621999001,"name":"codeowners-gate","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-10-07T03:47:00Z","isRequired":true,"checkSuite":{"app":{"databaseId":5149240}}},` +
+				`{"__typename":"CheckRun","databaseId":112621999002,"name":"acid-sandbox (presubmit)","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-10-07T03:48:00Z","isRequired":true,"checkSuite":{"app":{"databaseId":210473}}}` +
+				`]}}}}]}}}}`
+		}
+		return firstPage
+	}, noREST(t))
+	ds, rl, err := gh.Details(t.Context(), []string{"PR_kwDOA1"})
+	require.NoError(t, err)
+	require.Len(t, ds, 1)
+	assert.Equal(t, []any{"Y3Vyc29yOjEwMA=="}, cursors)
+	assert.Equal(t, 2, rl.Cost, "the extra page's cost is counted")
+	names := make([]string, 0, len(ds[0].Checks))
+	for _, c := range ds[0].Checks {
+		names = append(names, c.Name)
+	}
+	assert.Equal(
+		t,
+		[]string{"build", "ci/legacy", "codeowners-gate", "acid-sandbox (presubmit)"},
+		names,
+	)
+	last := ds[0].Checks[3]
+	assert.Equal(t, int64(112621999002), last.ID)
+	assert.Equal(t, time.Date(2026, 10, 7, 3, 48, 0, 0, time.UTC), last.StartedAt)
+
+	req := RequiredContexts{
+		"codeowners-gate":          {5149240},
+		"acid-sandbox (presubmit)": {210473},
+		"build":                    nil,
+	}
+	assert.Equal(t, "SUCCESS", RequiredState(ds[0].Checks, req, last.StartedAt.Add(time.Hour)))
+}
