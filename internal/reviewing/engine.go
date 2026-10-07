@@ -67,7 +67,7 @@ type WatchStatus struct {
 	Name     string
 	InFlight int
 	// Queued counts PRs waiting for a review the user asked for (N or E)
-	// that has not started yet.
+	// that has not started yet; see QueuedCount. Status leaves it zero.
 	Queued     int
 	SpentToday float64
 	Mode       string
@@ -98,7 +98,7 @@ type Engine struct {
 	viewer   string
 	quota    Quota
 	inflight map[PRKey]*Run
-	claimed  map[PRKey]bool
+	claimed  map[PRKey]struct{}
 	pools    map[string]*Pool
 	paused   bool
 	pauseWhy string
@@ -130,7 +130,7 @@ func NewEngine(d Deps) (*Engine, error) {
 		d:        d,
 		store:    store,
 		inflight: map[PRKey]*Run{},
-		claimed:  map[PRKey]bool{},
+		claimed:  map[PRKey]struct{}{},
 		pools:    map[string]*Pool{},
 	}
 	unlock, err := store.Lock()
@@ -278,7 +278,6 @@ func (e *Engine) Status() WatchStatus {
 	return WatchStatus{
 		Name:           e.d.Watch.Name,
 		InFlight:       len(e.claimed),
-		Queued:         e.queuedLocked(),
 		SpentToday:     e.store.Spend(Day(e.d.Now())),
 		Mode:           mode,
 		Paused:         paused,
@@ -373,9 +372,9 @@ func (e *Engine) ensureViewer(ctx context.Context) (string, error) {
 }
 
 func (e *Engine) signature(ctx context.Context, d PRDetail, viewer string) Signature {
-	ignore := map[string]bool{viewer: true}
+	ignore := map[string]struct{}{viewer: {}}
 	for _, l := range e.d.Watch.IgnoreLogins {
-		ignore[l] = true
+		ignore[l] = struct{}{}
 	}
 	events, resolved := d.Events()
 	ci := ciUnknown
@@ -486,17 +485,17 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 	e.mu.Lock()
 	refreshAll := !e.refreshed
 	e.mu.Unlock()
-	inResults := map[PRKey]bool{}
+	inResults := make(map[PRKey]struct{}, len(hits))
 	var ids []string
 	var left []string // PRs that left the search, to learn how they ended
 	for _, h := range hits {
-		inResults[h.Key] = true
+		inResults[h.Key] = struct{}{}
 		if refreshAll || needsDetail(byKey[h.Key], h.UpdatedAt, now) {
 			ids = append(ids, h.NodeID)
 		}
 	}
 	for _, st := range states {
-		if inResults[st.Key] {
+		if _, ok := inResults[st.Key]; ok {
 			continue
 		}
 		switch {
@@ -610,7 +609,7 @@ func (e *Engine) evaluate(
 	}
 	_ = e.store.SavePR(st)
 	if claimed {
-		e.claimed[d.Key] = true
+		e.claimed[d.Key] = struct{}{}
 	}
 	e.mu.Unlock()
 	if kill {
@@ -915,19 +914,6 @@ func myReview(reviews []Review, viewer, head string) (state string, onHead bool)
 	return "", false
 }
 
-// queuedLocked counts open PRs with a requested review that has not been
-// claimed yet. e.mu must be held.
-func (e *Engine) queuedLocked() int {
-	states, _ := e.store.AllPRs()
-	n := 0
-	for _, st := range states {
-		if _, running := e.claimed[st.Key]; st.ForceReview && !st.Inactive && !running {
-			n++
-		}
-	}
-	return n
-}
-
 // disturbedBySleep reports whether a pass that started at started may have
 // failed because the machine slept: it woke since, or woke recently enough
 // that the network may still be coming back.
@@ -942,17 +928,12 @@ func (e *Engine) disturbedBySleep(started time.Time) bool {
 // backing off.
 func (e *Engine) requeue(k PRKey, out Outcome, err error) Outcome {
 	note := "interrupted by sleep; queued again: " + err.Error()
-	st, _ := e.update(k, func(st *PRState) {
-		st.Claim = nil
+	out.Note, out.Err = note, err
+	return e.finish(k, out, func(st *PRState) {
 		st.Status = StatusFailed
 		st.Note = note
 		st.ForceReview = true
 	})
-	e.mu.Lock()
-	delete(e.claimed, k)
-	e.mu.Unlock()
-	out.Status, out.Note, out.Err = st.Status, note, err
-	return out
 }
 
 // maxClosedLookups bounds how many PRs that left the search one poll reads.
@@ -985,4 +966,12 @@ func (e *Engine) recordClosed(ctx context.Context, ids []string, viewer string, 
 			s.MyReview, s.MyReviewOnHead = myReview(d.Reviews, viewer, d.HeadOID)
 		})
 	}
+}
+
+// StateLabel is the watch's mode, or why it is paused.
+func (s WatchStatus) StateLabel() string {
+	if s.Paused != "" {
+		return "paused: " + s.Paused
+	}
+	return s.Mode
 }

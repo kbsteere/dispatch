@@ -401,3 +401,15 @@ func (st PRState) ShownClosed(now time.Time) bool {
 	return st.Inactive && (st.ClosedState == "MERGED" || st.ClosedState == "CLOSED") &&
 		now.Sub(st.ClosedAt) <= ClosedShownFor
 }
+
+// QueuedCount counts open PRs waiting for a review the user asked for that
+// has not started; claiming a review clears the request.
+func QueuedCount(states []PRState) int {
+	n := 0
+	for _, st := range states {
+		if st.ForceReview && !st.Inactive {
+			n++
+		}
+	}
+	return n
+}

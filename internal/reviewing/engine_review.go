@@ -264,34 +264,23 @@ const touchNote = "fetching over SSH needs your security key: press N, then touc
 // holdForTouch records a pass that could not fetch because the security
 // key was not touched. It waits for the user rather than backing off.
 func (e *Engine) holdForTouch(k PRKey, out Outcome) Outcome {
-	st, _ := e.update(k, func(st *PRState) {
-		st.Claim = nil
+	out.Note = touchNote
+	return e.finish(k, out, func(st *PRState) {
 		st.Status = StatusNeedsAttention
 		st.Note = touchNote
 	})
-	e.mu.Lock()
-	delete(e.claimed, k)
-	e.mu.Unlock()
-	out.Status, out.Note = st.Status, touchNote
-	return out
 }
 
 // fail records a failed pass and backs the PR off.
 func (e *Engine) fail(k PRKey, out Outcome, err error) Outcome {
 	now := e.d.Now()
-	st, _ := e.update(k, func(st *PRState) {
-		st.Claim = nil
+	out.Err = err
+	return e.finish(k, out, func(st *PRState) {
 		st.Status = StatusFailed
 		st.Note = err.Error()
 		step := min(st.Backoff.Step, len(backoffSteps)-1)
 		st.Backoff = Backoff{Until: now.Add(backoffSteps[step]), Step: st.Backoff.Step + 1}
 	})
-	e.mu.Lock()
-	delete(e.claimed, k)
-	e.mu.Unlock()
-	out.Status = st.Status
-	out.Err = err
-	return out
 }
 
 // apply validates and lints the reviewer's output, then posts it, holds it,
@@ -314,14 +303,6 @@ func (e *Engine) apply(
 		)
 	}
 	d := job.Detail
-	files := map[string]bool{}
-	for _, f := range d.Files {
-		files[f] = true
-	}
-	ourThreads := map[string]bool{}
-	for _, t := range st.OurThreads {
-		ourThreads[t] = true
-	}
 
 	draft := Draft{
 		Head: d.HeadOID, Verdict: review.Verdict, VerdictReason: review.VerdictReason,
@@ -335,7 +316,7 @@ func (e *Engine) apply(
 		if f.Category == CategoryTestGap && e.prOnly(job.Key) {
 			f.Blocking = false
 		}
-		if !files[f.Path] || f.Line <= 0 {
+		if !slices.Contains(d.Files, f.Path) || f.Line <= 0 {
 			// A finding dispatch cannot anchor to a changed line is still a
 			// finding; hold the pass for the user rather than dropping it,
 			// which could turn a reported problem into an approval.
@@ -377,7 +358,7 @@ func (e *Engine) apply(
 			continue
 		}
 		draft.Ledger = append(draft.Ledger, u)
-		if !ourThreads[f.ThreadID] {
+		if !slices.Contains(st.OurThreads, f.ThreadID) {
 			continue
 		}
 		if u.Status == FindingAddressed || u.Status == FindingAnswered {
@@ -395,7 +376,7 @@ func (e *Engine) apply(
 	}
 	for _, id := range review.AgreedThreads {
 		t, ok := threads[id]
-		if !ok || ourThreads[id] ||
+		if !ok || slices.Contains(st.OurThreads, id) ||
 			slices.ContainsFunc(st.Ledger, func(f Finding) bool { return f.ThreadID == id }) ||
 			len(t.Comments) == 0 {
 			continue
@@ -413,12 +394,7 @@ func (e *Engine) apply(
 		})
 	}
 
-	for _, c := range draft.Comments {
-		draft.Reasons = append(draft.Reasons, LintBody(c.Body)...)
-	}
-	for _, r := range draft.Replies {
-		draft.Reasons = append(draft.Reasons, LintBody(r.Body)...)
-	}
+	draft.Reasons = append(draft.Reasons, lintReasons(draft)...)
 
 	viewer, _ := e.ensureViewer(ctx)
 	fresh, _, err := e.d.GitHub.Details(ctx, []string{d.NodeID})
@@ -438,32 +414,10 @@ func (e *Engine) apply(
 	codeReviewed := len(gaps) == 0 &&
 		(job.Pass != PassLedger || st.CodeReviewedHead == fresh[0].HeadOID)
 	tally, ledger := tallyFor(st.Ledger, draft)
-	snap := Snapshot{
-		State:                fresh[0].State,
-		IsDraft:              fresh[0].IsDraft,
-		Author:               fresh[0].Author,
-		Viewer:               viewer,
-		Mergeable:            fresh[0].Mergeable,
-		Head:                 fresh[0].HeadOID,
-		RequiredCI:           sig.CI,
-		ApprovedHead:         st.ApprovedHead,
-		OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
-		CodeReviewed:         codeReviewed,
-		ReviewerApproves:     review.Verdict == VerdictApprove,
-	}
-	var ciNote string
-	if sig.CI != "SUCCESS" {
-		if req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef); err == nil {
-			snap.CIExcused, ciNote = ciExcuse(
-				RequiredChecks(fresh[0].Checks, req, e.d.Now()), review.CI, ciBase)
-		}
-	}
-	action, status := Decide(snap, tally)
-	draft.Event = string(action)
-	if action == ActionApprove && snap.CIExcused {
-		draft.Body = ciNote
-	}
 	draft.CodeReviewed = codeReviewed
+	dec := e.decide(ctx, fresh[0], st.ApprovedHead, viewer, sig, draft, tally)
+	action, status := dec.action, dec.status
+	draft.Event, draft.Body = string(action), dec.body
 
 	if len(draft.Reasons) > 0 {
 		path := e.store.DraftPath(job.Key, e.d.Now())
@@ -499,19 +453,86 @@ func (e *Engine) apply(
 	}
 	out.Posted = action
 	return e.record(job.Key, out, status, func(s *PRState) {
-		s.Ledger = ledger
-		s.OurThreads = append(s.OurThreads, ourNew...)
+		recordPosted(s, action, d.HeadOID, ledger, ourNew)
 		s.ReviewedSig = &sig
 		s.DesignRefs = review.DesignRefs
-		s.DryRun = false
 		markCodeReviewed(s, job.Pass, d.HeadOID, gaps)
-		switch action {
-		case ActionApprove:
-			s.ApprovedHead = d.HeadOID
-		case ActionRequestChanges:
-			s.ApprovedHead = ""
-		}
 	})
+}
+
+// decision is the review event to post and the status it leaves.
+type decision struct {
+	snap   Snapshot
+	action Action
+	status Status
+	// body explains an approval given with required checks set aside.
+	body string
+}
+
+// decide picks the review event for draft from the PR as re-read just
+// before posting. Live passes and posted drafts both use it, so they follow
+// the same rules.
+func (e *Engine) decide(
+	ctx context.Context,
+	fresh PRDetail,
+	approvedHead, viewer string,
+	sig Signature,
+	draft Draft,
+	tally Tally,
+) decision {
+	snap := Snapshot{
+		State:                fresh.State,
+		IsDraft:              fresh.IsDraft,
+		Author:               fresh.Author,
+		Viewer:               viewer,
+		Mergeable:            fresh.Mergeable,
+		Head:                 fresh.HeadOID,
+		RequiredCI:           sig.CI,
+		ApprovedHead:         approvedHead,
+		OthersRequestChanges: othersRequestChanges(fresh.Reviews, viewer),
+		// Findings that could not be anchored were never shown to the
+		// author, so they rule out an approval.
+		CodeReviewed:     draft.CodeReviewed && len(draft.Unanchored) == 0,
+		ReviewerApproves: draft.Verdict == VerdictApprove,
+	}
+	var note string
+	if sig.CI != "SUCCESS" {
+		if req, err := e.d.GitHub.RequiredContexts(ctx, fresh.Key, fresh.BaseRef); err == nil {
+			snap.CIExcused, note = ciExcuse(
+				RequiredChecks(fresh.Checks, req, e.d.Now()), draft.CI, draft.CIBase)
+		}
+	}
+	action, status := Decide(snap, tally)
+	dec := decision{snap: snap, action: action, status: status}
+	if action == ActionApprove && snap.CIExcused {
+		dec.body = note
+	}
+	return dec
+}
+
+// lintReasons are the tone check's objections to a draft's text.
+func lintReasons(d Draft) []string {
+	var reasons []string
+	for _, c := range d.Comments {
+		reasons = append(reasons, LintBody(c.Body)...)
+	}
+	for _, r := range d.Replies {
+		reasons = append(reasons, LintBody(r.Body)...)
+	}
+	return reasons
+}
+
+// recordPosted records a review post sent at head.
+func recordPosted(s *PRState, action Action, head string, ledger []Finding, ourNew []string) {
+	s.Ledger = ledger
+	s.OurThreads = append(s.OurThreads, ourNew...)
+	s.DryRun = false
+	switch action {
+	case ActionApprove:
+		s.ApprovedHead = head
+	case ActionRequestChanges:
+		s.ApprovedHead = ""
+	}
 }
 
 // tallyFor applies a draft's ledger updates and new findings to the ledger
@@ -623,17 +644,25 @@ func (e *Engine) post(
 }
 
 func (e *Engine) record(k PRKey, out Outcome, status Status, fn func(*PRState)) Outcome {
-	_, _ = e.update(k, func(st *PRState) {
+	return e.finish(k, out, func(st *PRState) {
 		fn(st)
 		st.Status = status
 		st.Note = out.Note
-		st.Claim = nil
 		st.Backoff = Backoff{}
+	})
+}
+
+// finish ends k's claim: it applies mutate and clears the claim in the
+// saved state, frees the in-memory slot, and reports the resulting status.
+func (e *Engine) finish(k PRKey, out Outcome, mutate func(*PRState)) Outcome {
+	st, _ := e.update(k, func(st *PRState) {
+		mutate(st)
+		st.Claim = nil
 	})
 	e.mu.Lock()
 	delete(e.claimed, k)
 	e.mu.Unlock()
-	out.Status = status
+	out.Status = st.Status
 	return out
 }
 
@@ -653,14 +682,7 @@ func (e *Engine) PostDraft(ctx context.Context, k PRKey) (Action, string, error)
 	if !ok {
 		return ActionNone, "", fmt.Errorf("%s has no review to post", k)
 	}
-	var reasons []string
-	for _, c := range draft.Comments {
-		reasons = append(reasons, LintBody(c.Body)...)
-	}
-	for _, r := range draft.Replies {
-		reasons = append(reasons, LintBody(r.Body)...)
-	}
-	if len(reasons) > 0 {
+	if reasons := lintReasons(draft); len(reasons) > 0 {
 		return ActionNone, "", fmt.Errorf(
 			"the review still fails the tone check (%s); edit %s",
 			strings.Join(reasons, "; "),
@@ -689,61 +711,28 @@ func (e *Engine) PostDraft(ctx context.Context, k PRKey) (Action, string, error)
 	} else {
 		tally = draftTally(st.Ledger, draft)
 	}
-	snap := Snapshot{
-		State:                fresh[0].State,
-		IsDraft:              fresh[0].IsDraft,
-		Author:               fresh[0].Author,
-		Viewer:               viewer,
-		Mergeable:            fresh[0].Mergeable,
-		Head:                 fresh[0].HeadOID,
-		RequiredCI:           sig.CI,
-		ApprovedHead:         st.ApprovedHead,
-		OthersRequestChanges: othersRequestChanges(fresh[0].Reviews, viewer),
-		// Findings that could not be anchored were never shown to the
-		// author, so they rule out an approval.
-		CodeReviewed:     draft.CodeReviewed && len(draft.Unanchored) == 0,
-		ReviewerApproves: draft.Verdict == VerdictApprove,
-	}
-	// The explanation is recomputed: CI may have changed since the draft.
-	var ciNote string
-	if sig.CI != "SUCCESS" {
-		if req, err := e.d.GitHub.RequiredContexts(ctx, k, fresh[0].BaseRef); err == nil {
-			snap.CIExcused, ciNote = ciExcuse(
-				RequiredChecks(fresh[0].Checks, req, e.d.Now()), draft.CI, draft.CIBase)
-		}
-	}
-	action, status := Decide(snap, tally)
-	draft.Body = ""
-	if action == ActionApprove && snap.CIExcused {
-		draft.Body = ciNote
-	}
+	// Decided afresh: CI and other reviews may have changed since the draft.
+	dec := e.decide(ctx, fresh[0], st.ApprovedHead, viewer, sig, draft, tally)
+	action := dec.action
 	if action == ActionNone && len(draft.Comments) > 0 {
 		action = ActionComment
 	}
-	if action == ActionNone && len(draft.Replies)+len(draft.Resolve) == 0 {
-		return ActionNone, approvalBlocker(snap, tally), fmt.Errorf("%s has nothing to post", k)
-	}
 	var notApproved string
 	if action != ActionApprove {
-		notApproved = approvalBlocker(snap, tally)
+		notApproved = Blocker(dec.snap, tally)
 	}
-	draft.Event = string(action)
+	if action == ActionNone && len(draft.Replies)+len(draft.Resolve) == 0 {
+		return ActionNone, notApproved, fmt.Errorf("%s has nothing to post", k)
+	}
+	draft.Event, draft.Body = string(action), dec.body
 	ledger, ourNew, err := e.post(ctx, k, draft, ledger)
 	if err != nil {
 		return ActionNone, "", err
 	}
 	_, err = e.update(k, func(s *PRState) {
-		s.Ledger = ledger
-		s.OurThreads = append(s.OurThreads, ourNew...)
+		recordPosted(s, action, draft.Head, ledger, ourNew)
 		s.HeldDraft = ""
-		s.DryRun = false
-		s.Status = status
-		switch action {
-		case ActionApprove:
-			s.ApprovedHead = draft.Head
-		case ActionRequestChanges:
-			s.ApprovedHead = ""
-		}
+		s.Status = dec.status
 	})
 	return action, notApproved, err
 }
@@ -759,31 +748,6 @@ func draftTally(ledger []Finding, draft Draft) Tally {
 		}
 	}
 	return t
-}
-
-// approvalBlocker says why Decide would not approve s, checking in the same
-// order Decide does.
-func approvalBlocker(s Snapshot, t Tally) string {
-	switch {
-	case t.OutstandingBlocking > 0:
-		return "blocking findings are still open"
-	case s.State != "OPEN" || s.IsDraft:
-		return "the PR is not open and ready"
-	case s.Author == s.Viewer:
-		return "it is your own PR"
-	case s.Mergeable == "CONFLICTING":
-		return "the PR has merge conflicts"
-	case !s.CodeReviewed:
-		return "the review did not read everything it had to at this commit"
-	case !s.ReviewerApproves:
-		return "Claude's verdict was not approve"
-	case s.RequiredCI != "SUCCESS" && !s.CIExcused:
-		return "required CI is not green"
-	case s.ApprovedHead == s.Head:
-		return "you already approved this commit"
-	default:
-		return ""
-	}
 }
 
 // markCodeReviewed records head as code-reviewed when the pass read the

@@ -84,3 +84,28 @@ func Decide(s Snapshot, t Tally) (Action, Status) {
 	}
 	return ActionApprove, approved
 }
+
+// Blocker says why Decide does not approve s, or "" when it does. It checks
+// in Decide's order; TestBlockerMatchesDecide keeps the two in step.
+func Blocker(s Snapshot, t Tally) string {
+	switch {
+	case t.OutstandingBlocking > 0:
+		return "blocking findings are still open"
+	case s.State != "OPEN" || s.IsDraft:
+		return "the PR is not open and ready"
+	case s.Author == s.Viewer:
+		return "it is your own PR"
+	case s.Mergeable == "CONFLICTING":
+		return "the PR has merge conflicts"
+	case !s.CodeReviewed:
+		return "the review did not read everything it had to at this commit"
+	case !s.ReviewerApproves:
+		return "Claude's verdict was not approve"
+	case s.RequiredCI != "SUCCESS" && !s.CIExcused:
+		return "required CI is not green"
+	case s.ApprovedHead == s.Head:
+		return "you already approved this commit"
+	default:
+		return ""
+	}
+}

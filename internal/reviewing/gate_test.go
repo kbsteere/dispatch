@@ -202,3 +202,30 @@ func TestDecide(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockerMatchesDecide(t *testing.T) {
+	muts := map[string]func(*Snapshot, *Tally){
+		"clear":           func(*Snapshot, *Tally) {},
+		"blocking open":   func(_ *Snapshot, t *Tally) { t.OutstandingBlocking = 1 },
+		"nit open":        func(_ *Snapshot, t *Tally) { t.OutstandingNonBlocking, t.NewFindings = 1, 1 },
+		"merged":          func(s *Snapshot, _ *Tally) { s.State = "MERGED" },
+		"draft":           func(s *Snapshot, _ *Tally) { s.IsDraft = true },
+		"own PR":          func(s *Snapshot, _ *Tally) { s.Author = s.Viewer },
+		"conflict":        func(s *Snapshot, _ *Tally) { s.Mergeable = "CONFLICTING" },
+		"code not read":   func(s *Snapshot, _ *Tally) { s.CodeReviewed = false },
+		"no approve":      func(s *Snapshot, _ *Tally) { s.ReviewerApproves = false },
+		"ci pending":      func(s *Snapshot, _ *Tally) { s.RequiredCI = "PENDING" },
+		"ci excused":      func(s *Snapshot, _ *Tally) { s.RequiredCI, s.CIExcused = "FAILURE", true },
+		"approved here":   func(s *Snapshot, _ *Tally) { s.ApprovedHead = s.Head },
+		"others blocking": func(s *Snapshot, _ *Tally) { s.OthersRequestChanges = true },
+	}
+	for name, mut := range muts {
+		t.Run(name, func(t *testing.T) {
+			s, tally := cleanSnap(), Tally{}
+			mut(&s, &tally)
+			action, _ := Decide(s, tally)
+			assert.Equal(t, action == ActionApprove, Blocker(s, tally) == "",
+				"Decide gave %s; Blocker said %q", action, Blocker(s, tally))
+		})
+	}
+}

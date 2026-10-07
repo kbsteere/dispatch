@@ -845,9 +845,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.jobs) > 0 {
 			cmds = append(cmds, m.startStatusTicks())
 		}
-		m.syncWatchState()
-		m.resyncPrSectionRows()
-		cmds = append(cmds, m.syncSidebar())
+		cmds = append(cmds, m.refreshWatchViews())
 
 	case reviewStatusTickMsg:
 		cmds = append(cmds, m.onStatusTick())
@@ -866,10 +864,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msg.out.Err,
 			)
 		}
-		m.syncWatchState()
-		if e := m.reviewers.byName(msg.watch); e != nil && e.Status().Queued > 0 {
-			// Start the next queued review now instead of at the next poll.
-			cmds = append(cmds, pollCmd(e))
+		for _, s := range m.syncWatchState() {
+			if s.engine.Name() == msg.watch && s.status.Queued > 0 {
+				// Start the next queued review now instead of at the next poll.
+				cmds = append(cmds, pollCmd(s.engine))
+			}
 		}
 		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())
@@ -880,9 +879,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.note != "" {
 			cmds = append(cmds, m.notify(msg.note))
 		}
-		m.syncWatchState()
-		m.resyncPrSectionRows()
-		cmds = append(cmds, m.syncSidebar())
+		cmds = append(cmds, m.refreshWatchViews())
 
 	case prview.AddReviewRefMsg:
 		cmds = append(cmds, m.addRef(msg.Ref))

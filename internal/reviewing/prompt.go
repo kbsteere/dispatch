@@ -225,11 +225,11 @@ func LoadStandards(
 	files []string,
 ) []StandardFile {
 	dirs := []string{""}
-	seen := map[string]bool{"": true}
+	seen := map[string]struct{}{"": {}}
 	for _, f := range files {
 		for d := path.Dir(f); d != "." && d != "/"; d = path.Dir(d) {
-			if !seen[d] {
-				seen[d] = true
+			if _, ok := seen[d]; !ok {
+				seen[d] = struct{}{}
 				dirs = append(dirs, d)
 			}
 		}

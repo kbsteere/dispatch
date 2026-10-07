@@ -70,7 +70,7 @@ func newReviewHarness(t *testing.T, mode string, watch func(*config.ReviewWatch)
 		st.Claim = &Claim{Since: t0, Head: head}
 	})
 	require.NoError(t, err)
-	e.claimed[k] = true
+	e.claimed[k] = struct{}{}
 
 	h.e = e
 	h.job = Job{Key: k, Trigger: TriggerChange, Pass: PassFull, Detail: d}

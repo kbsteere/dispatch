@@ -2,6 +2,7 @@ package reviewing
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -107,11 +108,7 @@ func Start(ctx context.Context, s RunSpec) (*Run, error) {
 		return nil, fmt.Errorf("invalid session id %q", s.SessionID)
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.Timeout)
-	bin := s.Binary
-	if bin == "" {
-		bin = "claude"
-	}
-	cmd := exec.CommandContext(ctx, bin, BuildArgs(s)...)
+	cmd := exec.CommandContext(ctx, cmp.Or(s.Binary, "claude"), BuildArgs(s)...)
 	cmd.Dir = s.CWD
 	cmd.Stdin = strings.NewReader(s.Prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

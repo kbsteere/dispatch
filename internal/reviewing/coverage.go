@@ -43,17 +43,8 @@ func reviewGaps(in coverageInput) []string {
 	if in.Pass == PassLedger {
 		return nil
 	}
-	read := make(map[string]struct{}, len(in.Reads))
-	for _, p := range in.Reads {
-		read[filepath.Clean(p)] = struct{}{}
-	}
-	opened := func(p string) bool {
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(in.Worktree, p)
-		}
-		_, ok := read[filepath.Clean(p)]
-		return ok
-	}
+	read := newReadSet(in.Reads)
+	opened := func(p string) bool { return read.opened(in.Worktree, p) }
 
 	var gaps []string
 	if !opened(in.Diff) && (in.SinceLast == "" || !opened(in.SinceLast)) {
@@ -175,17 +166,10 @@ func isDoc(p string) bool {
 // The reviewer's list is shown to the user, so it must not claim reads that
 // did not happen; requirements are checked against reads, not this list.
 func verifiedExamined(ex Examined, worktree string, reads []string) Examined {
-	read := make(map[string]struct{}, len(reads))
-	for _, p := range reads {
-		read[filepath.Clean(p)] = struct{}{}
-	}
+	read := newReadSet(reads)
 	keep := func(paths []string) []string {
 		return slices.DeleteFunc(slices.Clone(paths), func(p string) bool {
-			if !filepath.IsAbs(p) {
-				p = filepath.Join(worktree, p)
-			}
-			_, ok := read[filepath.Clean(p)]
-			return !ok
+			return !read.opened(worktree, p)
 		})
 	}
 	return Examined{
@@ -194,4 +178,24 @@ func verifiedExamined(ex Examined, worktree string, reads []string) Examined {
 		Usages: keep(ex.Usages),
 		Tests:  keep(ex.Tests),
 	}
+}
+
+// readSet is the files a session opened.
+type readSet map[string]struct{}
+
+func newReadSet(reads []string) readSet {
+	r := make(readSet, len(reads))
+	for _, p := range reads {
+		r[filepath.Clean(p)] = struct{}{}
+	}
+	return r
+}
+
+// opened reports whether p, absolute or relative to worktree, was read.
+func (r readSet) opened(worktree, p string) bool {
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(worktree, p)
+	}
+	_, ok := r[filepath.Clean(p)]
+	return ok
 }

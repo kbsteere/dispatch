@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"regexp"
 	"slices"
 	"strings"
@@ -63,32 +64,17 @@ func DefaultReviewingLimits() ReviewingLimits {
 func (c ReviewingForConfig) LimitsFor(w ReviewWatch) ReviewingLimits {
 	out := DefaultReviewingLimits()
 	for _, l := range []ReviewingLimits{c.Limits, w.Limits} {
-		if l.MaxBudgetUsd > 0 {
-			out.MaxBudgetUsd = l.MaxBudgetUsd
-		}
-		if l.MaxTurns > 0 {
-			out.MaxTurns = l.MaxTurns
-		}
-		if l.MaxTurnsLedgerOnly > 0 {
-			out.MaxTurnsLedgerOnly = l.MaxTurnsLedgerOnly
-		}
-		if l.RunTimeout > 0 {
-			out.RunTimeout = l.RunTimeout
-		}
-		if l.DailyBudgetUsd > 0 {
-			out.DailyBudgetUsd = l.DailyBudgetUsd
-		}
-		if l.MaxReviewsPerPrPerDay > 0 {
-			out.MaxReviewsPerPrPerDay = l.MaxReviewsPerPrPerDay
-		}
-		if l.MaxInFlight > 0 {
-			out.MaxInFlight = l.MaxInFlight
-		}
-		if l.PollInterval > 0 {
-			out.PollInterval = l.PollInterval
-		}
-		if l.MaxGithubPointsPerHour > 0 {
-			out.MaxGithubPointsPerHour = l.MaxGithubPointsPerHour
+		// Validation allows only zero (inherit) or positive values.
+		out = ReviewingLimits{
+			MaxBudgetUsd:           cmp.Or(l.MaxBudgetUsd, out.MaxBudgetUsd),
+			MaxTurns:               cmp.Or(l.MaxTurns, out.MaxTurns),
+			MaxTurnsLedgerOnly:     cmp.Or(l.MaxTurnsLedgerOnly, out.MaxTurnsLedgerOnly),
+			RunTimeout:             cmp.Or(l.RunTimeout, out.RunTimeout),
+			DailyBudgetUsd:         cmp.Or(l.DailyBudgetUsd, out.DailyBudgetUsd),
+			MaxReviewsPerPrPerDay:  cmp.Or(l.MaxReviewsPerPrPerDay, out.MaxReviewsPerPrPerDay),
+			MaxInFlight:            cmp.Or(l.MaxInFlight, out.MaxInFlight),
+			PollInterval:           cmp.Or(l.PollInterval, out.PollInterval),
+			MaxGithubPointsPerHour: cmp.Or(l.MaxGithubPointsPerHour, out.MaxGithubPointsPerHour),
 		}
 	}
 	return out

@@ -189,10 +189,7 @@ func shortElapsed(d time.Duration) string {
 
 // Summary is the one-line overview shown above a watch's table.
 func Summary(ws reviewing.WatchStatus) string {
-	state := ws.Mode
-	if ws.Paused != "" {
-		state = "paused: " + ws.Paused
-	}
+	state := ws.StateLabel()
 	quota := "quota unknown"
 	switch {
 	case ws.LastPoll.IsZero():

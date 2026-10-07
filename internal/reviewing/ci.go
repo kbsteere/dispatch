@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
-	"time"
 )
 
 // maxCIProblems bounds how many failing or stuck checks one review is shown.
@@ -21,8 +21,7 @@ var ciFileRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 type CIProblem struct {
 	Name string
 	// Kind is failing or stuck.
-	Kind  string
-	Since time.Time
+	Kind string
 	// OnBase is how the check fared on the base branch, or empty if unknown.
 	OnBase string
 	// Report is the session path of the check's output, for failing checks.
@@ -51,7 +50,6 @@ func (e *Engine) loadCIProblems(
 		cp := CIProblem{
 			Name:   p.Name,
 			Kind:   "failing",
-			Since:  p.Node.StartedAt,
 			OnBase: base[p.Name],
 		}
 		if p.Bucket == "stuck" {
@@ -98,10 +96,8 @@ func ciExcuse(
 	if len(problems) == 0 {
 		return false, ""
 	}
-	for _, c := range checks {
-		if c.Bucket == "pending" {
-			return false, ""
-		}
+	if slices.ContainsFunc(checks, func(c RequiredCheck) bool { return c.Bucket == "pending" }) {
+		return false, ""
 	}
 	lines := make([]string, 0, len(problems))
 	for _, p := range problems {
@@ -129,12 +125,13 @@ func ciExcuse(
 }
 
 func findAssessment(assessed []CIAssessment, name string) (CIAssessment, bool) {
-	for _, a := range assessed {
-		if strings.EqualFold(strings.TrimSpace(a.Check), name) {
-			return a, true
-		}
+	i := slices.IndexFunc(assessed, func(a CIAssessment) bool {
+		return strings.EqualFold(strings.TrimSpace(a.Check), name)
+	})
+	if i < 0 {
+		return CIAssessment{}, false
 	}
-	return CIAssessment{}, false
+	return assessed[i], true
 }
 
 // unrelatedLine says why a failing check was set aside. The reviewer's reason

@@ -39,11 +39,11 @@ const (
 // event is hashed, plus the count of threads others resolved, so dispatch's
 // own posts never change it and a fetch window that drops older events does
 // not either.
-func ActivityDigest(events []Event, resolvedBy []string, ignore map[string]bool) string {
+func ActivityDigest(events []Event, resolvedBy []string, ignore map[string]struct{}) string {
 	var newest *Event
 	for i := range events {
 		e := events[i]
-		if ignore[e.Login] {
+		if _, skip := ignore[e.Login]; skip {
 			continue
 		}
 		if newest == nil || e.At.After(newest.At) {
@@ -52,7 +52,7 @@ func ActivityDigest(events []Event, resolvedBy []string, ignore map[string]bool)
 	}
 	resolved := 0
 	for _, who := range resolvedBy {
-		if !ignore[who] {
+		if _, skip := ignore[who]; !skip {
 			resolved++
 		}
 	}

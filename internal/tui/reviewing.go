@@ -93,8 +93,6 @@ func pollCmd(e *reviewing.Engine) tea.Cmd {
 	}
 }
 
-// manualPollCmd polls now without affecting the regular poll schedule.
-// reschedule reports whether a finished poll schedules the next one.
 // reviewStatusTickMsg refreshes watch state on screen while reviews run, so
 // prompts such as a security key touch show up while they are needed.
 type reviewStatusTickMsg struct{}
@@ -117,9 +115,8 @@ func (m *Model) startStatusTicks() tea.Cmd {
 // onStatusTick refreshes watch state and keeps ticking while any review is
 // in flight.
 func (m *Model) onStatusTick() tea.Cmd {
-	m.syncWatchState()
-	for _, s := range m.reviewers.statuses() {
-		if s.InFlight > 0 {
+	for _, s := range m.syncWatchState() {
+		if s.status.InFlight > 0 {
 			return statusTickCmd()
 		}
 	}
@@ -156,8 +153,7 @@ func (r reviewers) startCmds() tea.Cmd {
 			if err := e.Startup(context.Background()); err != nil {
 				log.Error("review watch startup", "watch", e.Name(), "err", err)
 			}
-			jobs, _, err := e.Poll(context.Background())
-			return reviewPolledMsg{watch: e.Name(), jobs: jobs, err: err}
+			return pollCmd(e)()
 		})
 	}
 	return tea.Batch(append(cmds, heartbeatCmd())...)
@@ -169,25 +165,36 @@ func (r reviewers) shutdown() {
 	}
 }
 
-func (r reviewers) statuses() []reviewing.WatchStatus {
-	out := make([]reviewing.WatchStatus, 0, len(r))
+// watchSnapshot is one read of a watch's state, shared by everything a sync
+// renders so each refresh reads the state files once.
+type watchSnapshot struct {
+	engine *reviewing.Engine
+	status reviewing.WatchStatus
+	states []reviewing.PRState
+}
+
+func (r reviewers) snapshots() []watchSnapshot {
+	out := make([]watchSnapshot, 0, len(r))
 	for _, e := range r {
-		out = append(out, e.Status())
+		states := e.States()
+		status := e.Status()
+		status.Queued = reviewing.QueuedCount(states)
+		out = append(out, watchSnapshot{engine: e, status: status, states: states})
 	}
 	return out
 }
 
 // watchPRs returns the active watched PRs and their drafts, keyed by PR URL.
-func (r reviewers) watchPRs() (map[string]reviewing.PRState, map[string]reviewing.Draft) {
+func watchPRs(snaps []watchSnapshot) (map[string]reviewing.PRState, map[string]reviewing.Draft) {
 	prs := map[string]reviewing.PRState{}
 	drafts := map[string]reviewing.Draft{}
-	for _, e := range r {
-		for _, st := range e.States() {
+	for _, s := range snaps {
+		for _, st := range s.states {
 			if st.Inactive {
 				continue
 			}
 			prs[st.Key.URL()] = st
-			if d, ok := e.DraftFor(st); ok {
+			if d, ok := s.engine.DraftFor(st); ok {
 				drafts[st.Key.URL()] = d
 			}
 		}
@@ -198,10 +205,7 @@ func (r reviewers) watchPRs() (map[string]reviewing.PRState, map[string]reviewin
 func footerText(statuses []reviewing.WatchStatus) string {
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
-		state := s.Mode
-		if s.Paused != "" {
-			state = "paused: " + s.Paused
-		}
+		state := s.StateLabel()
 		if s.Prompt != "" {
 			parts = append(parts, "▶ "+s.Prompt)
 		}
@@ -219,10 +223,16 @@ func footerText(statuses []reviewing.WatchStatus) string {
 	return strings.Join(parts, " │ ")
 }
 
-func (m *Model) syncWatchState() {
-	m.ctx.WatchPRs, m.ctx.WatchDrafts = m.reviewers.watchPRs()
-	m.ctx.WatchFooter = footerText(m.reviewers.statuses())
-	m.refreshReviewSections()
+func (m *Model) syncWatchState() []watchSnapshot {
+	snaps := m.reviewers.snapshots()
+	m.ctx.WatchPRs, m.ctx.WatchDrafts = watchPRs(snaps)
+	statuses := make([]reviewing.WatchStatus, 0, len(snaps))
+	for _, s := range snaps {
+		statuses = append(statuses, s.status)
+	}
+	m.ctx.WatchFooter = footerText(statuses)
+	m.refreshReviewSections(snaps)
+	return snaps
 }
 
 // buildReviewSections creates the Reviewing view's tables, one per watch.
@@ -237,14 +247,16 @@ func (m *Model) buildReviewSections() []section.Section {
 }
 
 // refreshReviewSections reloads each table from its watch's state.
-func (m *Model) refreshReviewSections() {
+func (m *Model) refreshReviewSections(snaps []watchSnapshot) {
 	for _, s := range m.reviewSections {
 		rs, ok := s.(*reviewsection.Model)
 		if !ok {
 			continue
 		}
-		if e := m.reviewers.byName(rs.Watch()); e != nil {
-			rs.SetData(e.Status(), e.States())
+		for _, snap := range snaps {
+			if snap.engine.Name() == rs.Watch() {
+				rs.SetData(snap.status, snap.states)
+			}
 		}
 	}
 }
@@ -618,7 +630,14 @@ func pollIfDueCmd(e *reviewing.Engine, now time.Time) tea.Cmd {
 		if !e.PollDue(now) {
 			return nil
 		}
-		jobs, _, err := e.Poll(context.Background())
-		return reviewPolledMsg{watch: e.Name(), jobs: jobs, err: err}
+		return pollCmd(e)()
 	}
+}
+
+// refreshWatchViews re-reads watch state and redraws everything that shows
+// it: the Reviewing tables, PR rows, footer, and sidebar.
+func (m *Model) refreshWatchViews() tea.Cmd {
+	m.syncWatchState()
+	m.resyncPrSectionRows()
+	return m.syncSidebar()
 }

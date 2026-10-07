@@ -10,7 +10,7 @@ import (
 var t0 = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 
 func TestActivityDigestIgnoresOwnActivity(t *testing.T) {
-	ignore := map[string]bool{"kbsteere": true}
+	ignore := map[string]struct{}{"kbsteere": {}}
 	before := []Event{{At: t0, Kind: "c", Login: "dnegreira"}}
 	after := append(
 		append([]Event{}, before...),
@@ -23,7 +23,7 @@ func TestActivityDigestWindowEviction(t *testing.T) {
 	// mono#54695: our approval pushed an older depthfirst review out of the
 	// reviews(last:50) window. Only the newest foreign event matters, so
 	// losing an older one must not change the digest.
-	ignore := map[string]bool{"kbsteere": true}
+	ignore := map[string]struct{}{"kbsteere": {}}
 	full := []Event{
 		{At: t0, Kind: "r", Login: "depthfirst-app"},
 		{At: t0.Add(time.Hour), Kind: "c", Login: "dnegreira"},
@@ -33,7 +33,7 @@ func TestActivityDigestWindowEviction(t *testing.T) {
 }
 
 func TestActivityDigestChangesOnForeignEventAndResolution(t *testing.T) {
-	ignore := map[string]bool{"kbsteere": true}
+	ignore := map[string]struct{}{"kbsteere": {}}
 	base := []Event{{At: t0, Kind: "c", Login: "dnegreira"}}
 	d0 := ActivityDigest(base, nil, ignore)
 	assert.Len(t, d0, 12)
