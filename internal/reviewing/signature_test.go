@@ -151,3 +151,18 @@ func TestNeedsReviewWakesForStuckCI(t *testing.T) {
 	assert.Equal(t, TriggerCI, NeedsReview(st, Signature{Head: "h", Digest: "d", CI: CIStuck}, now),
 		"a check stuck for over two hours gets a pass that can set it aside")
 }
+
+func TestNeedsReviewRetriesIncompletePasses(t *testing.T) {
+	sig := Signature{Head: "h1", Digest: "d1", CI: "SUCCESS"}
+	st := &PRState{
+		ReviewedSig: &sig,
+		ReviewGaps:  []string{"read no existing tests for the changed code"},
+		Backoff:     Backoff{Until: t0.Add(15 * time.Minute), Step: 1},
+	}
+	assert.Equal(t, TriggerNone, NeedsReview(st, sig, t0), "the wait is not over")
+	assert.Equal(t, TriggerRetry, NeedsReview(st, sig, t0.Add(15*time.Minute)))
+
+	st.ReviewGaps = nil
+	assert.Equal(t, TriggerNone, NeedsReview(st, sig, t0.Add(time.Hour)),
+		"a complete pass is not retried")
+}

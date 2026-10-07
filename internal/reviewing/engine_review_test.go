@@ -959,3 +959,28 @@ func TestReviewKeepsIncompletePassWhenContinuationFails(t *testing.T) {
 	}, st.ReviewGaps)
 	assert.Equal(t, 1, st.LastRun.Continuations, "it stops after the first failure")
 }
+
+func TestReviewIncompleteSchedulesGrowingRetries(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	t.Setenv("FAKE_CLAUDE_READS", "kev.go") // stays incomplete after continuing
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	st := h.state(t)
+	require.NotEmpty(t, st.ReviewGaps)
+	assert.Equal(t, Backoff{Until: h.now.Add(15 * time.Minute), Step: 1}, st.Backoff)
+
+	// The retry is incomplete too: the wait doubles.
+	_, _ = h.e.update(h.job.Key, func(s *PRState) { s.Claim = &Claim{Since: h.now, Head: h.head} })
+	h.e.claimed[h.job.Key] = struct{}{}
+	require.NoError(t, h.e.Review(t.Context(), h.job).Err)
+	assert.Equal(t, Backoff{Until: h.now.Add(30 * time.Minute), Step: 2}, h.state(t).Backoff)
+
+	// A complete pass clears it.
+	t.Setenv("FAKE_CLAUDE_READS", "kev.go README.md kev_test.go")
+	_, _ = h.e.update(h.job.Key, func(s *PRState) { s.Claim = &Claim{Since: h.now, Head: h.head} })
+	h.e.claimed[h.job.Key] = struct{}{}
+	require.NoError(t, h.e.Review(t.Context(), h.job).Err)
+	st = h.state(t)
+	assert.Empty(t, st.ReviewGaps)
+	assert.Equal(t, Backoff{}, st.Backoff)
+}

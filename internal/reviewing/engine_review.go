@@ -324,8 +324,7 @@ func (e *Engine) fail(k PRKey, out Outcome, err error) Outcome {
 	return e.finish(k, out, func(st *PRState) {
 		st.Status = StatusFailed
 		st.Note = err.Error()
-		step := min(st.Backoff.Step, len(backoffSteps)-1)
-		st.Backoff = Backoff{Until: now.Add(backoffSteps[step]), Step: st.Backoff.Step + 1}
+		st.Backoff = nextBackoff(st.Backoff, backoffSteps, now)
 	})
 }
 
@@ -688,12 +687,19 @@ func (e *Engine) post(
 	return ledger, ours, nil
 }
 
+// record ends a pass that produced a review. An incomplete one is retried on
+// its own after a growing wait; a complete one clears the wait.
 func (e *Engine) record(k PRKey, out Outcome, status Status, fn func(*PRState)) Outcome {
+	now := e.d.Now()
 	return e.finish(k, out, func(st *PRState) {
 		fn(st)
 		st.Status = status
 		st.Note = out.Note
-		st.Backoff = Backoff{}
+		if len(st.ReviewGaps) > 0 {
+			st.Backoff = nextBackoff(st.Backoff, incompleteRetrySteps, now)
+		} else {
+			st.Backoff = Backoff{}
+		}
 	})
 }
 

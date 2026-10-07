@@ -1003,3 +1003,47 @@ func TestResolveNumberWithoutRepoScopes(t *testing.T) {
 	require.ErrorContains(t, err, "no repo: scopes")
 	assert.Empty(t, gh.asked, "GitHub is not asked")
 }
+
+func TestPollRetriesIncompleteReviewOnItsOwn(t *testing.T) {
+	now := t0
+	sha := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	gh := &fakeGitHub{
+		viewer: "kbsteere", hits: []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: sha}},
+		details: map[string]PRDetail{"N1": detail(1, sha)},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, _ = e.Poll(context.Background()) // baseline records the signature
+	// A pass on this head just came back incomplete; its first retry is due
+	// in 15 minutes.
+	_, _ = e.update(k, func(s *PRState) {
+		s.Status = StatusNeedsAttention
+		s.ReviewGaps = []string{"read none of the security review guide's references"}
+		s.Backoff = Backoff{Until: now.Add(15 * time.Minute), Step: 1}
+	})
+
+	jobs, _, _ := e.Poll(context.Background())
+	assert.Empty(t, jobs, "nothing changed and the wait is not over")
+
+	now = now.Add(15 * time.Minute)
+	jobs, _, _ = e.Poll(context.Background())
+	require.Len(t, jobs, 1, "the retry needs no push or comment")
+	assert.Equal(t, TriggerRetry, jobs[0].Trigger)
+	assert.Equal(t, PassFull, jobs[0].Pass, "code never fully reviewed gets a full pass")
+	e.release(k)
+
+	_, _ = e.update(k, func(s *PRState) {
+		s.Claim = nil
+		s.Status = StatusNeedsAttention
+		s.ReviewsByDay = map[string]int{
+			Day(now): config.DefaultReviewingLimits().MaxReviewsPerPrPerDay,
+		}
+	})
+	jobs, _, _ = e.Poll(context.Background())
+	assert.Empty(t, jobs, "retries count toward the daily per-PR limit")
+	assert.Equal(t, StatusThrottled, stateOf(t, e, k).Status)
+
+	now = now.Add(24 * time.Hour)
+	jobs, _, _ = e.Poll(context.Background())
+	assert.Len(t, jobs, 1, "the next day it retries again")
+}

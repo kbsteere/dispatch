@@ -33,6 +33,8 @@ const (
 	TriggerNone   Trigger = ""
 	TriggerChange Trigger = "change"
 	TriggerCI     Trigger = "ci"
+	// TriggerRetry retries a pass that was incomplete once its wait is over.
+	TriggerRetry Trigger = "retry"
 )
 
 // ActivityDigest fingerprints activity by others. Only the newest foreign
@@ -104,6 +106,9 @@ func NeedsReview(st *PRState, sig Signature, now time.Time) Trigger {
 	}
 	if sig.Draft != rs.Draft || sig.Digest != rs.Digest {
 		return TriggerChange
+	}
+	if len(st.ReviewGaps) > 0 && !now.Before(st.Backoff.Until) {
+		return TriggerRetry
 	}
 	if !terminalCI(sig.CI) || sig.CI == rs.CI || st.Status != StatusWaitingOnCI {
 		return TriggerNone

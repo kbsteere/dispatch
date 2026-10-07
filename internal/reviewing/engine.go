@@ -32,6 +32,18 @@ const (
 
 var backoffSteps = []time.Duration{30 * time.Minute, 2 * time.Hour, 24 * time.Hour}
 
+// incompleteRetrySteps are the waits before an incomplete review is retried
+// on its own, growing with each incomplete retry.
+var incompleteRetrySteps = []time.Duration{
+	15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour, 4 * time.Hour,
+}
+
+// nextBackoff is b advanced one step along steps, which repeat their last
+// wait once exhausted.
+func nextBackoff(b Backoff, steps []time.Duration, now time.Time) Backoff {
+	return Backoff{Until: now.Add(steps[min(b.Step, len(steps)-1)]), Step: b.Step + 1}
+}
+
 // Deps are an Engine's collaborators and settings.
 type Deps struct {
 	Watch       config.ReviewWatch
@@ -461,6 +473,8 @@ func needsDetail(st PRState, updatedAt string, now time.Time) bool {
 		return true
 	case st.Status == StatusWaitingOnCI, st.Status == StatusFailed, st.Status == StatusThrottled:
 		return true
+	case len(st.ReviewGaps) > 0 && !now.Before(st.Backoff.Until):
+		return true // an incomplete review is due a retry
 	case st.HeadSeen != nil && (st.ReviewedSig == nil || st.HeadSeen.OID != st.ReviewedSig.Head):
 		return true
 	}
