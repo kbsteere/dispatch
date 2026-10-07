@@ -53,6 +53,12 @@ var (
 			"praise",
 		},
 		{regexp.MustCompile(`(?i)\bdesign check\b`), "narrates design check"},
+		{
+			regexp.MustCompile(
+				`(?i)\b(concrete|notably|essentially|crucially|in summary|security-relevant)\b|\bit's worth noting\b`,
+			),
+			"uses reviewer jargon",
+		},
 	}
 )
 

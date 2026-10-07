@@ -22,6 +22,11 @@ func TestLintBodyRejectsBotNarration(t *testing.T) {
 		"Design check at abc1234def after my earlier approval found a conflict.",
 		"No issues found.",
 		"The change at ACD7E58B is the cause.",
+		// mono#47520
+		"These can't be tested today because `worker.slackAPI` is the concrete `*slack.Client`.",
+		"Notably, the guard runs after the post.",
+		"It's worth noting that the TTL is 7 days.",
+		"They are the security-relevant part of this change.",
 	}
 	for _, b := range bad {
 		assert.NotEmpty(t, LintBody(b), "should reject: %q", b)
@@ -34,6 +39,7 @@ func TestLintBodyAllowsRealFindings(t *testing.T) {
 		"The JWT signature is never verified before `claims.Subject` is trusted, so any caller can impersonate a user. Call `jwt.ParseWithClaims` with the key func.",
 		"This contradicts the design doc at `lifecycle/secfeed/docs/feeds.md:48`, which says OSV ingestion is fail-closed; here a fetch error is logged and skipped.",
 		"nit: `defer resp.Body.Close()` should come after the error check, otherwise a nil `resp` panics.",
+		"These can't be tested today because `worker.slackAPI` is a `*slack.Client`, not an interface.",
 		"non-blocking: nothing exercises the path where `ListPackages` returns a partial page; add a case with a 2-page fake.",
 		"Missing test: the regression in #1234 (equal-severity CVEs sorted non-deterministically) has no test that feeds two equal-severity CVEs in both orders.",
 		"```suggestion\nconst emptySHA = \"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\"\n```\nThe constant is duplicated in three packages.",
