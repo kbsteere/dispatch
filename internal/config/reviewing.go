@@ -54,7 +54,7 @@ func DefaultReviewingLimits() ReviewingLimits {
 		MaxReviewsPerPrPerDay:  6,
 		MaxInFlight:            3,
 		PollInterval:           3 * time.Minute,
-		MaxGithubPointsPerHour: 300,
+		MaxGithubPointsPerHour: 1500,
 	}
 }
 

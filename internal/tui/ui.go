@@ -67,8 +67,9 @@ type Model struct {
 	tasks            map[string]context.Task
 	positionOverride string // "" means no override, "right" or "bottom"
 	reviewers        reviewers
-	reviewSections   []section.Section // the Reviewing view's tables, one per watch
-	statusTicking    bool              // the watch status refresh loop is running
+	reviewSections   []section.Section  // the Reviewing view's tables, one per watch
+	statusTicking    bool               // the watch status refresh loop is running
+	lastBeat         reviewHeartbeatMsg // the last review heartbeat, to detect sleep
 }
 
 type Repositories struct {
@@ -827,10 +828,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())
 
-	case reviewTickMsg:
-		if e := m.reviewers.byName(msg.watch); e != nil {
-			cmds = append(cmds, pollCmd(e))
-		}
+	case reviewHeartbeatMsg:
+		cmds = append(cmds, m.onHeartbeat(msg))
 
 	case reviewPolledMsg:
 		e := m.reviewers.byName(msg.watch)
@@ -848,9 +847,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.syncWatchState()
 		m.resyncPrSectionRows()
-		if reschedule(msg) {
-			cmds = append(cmds, tickCmd(msg.watch, msg.next))
-		}
 		cmds = append(cmds, m.syncSidebar())
 
 	case reviewStatusTickMsg:
@@ -873,7 +869,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWatchState()
 		if e := m.reviewers.byName(msg.watch); e != nil && e.Status().Queued > 0 {
 			// Start the next queued review now instead of at the next poll.
-			cmds = append(cmds, manualPollCmd(e))
+			cmds = append(cmds, pollCmd(e))
 		}
 		m.resyncPrSectionRows()
 		cmds = append(cmds, m.syncSidebar())

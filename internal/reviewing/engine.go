@@ -18,7 +18,14 @@ import (
 )
 
 const (
-	claimTTL      = 45 * time.Minute
+	claimTTL = 45 * time.Minute
+	// pollTimeout bounds one poll; pollRetry is how soon a failed poll is
+	// retried.
+	pollTimeout = 3 * time.Minute
+	pollRetry   = time.Minute
+	// wakeSettle is how long after waking failures are blamed on the network
+	// coming back.
+	wakeSettle    = 5 * time.Minute
 	sessionMaxAge = 14 * 24 * time.Hour
 	searchPages   = 3
 )
@@ -75,6 +82,8 @@ type WatchStatus struct {
 	// Prompt is an action the user must take now, such as touching a
 	// security key; empty when none.
 	Prompt string
+	// NextPoll is when the next poll is due; zero when one is due now.
+	NextPoll time.Time
 }
 
 // Engine runs one watch: it polls, claims PRs, runs review passes, and
@@ -100,6 +109,11 @@ type Engine struct {
 	// refreshed is set once a poll has re-read every PR's details, which
 	// the first poll after startup does so derived fields are current.
 	refreshed bool
+	// polling is set while a poll runs; nextPoll is when the next one is
+	// due by the wall clock; wokeAt is when the machine last woke.
+	polling  bool
+	nextPoll time.Time
+	wokeAt   time.Time
 }
 
 // NewEngine opens the watch's state. When another dispatch holds the
@@ -273,6 +287,7 @@ func (e *Engine) Status() WatchStatus {
 		DailyBudget:    e.d.Limits.DailyBudgetUsd,
 		LastPoll:       e.lastPoll,
 		Prompt:         e.prompt,
+		NextPoll:       e.nextPoll,
 	}
 }
 
@@ -396,9 +411,51 @@ func needsDetail(st PRState, updatedAt string, now time.Time) bool {
 	return false
 }
 
-// Poll runs one polling cycle and returns the passes it claimed and how
-// long to wait before the next poll.
+// Poll runs one polling cycle, unless one is already running, and returns
+// the passes it claimed and how long until the next poll is due. Each poll
+// is bounded by pollTimeout so a connection lost to sleep cannot hang it.
 func (e *Engine) Poll(ctx context.Context) ([]Job, time.Duration, error) {
+	e.mu.Lock()
+	if e.polling {
+		e.mu.Unlock()
+		return nil, 0, nil
+	}
+	e.polling = true
+	e.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, pollTimeout)
+	defer cancel()
+	jobs, next, err := e.poll(ctx)
+	if err != nil {
+		// Retry soon: the usual cause is a network still coming back.
+		next = min(next, pollRetry)
+	}
+	e.mu.Lock()
+	e.polling = false
+	e.nextPoll = e.d.Now().Round(0).Add(next)
+	e.mu.Unlock()
+	return jobs, next, err
+}
+
+// PollDue reports whether the next poll is due at now by the wall clock, so
+// time spent asleep counts toward it. It reads only memory.
+func (e *Engine) PollDue(now time.Time) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return !e.polling && !e.nextPoll.After(now.Round(0))
+}
+
+// Woke tells the engine the machine just woke from sleep: a poll is due now,
+// and a review that fails while the network settles is queued again rather
+// than backed off.
+func (e *Engine) Woke(now time.Time) {
+	e.mu.Lock()
+	e.wokeAt = now
+	e.nextPoll = time.Time{}
+	e.mu.Unlock()
+}
+
+func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 	now := e.d.Now()
 	lim := e.d.Limits
 	if e.readOnly || e.Paused() {
@@ -853,4 +910,31 @@ func (e *Engine) queuedLocked() int {
 		}
 	}
 	return n
+}
+
+// disturbedBySleep reports whether a pass that started at started may have
+// failed because the machine slept: it woke since, or woke recently enough
+// that the network may still be coming back.
+func (e *Engine) disturbedBySleep(started time.Time) bool {
+	e.mu.Lock()
+	w := e.wokeAt
+	e.mu.Unlock()
+	return !w.IsZero() && (w.After(started) || e.d.Now().Sub(w) < wakeSettle)
+}
+
+// requeue records a pass cut off by sleep and queues it again without
+// backing off.
+func (e *Engine) requeue(k PRKey, out Outcome, err error) Outcome {
+	note := "interrupted by sleep; queued again: " + err.Error()
+	st, _ := e.update(k, func(st *PRState) {
+		st.Claim = nil
+		st.Status = StatusFailed
+		st.Note = note
+		st.ForceReview = true
+	})
+	e.mu.Lock()
+	delete(e.claimed, k)
+	e.mu.Unlock()
+	out.Status, out.Note, out.Err = st.Status, note, err
+	return out
 }

@@ -16,6 +16,7 @@ import (
 // until the session ends.
 func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	out := Outcome{Key: job.Key}
+	started := e.d.Now()
 	d := job.Detail
 	if !ValidSHA(d.HeadOID) || !ValidSHA(d.BaseOID) {
 		e.release(job.Key)
@@ -38,7 +39,11 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		mergeBase, err = MergeBase(ctx, repo, d.HeadOID, d.BaseOID)
 	}
 	if err != nil {
-		return e.fail(job.Key, out, fmt.Errorf("preparing %s: %w", job.Key, err))
+		err = fmt.Errorf("preparing %s: %w", job.Key, err)
+		if e.disturbedBySleep(started) {
+			return e.requeue(job.Key, out, err)
+		}
+		return e.fail(job.Key, out, err)
 	}
 
 	slot, releaseSlot, err := e.pool(job.Key, repo).Acquire(ctx, d.HeadOID)
@@ -70,6 +75,11 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		err = res.Err()
 	}
 	if err != nil {
+		// A session that hit a cap ended normally; only one with no result
+		// may have been cut off.
+		if e.disturbedBySleep(started) && res.Subtype == "" {
+			return e.requeue(job.Key, out, err)
+		}
 		return e.fail(job.Key, out, err)
 	}
 	review, err := res.Review()

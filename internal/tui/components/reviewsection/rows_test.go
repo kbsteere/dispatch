@@ -255,3 +255,18 @@ func TestQueuedReviews(t *testing.T) {
 		"$0.00/$100 today · 3 reviewing · 25 queued · quota unknown",
 	)
 }
+
+func TestNextPoll(t *testing.T) {
+	ws := reviewing.WatchStatus{}
+	assert.Equal(t, "", NextPoll(ws, now), "before the first poll the summary already says so")
+	ws.LastPoll = now.Add(-time.Minute)
+	assert.Equal(t, "polling now", NextPoll(ws, now))
+	ws.NextPoll = now.Add(2*time.Minute + 10*time.Second)
+	assert.Equal(t, "next poll 3m", NextPoll(ws, now))
+	ws.NextPoll = now.Add(20 * time.Second)
+	assert.Equal(t, "next poll <1m", NextPoll(ws, now))
+	ws.Paused, ws.NextPoll = "github quota", time.Date(2026, 10, 7, 7, 53, 0, 0, time.Local)
+	assert.Equal(t, "resumes 07:53", NextPoll(ws, now))
+	ws.Paused, ws.NextPoll = "", now.Add(-14*time.Hour)
+	assert.Equal(t, "polling now", NextPoll(ws, now), "an overdue poll, as after sleep, is due now")
+}

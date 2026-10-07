@@ -216,8 +216,15 @@ func (m *Model) View() string {
 		Height(height).
 		Padding(0, 1).
 		Foreground(m.Ctx.Theme.FaintText).
-		Render(Summary(m.status))
+		Render(summaryLine(m.status, m.now()))
 	return m.Ctx.Styles.Section.ContainerStyle.
 		Width(m.Ctx.MainContentWidth).
 		Render(lipgloss.JoinVertical(lipgloss.Left, summary, m.GetMainContent()))
+}
+
+func summaryLine(ws reviewing.WatchStatus, now time.Time) string {
+	if next := NextPoll(ws, now); next != "" {
+		return Summary(ws) + " · " + next
+	}
+	return Summary(ws)
 }

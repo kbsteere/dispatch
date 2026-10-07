@@ -160,7 +160,8 @@ func FoldComments(p ReviewPayload) ReviewPayload {
 		)
 	}
 	p.Body = strings.Join(parts, "\n\n")
-	p.Comments = nil
+	// GitHub rejects a null comment list; send an empty one.
+	p.Comments = []ReviewComment{}
 	return p
 }
 
@@ -751,7 +752,11 @@ func (g *ghClient) PostReview(ctx context.Context, k PRKey, p ReviewPayload) (st
 	if err != nil && len(p.Comments) > 0 && isStatus(err, http.StatusUnprocessableEntity) {
 		folded := FoldComments(p)
 		folded.Body = WithMarker(folded.Body)
-		err = g.postJSON(ctx, path, folded, &resp)
+		if ferr := g.postJSON(ctx, path, folded, &resp); ferr != nil {
+			err = fmt.Errorf("%w; posting with comments in the body also failed: %w", err, ferr)
+		} else {
+			err = nil
+		}
 	}
 	if err != nil {
 		return "", fmt.Errorf("posting review on %s: %w", k, err)

@@ -69,7 +69,7 @@ reviewingFor:
     maxReviewsPerPrPerDay: 6
     maxInFlight: 3
     pollInterval: 3m            # minimum 1m
-    maxGithubPointsPerHour: 300
+    maxGithubPointsPerHour: 1500
   watches:
     - name: sustaining-automation
       authors: [tcnghia, powersj, dnegreira]
@@ -94,6 +94,7 @@ How it behaves:
 - **Fail closed.** A finding dispatch cannot place on a changed line holds the review for you instead of being dropped, every changed file is fetched (not just the first 100), and a failed required-checks lookup counts as "not passed".
 - **Tone check.** Every comment is checked for bot narration (commit SHAs, "verified at", "LGTM", praise, summaries). A review that fails is held instead of posted; edit the draft file shown in the Review tab and press `S` to send it.
 - **Approvals** are given only when Claude's verdict is `approve` (it returns `approve`, `comment`, or `request_changes` with a private reason, shown in the Review tab), dispatch reviewed the code at the current commit (a pass that only reconciled comments never counts), the PR is open, ready, mergeable, and not yours, required CI passed, and nothing blocking that dispatch raised or agreed with is outstanding. With no findings the approval has an empty body; non-blocking findings are posted with it, each marked `non-blocking:` or `nit:`. Activity on a baseline PR, or pressing `N`, runs a full review. In dry run the status is marked `(dry)` in the table, since nothing was posted. In dry run, `S` posts the draft as written; it approves only if the verdict was `approve` and every check above still passes at that moment, and otherwise posts just the comments and says why.
+- **Polling survives sleep.** A one-minute heartbeat, which reads only clocks and never calls GitHub, starts each poll when it is due by the wall clock, so a laptop that slept polls as soon as it wakes. On waking, dispatch says so in the footer, polls every watch at once, retries a failed poll a minute later while the network comes back, and queues a review that sleep cut off again instead of backing it off. Each poll is limited to three minutes, and the summary line shows when the next one is due (`next poll 2m`, or `resumes 07:53` when paused for quota).
 - **Spend and quota.** Daily spend per watch and GitHub GraphQL quota are tracked; the footer shows `paused: budget` or `paused: github quota` when a limit is reached.
 
 State lives in `$XDG_STATE_HOME/dispatch/reviewing/` (default `~/.local/state/dispatch/reviewing/`): one JSON file per PR, daily spend, dry-run and held drafts, worktree slots, and session directories.

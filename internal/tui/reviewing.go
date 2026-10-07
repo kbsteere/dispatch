@@ -22,15 +22,10 @@ import (
 type reviewers []*reviewing.Engine
 
 type (
-	reviewTickMsg   struct{ watch string }
 	reviewPolledMsg struct {
 		watch string
 		jobs  []reviewing.Job
-		next  time.Duration
 		err   error
-		// manual marks a poll the user asked for; it does not schedule the
-		// next poll, so there is only ever one poll loop per watch.
-		manual bool
 	}
 	reviewDoneMsg struct {
 		watch string
@@ -91,28 +86,15 @@ func (r reviewers) byName(name string) *reviewing.Engine {
 	return nil
 }
 
-func tickCmd(watch string, d time.Duration) tea.Cmd {
-	return tea.Tick(d, func(time.Time) tea.Msg { return reviewTickMsg{watch: watch} })
-}
-
 func pollCmd(e *reviewing.Engine) tea.Cmd {
 	return func() tea.Msg {
-		jobs, next, err := e.Poll(context.Background())
-		return reviewPolledMsg{watch: e.Name(), jobs: jobs, next: next, err: err}
+		jobs, _, err := e.Poll(context.Background())
+		return reviewPolledMsg{watch: e.Name(), jobs: jobs, err: err}
 	}
 }
 
 // manualPollCmd polls now without affecting the regular poll schedule.
-func manualPollCmd(e *reviewing.Engine) tea.Cmd {
-	return func() tea.Msg {
-		jobs, next, err := e.Poll(context.Background())
-		return reviewPolledMsg{watch: e.Name(), jobs: jobs, next: next, err: err, manual: true}
-	}
-}
-
 // reschedule reports whether a finished poll schedules the next one.
-func reschedule(msg reviewPolledMsg) bool { return !msg.manual }
-
 // reviewStatusTickMsg refreshes watch state on screen while reviews run, so
 // prompts such as a security key touch show up while they are needed.
 type reviewStatusTickMsg struct{}
@@ -151,7 +133,7 @@ func (m *Model) refreshReviewing() tea.Cmd {
 	m.syncWatchState()
 	cmds := make([]tea.Cmd, 0, len(m.reviewers))
 	for _, e := range m.reviewers {
-		cmds = append(cmds, manualPollCmd(e))
+		cmds = append(cmds, pollCmd(e))
 	}
 	return tea.Batch(cmds...)
 }
@@ -162,19 +144,23 @@ func reviewCmd(e *reviewing.Engine, j reviewing.Job) tea.Cmd {
 	}
 }
 
-// startCmds cleans up after any earlier dispatch and starts each watch's
-// poll loop.
+// startCmds cleans up after any earlier dispatch, polls each watch once,
+// and starts the heartbeat that schedules every later poll.
 func (r reviewers) startCmds() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(r))
+	if len(r) == 0 {
+		return nil
+	}
+	cmds := make([]tea.Cmd, 0, len(r)+1)
 	for _, e := range r {
 		cmds = append(cmds, func() tea.Msg {
 			if err := e.Startup(context.Background()); err != nil {
 				log.Error("review watch startup", "watch", e.Name(), "err", err)
 			}
-			return reviewTickMsg{watch: e.Name()}
+			jobs, _, err := e.Poll(context.Background())
+			return reviewPolledMsg{watch: e.Name(), jobs: jobs, err: err}
 		})
 	}
-	return tea.Batch(cmds...)
+	return tea.Batch(append(cmds, heartbeatCmd())...)
 }
 
 func (r reviewers) shutdown() {
@@ -427,7 +413,7 @@ func (m *Model) reviewNow(row data.RowData) tea.Cmd {
 	if err := e.Force(k); err != nil {
 		return func() tea.Msg { return reviewActionMsg{err: err} }
 	}
-	return tea.Batch(m.notify(fmt.Sprintf("Reviewing %s now", k)), manualPollCmd(e))
+	return tea.Batch(m.notify(fmt.Sprintf("Reviewing %s now", k)), pollCmd(e))
 }
 
 func (m *Model) togglePause() tea.Cmd {
@@ -440,7 +426,7 @@ func (m *Model) togglePause() tea.Cmd {
 	if e.Paused() {
 		return m.notify(fmt.Sprintf("Paused review watch %s", e.Name()))
 	}
-	return tea.Batch(m.notify(fmt.Sprintf("Resumed review watch %s", e.Name())), manualPollCmd(e))
+	return tea.Batch(m.notify(fmt.Sprintf("Resumed review watch %s", e.Name())), pollCmd(e))
 }
 
 // reviewAllBaseline queues a full review of every baselined PR in the
@@ -466,7 +452,7 @@ func (m *Model) reviewAllBaseline() tea.Cmd {
 		}
 		return tea.Batch(
 			m.notify(fmt.Sprintf("Queued full reviews of %d baseline PRs", queued)),
-			manualPollCmd(e),
+			pollCmd(e),
 		)
 	})
 }
@@ -572,4 +558,67 @@ func (m *Model) confirm(prompt string, onYes func() tea.Cmd) tea.Cmd {
 		return nil
 	}
 	return s.AskConfirmation(prompt, onYes)
+}
+
+// heartbeatInterval is how often dispatch checks whether a poll is due or
+// the machine slept. A beat reads only clocks; polls run in background
+// commands.
+const heartbeatInterval = time.Minute
+
+// wakeThreshold is how much more wall-clock time than awake time must pass
+// between beats before dispatch treats it as waking from sleep.
+const wakeThreshold = time.Minute
+
+// processStart anchors the monotonic clock, which stops while the machine
+// sleeps; the wall clock does not.
+var processStart = time.Now()
+
+// reviewHeartbeatMsg is one beat: the wall-clock time and the awake time
+// since dispatch started.
+type reviewHeartbeatMsg struct {
+	wall  time.Time
+	awake time.Duration
+}
+
+func heartbeatCmd() tea.Cmd {
+	return tea.Tick(heartbeatInterval, func(t time.Time) tea.Msg {
+		return reviewHeartbeatMsg{wall: t.Round(0), awake: time.Since(processStart)}
+	})
+}
+
+// sleptBetween is how long the machine slept between two beats.
+func sleptBetween(prev, cur reviewHeartbeatMsg) time.Duration {
+	if prev.wall.IsZero() {
+		return 0
+	}
+	return cur.wall.Sub(prev.wall) - (cur.awake - prev.awake)
+}
+
+// onHeartbeat runs on the UI loop, so it only compares clocks. After sleep
+// it tells every watch it woke; then it polls, in background commands,
+// each watch whose next poll is due.
+func (m *Model) onHeartbeat(beat reviewHeartbeatMsg) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(m.reviewers)+2)
+	if sleptBetween(m.lastBeat, beat) > wakeThreshold {
+		for _, e := range m.reviewers {
+			e.Woke(beat.wall)
+		}
+		cmds = append(cmds, m.notify("Woke from sleep — resyncing review watches"))
+	}
+	m.lastBeat = beat
+	for _, e := range m.reviewers {
+		cmds = append(cmds, pollIfDueCmd(e, beat.wall))
+	}
+	return tea.Batch(append(cmds, heartbeatCmd())...)
+}
+
+// pollIfDueCmd polls e in the background when its next poll is due at now.
+func pollIfDueCmd(e *reviewing.Engine, now time.Time) tea.Cmd {
+	return func() tea.Msg {
+		if !e.PollDue(now) {
+			return nil
+		}
+		jobs, _, err := e.Poll(context.Background())
+		return reviewPolledMsg{watch: e.Name(), jobs: jobs, err: err}
+	}
 }

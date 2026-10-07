@@ -66,6 +66,10 @@ case "${FAKE_CLAUDE_MODE:-success}" in
   badpath)
     result 4 1 '{"findings":[{"path":"not-in-pr.go","line":3,"blocking":true,"body":"Something is wrong here."}],"ledger":[{"id":"ghost","status":"addressed"}],"agreed_threads":[],"design_refs":"none","note":"","verdict":"request_changes","verdict_reason":"blocking finding"}'
     ;;
+  crash)
+    # The session dies with no result, as one cut off by sleep does.
+    exit 1
+    ;;
   max_turns)
     printf '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":100,"total_cost_usd":3.5,"session_id":"%s","result":""}\n' "$sid"
     ;;

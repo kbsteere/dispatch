@@ -60,7 +60,7 @@ func TestReviewingForParses(t *testing.T) {
 	assert.Equal(t, 6, lim.MaxReviewsPerPrPerDay)
 	assert.Equal(t, 2, lim.MaxInFlight, "watch override wins")
 	assert.Equal(t, 3*time.Minute, lim.PollInterval)
-	assert.Equal(t, 300, lim.MaxGithubPointsPerHour)
+	assert.Equal(t, 1500, lim.MaxGithubPointsPerHour)
 }
 
 func TestReviewingViewDefault(t *testing.T) {

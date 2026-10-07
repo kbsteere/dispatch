@@ -523,3 +523,62 @@ func TestViewerAndResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "PR_kwDO88", id)
 }
+
+func TestPostReviewFoldSendsAnEmptyCommentList(t *testing.T) {
+	// GitHub answered mono#58394's fallback with "For 'properties/comments',
+	// nil is not an array."
+	var bodies []string
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		if strings.Contains(string(b), `"comments":null`) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write(
+				[]byte(
+					`{"message":"Invalid request.\n\nFor 'properties/comments', nil is not an array."}`,
+				),
+			)
+			return
+		}
+		if len(bodies) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write(
+				[]byte(
+					`{"message":"Unprocessable Entity","errors":["Line could not be resolved"]}`,
+				),
+			)
+			return
+		}
+		_, _ = w.Write([]byte(`{"html_url":"u"}`))
+	})
+	_, err := gh.PostReview(t.Context(), monoKey, ReviewPayload{
+		CommitID: strings.Repeat("a", 40), Event: "COMMENT",
+		Comments: []ReviewComment{{Path: "a.go", Line: 999, Body: "x"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, bodies, 2)
+	assert.Contains(t, bodies[1], `"comments":[]`)
+}
+
+func TestPostReviewReportsBothErrors(t *testing.T) {
+	calls := 0
+	gh, _ := fakeGH(t, noGQL(t), func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		if calls == 1 {
+			_, _ = w.Write([]byte(`{"message":"Line could not be resolved"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"message":"Review body too long"}`))
+	})
+	_, err := gh.PostReview(t.Context(), monoKey, ReviewPayload{
+		CommitID: strings.Repeat("a", 40), Event: "COMMENT",
+		Comments: []ReviewComment{{Path: "a.go", Line: 999, Body: "x"}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Line could not be resolved", "the first reason is kept")
+	assert.Contains(t, err.Error(), "Review body too long")
+}

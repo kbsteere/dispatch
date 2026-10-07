@@ -37,6 +37,7 @@ type fakeGitHub struct {
 	// requestedErr fails that search.
 	requested    []SearchHit
 	requestedErr error
+	searchErr    error
 	filters      []string
 }
 
@@ -50,6 +51,9 @@ func (f *fakeGitHub) Search(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.filters = append(f.filters, filter)
+	if f.searchErr != nil {
+		return nil, RateLimit{}, f.searchErr
+	}
 	hits := slices.Clone(f.hits)
 	if strings.HasSuffix(filter, " "+requestedQualifier) {
 		if f.requestedErr != nil {
@@ -783,4 +787,61 @@ func TestStatusCountsQueuedReviews(t *testing.T) {
 	ws := e.Status()
 	assert.Equal(t, 1, ws.InFlight)
 	assert.Equal(t, 1, ws.Queued, "running and merged PRs are not queued")
+}
+
+func TestPollIsScheduledByTheWallClock(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	gh := &fakeGitHub{
+		viewer: "kbsteere", hits: []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: a}},
+		details: map[string]PRDetail{"N1": detail(1, a)},
+	}
+	e := newTestEngine(t, gh, &now)
+	assert.True(t, e.PollDue(now), "the first poll is due at once")
+	_, next, err := e.Poll(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, e.d.Limits.PollInterval, next)
+	assert.False(t, e.PollDue(now))
+	assert.False(t, e.PollDue(now.Add(next-time.Second)))
+	assert.True(t, e.PollDue(now.Add(next)))
+	assert.Equal(t, now.Add(next), e.Status().NextPoll)
+
+	// Fourteen hours asleep: by the wall clock the poll is long overdue.
+	assert.True(t, e.PollDue(now.Add(14*time.Hour)))
+	e.Woke(now.Add(time.Minute))
+	assert.True(t, e.PollDue(now.Add(time.Minute)), "waking makes a poll due now")
+}
+
+func TestPollRetriesSoonAfterAFailure(t *testing.T) {
+	now := t0
+	gh := &fakeGitHub{
+		viewer:    "kbsteere",
+		searchErr: errors.New("dial tcp: lookup api.github.com: no such host"),
+	}
+	e := newTestEngine(t, gh, &now)
+	_, next, err := e.Poll(t.Context())
+	require.Error(t, err)
+	assert.Equal(
+		t,
+		pollRetry,
+		next,
+		"a failed poll, such as one right after waking, retries in a minute",
+	)
+	assert.True(t, e.PollDue(now.Add(pollRetry)))
+}
+
+func TestPollSkipsWhileOneIsRunning(t *testing.T) {
+	now := t0
+	gh := &fakeGitHub{viewer: "kbsteere"}
+	e := newTestEngine(t, gh, &now)
+	e.mu.Lock()
+	e.polling = true
+	e.mu.Unlock()
+	jobs, next, err := e.Poll(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, jobs)
+	assert.Zero(t, next)
+	assert.Empty(t, gh.filters, "no second poll runs alongside the first")
+	assert.False(t, e.PollDue(now), "nothing is due while a poll runs")
 }

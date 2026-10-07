@@ -159,9 +159,39 @@ func TestStatusTicksRunOnceAndStopWhenIdle(t *testing.T) {
 	require.NotNil(t, m.startStatusTicks(), "and can start again later")
 }
 
-func TestManualPollDoesNotStartAnotherLoop(t *testing.T) {
-	require.True(t, reschedule(reviewPolledMsg{}))
-	require.False(t, reschedule(reviewPolledMsg{manual: true}))
+func TestHeartbeatAfterSleepResyncs(t *testing.T) {
+	m := NewModel(config.Location{}, Repositories{})
+	m.ctx.Config = &config.Config{}
+	w := config.ReviewWatch{
+		Name: "sustaining-automation", Authors: []string{"tcnghia"},
+		Scopes: []string{"repo:chainguard-dev/stereo"},
+	}
+	e, err := reviewing.NewEngine(reviewing.Deps{
+		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(),
+		GitHub: viewGitHub{}, LookupPath: func(string) (string, bool) { return "", false },
+	})
+	require.NoError(t, err)
+	t.Cleanup(e.Shutdown)
+	m.reviewers = reviewers{e}
+	_, _, err = e.Poll(t.Context())
+	require.NoError(t, err)
+	now := time.Now()
+	require.False(t, e.PollDue(now), "just polled")
+
+	m.lastBeat = reviewHeartbeatMsg{wall: now, awake: time.Hour}
+	require.NotNil(
+		t,
+		m.onHeartbeat(
+			reviewHeartbeatMsg{wall: now.Add(time.Minute), awake: time.Hour + time.Minute},
+		),
+	)
+	assert.False(t, e.PollDue(now.Add(time.Minute)), "an ordinary beat polls only when due")
+
+	// Eight hours asleep, then one awake minute.
+	woke := reviewHeartbeatMsg{wall: now.Add(8 * time.Hour), awake: time.Hour + 2*time.Minute}
+	require.NotNil(t, m.onHeartbeat(woke))
+	assert.True(t, e.PollDue(woke.wall), "waking makes a poll due at once")
+	assert.Equal(t, woke, m.lastBeat)
 }
 
 func TestReviewAllBaselineAsksThenQueues(t *testing.T) {

@@ -259,3 +259,23 @@ func ReviewCounts(ws reviewing.WatchStatus) string {
 	}
 	return s
 }
+
+// NextPoll says when the watch polls GitHub next, or until when it is paused
+// for quota. It is empty before the first poll, which the summary already
+// reports.
+func NextPoll(ws reviewing.WatchStatus, now time.Time) string {
+	if ws.LastPoll.IsZero() {
+		return ""
+	}
+	if ws.NextPoll.IsZero() || !ws.NextPoll.After(now) {
+		return "polling now"
+	}
+	if ws.Paused == "github quota" {
+		return "resumes " + ws.NextPoll.Local().Format("15:04")
+	}
+	d := ws.NextPoll.Sub(now)
+	if d < time.Minute {
+		return "next poll <1m"
+	}
+	return fmt.Sprintf("next poll %dm", int((d+time.Minute-1)/time.Minute))
+}

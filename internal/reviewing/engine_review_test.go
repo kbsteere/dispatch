@@ -734,3 +734,25 @@ func TestReviewSecurityFindingIsAlwaysBlocking(t *testing.T) {
 	assert.Equal(t, CategorySecurity, st.Ledger[0].Category)
 	assert.Equal(t, StatusChangesRequested, st.Status)
 }
+
+func TestReviewCutOffBySleepIsQueuedAgain(t *testing.T) {
+	h := newReviewHarness(t, "crash", nil)
+	h.e.Woke(h.now) // the machine just woke
+	out := h.e.Review(t.Context(), h.job)
+	require.Error(t, out.Err)
+
+	st := h.state(t)
+	assert.True(t, st.ForceReview, "queued again")
+	assert.Zero(t, st.Backoff, "no backoff for a review sleep interrupted")
+	assert.True(t, strings.HasPrefix(st.Note, "interrupted by sleep; queued again: "), st.Note)
+	assert.Equal(t, 0, h.e.Status().InFlight)
+}
+
+func TestReviewFailureWithoutSleepBacksOff(t *testing.T) {
+	h := newReviewHarness(t, "crash", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.Error(t, out.Err)
+	st := h.state(t)
+	assert.False(t, st.ForceReview)
+	assert.Equal(t, 1, st.Backoff.Step)
+}
