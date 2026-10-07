@@ -162,3 +162,17 @@ func TestKillOrphanIgnoresNonClaude(t *testing.T) {
 	assert.False(t, KillOrphan(0))
 	assert.False(t, KillOrphan(-1))
 }
+
+func TestBuildArgsResume(t *testing.T) {
+	s := fakeSpec(t)
+	s.Resume = true
+	args := strings.Join(BuildArgs(s), " ")
+	assert.Contains(t, args, "--resume "+s.SessionID)
+	assert.NotContains(t, args, "--session-id", "a resumed session is not started again")
+	for _, want := range []string{
+		"--tools Read,Grep,Glob --permission-mode dontAsk", "--setting-sources local",
+		"--add-dir /wt/slot-0", "--json-schema",
+	} {
+		assert.Contains(t, args, want, "a continuation keeps the first run's limits")
+	}
+}

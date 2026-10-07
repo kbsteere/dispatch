@@ -58,7 +58,8 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	}
 	defer releaseSlot()
 
-	res, files, sessionID, err := e.runSession(ctx, job, repo, slot, mergeBase)
+	res, files, spec, err := e.runSession(ctx, job, repo, slot, mergeBase)
+	sessionID := spec.SessionID
 	if sessionID == "" {
 		return e.fail(job.Key, out, err)
 	}
@@ -87,17 +88,52 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	if err != nil {
 		return e.fail(job.Key, out, err)
 	}
-	gaps := reviewGaps(coverageInput{
+	cov := coverageInput{
 		Pass:         job.Pass,
 		PROnly:       e.prOnly(job.Key),
 		Worktree:     slot,
 		Diff:         files.Diff,
 		Changed:      changedFor(job, files),
 		Reads:        res.Reads,
+		Ranges:       res.Ranges,
 		Searches:     res.Searches,
 		SinceLast:    files.SinceLast,
 		SecurityRefs: files.SecurityRefs,
-	})
+	}
+	gaps := reviewGaps(cov)
+	sessionCost := res.CostUSD
+	for i := 0; len(gaps) > 0 && i < maxContinuations; i++ {
+		more, next, ok := e.continueReview(
+			ctx,
+			job.Key,
+			spec,
+			gaps,
+			files.SecurityRefs,
+			sessionCost,
+		)
+		out.CostUSD += more.CostUSD
+		sessionCost += more.CostUSD
+		if !ok {
+			break
+		}
+		review = next
+		res.Reads = append(res.Reads, more.Reads...)
+		slices.Sort(res.Reads)
+		res.Reads = slices.Compact(res.Reads)
+		if res.Ranges == nil {
+			res.Ranges = map[string][]LineRange{}
+		}
+		for p, r := range more.Ranges {
+			res.Ranges[p] = append(res.Ranges[p], r...)
+		}
+		res.Searches += more.Searches
+		cov.Reads, cov.Ranges, cov.Searches = res.Reads, res.Ranges, res.Searches
+		gaps = reviewGaps(cov)
+	}
+	if st, _ = e.load(job.Key); st.Claim == nil || st.Claim.SessionID != sessionID {
+		out.Note = "superseded"
+		return out
+	}
 	_, _ = e.update(job.Key, func(s *PRState) {
 		verified := verifiedExamined(review.Examined, slot, res.Reads)
 		s.Examined = &verified
@@ -105,7 +141,9 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 		s.CIAssessment = review.CI
 	})
-	return e.apply(ctx, job, st, review, gaps, files.CIBase)
+	applied := e.apply(ctx, job, st, review, gaps, files.CIBase)
+	applied.CostUSD = out.CostUSD
+	return applied
 }
 
 func (e *Engine) load(k PRKey) (PRState, error) {
@@ -137,7 +175,7 @@ func (e *Engine) runSession(
 	job Job,
 	repo LocalRepo,
 	slot, mergeBase string,
-) (RunResult, ReviewFiles, string, error) {
+) (RunResult, ReviewFiles, RunSpec, error) {
 	st, _ := e.load(job.Key)
 	prOnly := e.prOnly(job.Key)
 	var contextDirs []string
@@ -159,7 +197,7 @@ func (e *Engine) runSession(
 	sessionID := NewSessionID()
 	cwd := filepath.Join(e.d.StateRoot, "sessions", sessionID)
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
-		return RunResult{}, ReviewFiles{}, "", err
+		return RunResult{}, ReviewFiles{}, RunSpec{}, err
 	}
 	lastReviewed := st.CodeReviewedHead
 	if job.Pass == PassFull {
@@ -167,7 +205,7 @@ func (e *Engine) runSession(
 	}
 	files, err := WriteReviewFiles(ctx, repo, cwd, mergeBase, job.Detail.HeadOID, lastReviewed)
 	if err != nil {
-		return RunResult{}, ReviewFiles{}, "", err
+		return RunResult{}, ReviewFiles{}, RunSpec{}, err
 	}
 	in.CI, files.CIBase = e.loadCIProblems(ctx, job.Detail, cwd)
 	if job.Pass != PassLedger && !prOnly {
@@ -177,7 +215,7 @@ func (e *Engine) runSession(
 		}
 	}
 	in.Files = files
-	run, err := Start(ctx, RunSpec{
+	spec := RunSpec{
 		EventsPath:   filepath.Join(cwd, "events.jsonl"),
 		Binary:       e.d.Claude,
 		SessionID:    sessionID,
@@ -188,21 +226,28 @@ func (e *Engine) runSession(
 		MaxTurns:     maxTurns,
 		MaxBudgetUSD: e.d.Limits.MaxBudgetUsd,
 		Timeout:      e.d.Limits.RunTimeout,
-	})
-	if err != nil {
-		return RunResult{}, files, "", err
 	}
+	run, err := Start(ctx, spec)
+	if err != nil {
+		return RunResult{}, files, RunSpec{}, err
+	}
+	res, err := e.track(job.Key, run, sessionID)
+	return res, files, spec, err
+}
 
+// track makes a started session the PR's in-flight run, waits for it to end,
+// and clears it. A session started while dispatch is closing is killed.
+func (e *Engine) track(k PRKey, run *Run, sessionID string) (RunResult, error) {
 	e.mu.Lock()
 	closing := e.closing
 	if !closing {
-		e.inflight[job.Key] = run
+		e.inflight[k] = run
 	}
 	e.mu.Unlock()
 	if closing {
 		run.Kill()
 	}
-	_, _ = e.update(job.Key, func(s *PRState) {
+	_, _ = e.update(k, func(s *PRState) {
 		if s.Claim != nil {
 			s.Claim.SessionID = sessionID
 			s.Claim.PID = run.PID()
@@ -210,11 +255,11 @@ func (e *Engine) runSession(
 	})
 	res, err := run.Wait()
 	e.mu.Lock()
-	if e.inflight[job.Key] == run {
-		delete(e.inflight, job.Key)
+	if e.inflight[k] == run {
+		delete(e.inflight, k)
 	}
 	e.mu.Unlock()
-	return res, files, sessionID, err
+	return res, err
 }
 
 // contextDirs are the configured local repos the agent may browse. Paths
@@ -790,3 +835,61 @@ var nonBlockingRe = regexp.MustCompile(`(?i)^\W*(nit|non-blocking|suggestion|opt
 // nonBlockingThread reports whether another reviewer's thread, which dispatch
 // agreed with, said it should not block.
 func nonBlockingThread(body string) bool { return nonBlockingRe.MatchString(body) }
+
+// maxContinuations is how many times an incomplete pass's session is resumed
+// to finish what it skipped before its gaps stand.
+const maxContinuations = 2
+
+// continueReview resumes an incomplete pass's session, asking it to finish
+// what it skipped, and returns what the continuation read and its updated
+// review. It reports false when the continuation failed; the incomplete
+// review then stands. A resumed session reports the session's total cost,
+// so the result's CostUSD is what it added to sessionCost, the session's
+// cost so far.
+func (e *Engine) continueReview(
+	ctx context.Context,
+	k PRKey,
+	spec RunSpec,
+	gaps, securityRefs []string,
+	sessionCost float64,
+) (RunResult, ReviewOutput, bool) {
+	spec.Resume = true
+	spec.Prompt = ContinuationPrompt(gaps, securityRefs)
+	run, err := Start(ctx, spec)
+	if err != nil {
+		return RunResult{}, ReviewOutput{}, false
+	}
+	res, err := e.track(k, run, spec.SessionID)
+	res.CostUSD = max(res.CostUSD-sessionCost, 0)
+	e.recordContinuation(k, res)
+	if err == nil {
+		err = res.Err()
+	}
+	if err != nil {
+		return res, ReviewOutput{}, false
+	}
+	review, err := res.Review()
+	if err != nil {
+		return res, ReviewOutput{}, false
+	}
+	return res, review, true
+}
+
+// recordContinuation adds a continuation's spend to the pass it continued.
+func (e *Engine) recordContinuation(k PRKey, res RunResult) {
+	if res.CostUSD > 0 {
+		e.mu.Lock()
+		_, _ = e.store.AddSpend(Day(e.d.Now()), res.CostUSD)
+		e.mu.Unlock()
+	}
+	_, _ = e.update(k, func(st *PRState) {
+		st.TotalCostUSD, st.TotalTurns, st.Runs = st.Spend()
+		st.TotalCostUSD += res.CostUSD
+		st.TotalTurns += res.Turns
+		if st.LastRun != nil {
+			st.LastRun.CostUSD += res.CostUSD
+			st.LastRun.Turns += res.Turns
+			st.LastRun.Continuations++
+		}
+	})
+}

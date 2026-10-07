@@ -1,8 +1,10 @@
 package reviewing
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -241,4 +243,159 @@ func TestReviewGapsSecurityGuideReferences(t *testing.T) {
 		filepath.Join(wt, "bots/kev/README.md"),
 	}
 	assert.Empty(t, reviewGaps(in), "a docs-only change needs no security references")
+}
+
+// pr58771Files are mono#58771's changed files, with the line each one's
+// section starts at in its 4,003-line diff.
+var pr58771Files = []struct {
+	path string
+	line int
+}{
+	{"agents/skills/cve-remediation/SKILL.md", 1},
+	{"agents/skills/java-cve-remedy/SKILL.md", 122},
+	{"bots/cve-remediation/cmd/eval-cve-remediation/main.go", 135},
+	{"bots/cve-remediation/cmd/eval-cve-remediation/main_test.go", 477},
+	{"bots/cve-remediation/internal/cveremediation/eval_export.go", 899},
+	{"bots/cve-remediation/internal/cveremediation/evasion.go", 949},
+	{"bots/cve-remediation/internal/cveremediation/evasion_test.go", 2367},
+	{"bots/cve-remediation/internal/cveremediation/testdata/eval/README.md", 3643},
+	{
+		"bots/cve-remediation/internal/cveremediation/testdata/eval/bundled-jar-no-clean-fix/case.yaml",
+		3753,
+	},
+	{
+		"bots/cve-remediation/internal/cveremediation/testdata/eval/bundled-jar-no-clean-fix/golden.yaml",
+		3787,
+	},
+	{
+		"bots/cve-remediation/internal/cveremediation/testdata/eval/bundled-jar-no-clean-fix/repo/example-java-app.yaml",
+		3822,
+	},
+	{
+		"bots/cve-remediation/internal/cveremediation/testdata/eval/malcontent-finding-escalate/case.yaml",
+		3871,
+	},
+	{
+		"bots/cve-remediation/internal/cveremediation/testdata/eval/malcontent-finding-escalate/golden.yaml",
+		3928,
+	},
+	{
+		"bots/cve-remediation/internal/cveremediation/testdata/eval/malcontent-finding-escalate/repo/example-llm-proxy.yaml",
+		3962,
+	},
+}
+
+// writePR58771 lays out mono#58771's worktree and a diff with its sections
+// at the same lines, and returns both paths.
+func writePR58771(t *testing.T) (worktree, diff string) {
+	t.Helper()
+	wt, dir := t.TempDir(), t.TempDir()
+	var b strings.Builder
+	line := 1
+	for i, f := range pr58771Files {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(wt, f.path)), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(wt, f.path), []byte("x\n"), 0o600))
+		end := 4003
+		if i+1 < len(pr58771Files) {
+			end = pr58771Files[i+1].line - 1
+		}
+		fmt.Fprintf(&b, "diff --git a/%s b/%s\n", f.path, f.path)
+		for line = f.line + 1; line <= end; line++ {
+			b.WriteString("+\n")
+		}
+	}
+	diff = filepath.Join(dir, "pr.diff")
+	require.NoError(t, os.WriteFile(diff, []byte(b.String()), 0o600))
+	return wt, diff
+}
+
+func TestReviewGapsCreditsChangesReadInTheDiff(t *testing.T) {
+	wt, diff := writePR58771(t)
+	sections := diffSections(mustRead(t, diff))
+	require.Len(t, sections, len(pr58771Files))
+	assert.Equal(t, LineRange{From: 477, To: 898},
+		sections["bots/cve-remediation/cmd/eval-cve-remediation/main_test.go"])
+	assert.Equal(
+		t,
+		LineRange{From: 3962, To: 4003},
+		sections["bots/cve-remediation/internal/cveremediation/testdata/eval/malcontent-finding-escalate/repo/example-llm-proxy.yaml"],
+	)
+
+	at := func(p string) string { return filepath.Join(wt, p) }
+	changed := make([]string, 0, len(pr58771Files))
+	for _, f := range pr58771Files {
+		changed = append(changed, f.path)
+	}
+	// What the session read: the diff's first 950 lines and its tail, the
+	// two new files in full, the start of main.go, the docs, and a caller.
+	in := coverageInput{
+		Pass:     PassFull,
+		Worktree: wt,
+		Diff:     diff,
+		Changed:  changed,
+		Reads: []string{
+			diff,
+			at("bots/cve-remediation/internal/cveremediation/evasion.go"),
+			at("bots/cve-remediation/internal/cveremediation/evasion_test.go"),
+			at("bots/cve-remediation/cmd/eval-cve-remediation/main.go"),
+			at("bots/cve-remediation/internal/cveremediation/reconciler.go"),
+			at("agents/skills/cve-remediation/SKILL.md"),
+		},
+		Ranges: map[string][]LineRange{
+			diff: {readRange(0, 950), readRange(3643, 0)},
+		},
+		Searches:     4,
+		SecurityRefs: []string{"/state/sessions/s1/security/path-traversal.md"},
+	}
+	assert.Equal(t, []string{"read none of the security review guide's references"},
+		reviewGaps(in), "main_test.go and eval_export.go were read in the diff")
+
+	in.Ranges = nil
+	assert.Equal(t, []string{
+		"never read changed file bots/cve-remediation/cmd/eval-cve-remediation/main_test.go",
+		"never read changed file bots/cve-remediation/internal/cveremediation/eval_export.go",
+		"read none of the security review guide's references",
+	}, reviewGaps(in), "without line ranges only opened files count")
+
+	in.Ranges = map[string][]LineRange{diff: {readRange(0, 900)}}
+	assert.Contains(t, reviewGaps(in),
+		"never read changed file bots/cve-remediation/internal/cveremediation/eval_export.go",
+		"part of a file's section is not its whole change")
+}
+
+func TestReviewGapsLargePRsAreJudgedOnTheDiff(t *testing.T) {
+	wt, dir := t.TempDir(), t.TempDir()
+	diff := filepath.Join(dir, "pr.diff")
+	require.NoError(t, os.WriteFile(diff, []byte("diff --git a/x b/x\n"), 0o600))
+	var changed []string
+	for i := range maxPerFileChecks + 1 {
+		p := fmt.Sprintf("pkg/f%d.go", i)
+		require.NoError(t, os.MkdirAll(filepath.Join(wt, "pkg"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(wt, p), []byte("x\n"), 0o600))
+		changed = append(changed, p)
+	}
+	in := coverageInput{
+		Pass: PassIncremental, Worktree: wt, Diff: diff, Changed: changed,
+		Reads: []string{diff, filepath.Join(wt, "pkg/f0_test.go")}, Searches: 1,
+	}
+	assert.Empty(t, reviewGaps(in), "41 changed code files need not each be opened")
+
+	in.Changed = changed[:maxPerFileChecks]
+	assert.Len(t, reviewGaps(in), maxGaps+1, "40 still must be, capped at maxGaps plus a count")
+}
+
+func TestCovers(t *testing.T) {
+	want := LineRange{From: 10, To: 20}
+	assert.True(t, covers([]LineRange{{1, 30}}, want))
+	assert.True(t, covers([]LineRange{{15, 20}, {10, 14}}, want), "adjacent reads join")
+	assert.False(t, covers([]LineRange{{10, 14}, {16, 20}}, want), "line 15 was skipped")
+	assert.False(t, covers([]LineRange{{11, 20}}, want))
+	assert.False(t, covers(nil, want))
+}
+
+func mustRead(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	require.NoError(t, err)
+	return string(b)
 }

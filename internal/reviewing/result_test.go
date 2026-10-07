@@ -108,3 +108,40 @@ func TestParseResultIgnoresFailedReads(t *testing.T) {
 		"failed reads drop out; paths are cleaned and deduplicated",
 	)
 }
+
+func TestParseResultRecordsReadRanges(t *testing.T) {
+	// The read pattern of mono#58771's review: the diff's first 950 lines,
+	// a whole file, a slice of a caller, then the diff's tail.
+	out := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/s/pr.diff","limit":950}},` +
+		`{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/w/evasion.go"}},` +
+		`{"type":"tool_use","id":"t3","name":"Read","input":{"file_path":"/w/reconciler.go","offset":2060,"limit":140}},` +
+		`{"type":"tool_use","id":"t4","name":"Read","input":{"file_path":"/s/pr.diff","offset":"3643"}},` +
+		`{"type":"tool_use","id":"t5","name":"Read","input":{"file_path":"/w/gone.go","offset":1}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","is_error":true}]}}
+{"type":"result","subtype":"success","num_turns":5,"session_id":"s1"}
+`
+	res, err := ParseResult([]byte(out))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/s/pr.diff", "/w/evasion.go", "/w/reconciler.go"}, res.Reads)
+	assert.ElementsMatch(t, []LineRange{{1, 950}, {3643, 5642}}, res.Ranges["/s/pr.diff"],
+		"a numeric string offset still counts")
+	assert.Equal(
+		t,
+		[]LineRange{{1, 2000}},
+		res.Ranges["/w/evasion.go"],
+		"no limit reads 2,000 lines",
+	)
+	assert.Equal(t, []LineRange{{2060, 2199}}, res.Ranges["/w/reconciler.go"])
+	assert.NotContains(t, res.Ranges, "/w/gone.go", "failed reads cover nothing")
+}
+
+func TestParseResultToleratesOddReadInputs(t *testing.T) {
+	out := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/w/a.go","offset":null,"limit":"all"}}]}}
+{"type":"result","subtype":"success","num_turns":1,"session_id":"s1"}
+`
+	res, err := ParseResult([]byte(out))
+	require.NoError(t, err, "an unexpected offset or limit never loses the result")
+	assert.Equal(t, []LineRange{{1, 2000}}, res.Ranges["/w/a.go"])
+}

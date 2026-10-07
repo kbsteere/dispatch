@@ -3,17 +3,30 @@
 set -euo pipefail
 args="$*"
 sid=""
+resumed=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --session-id) sid="$2"; shift 2 ;;
+    --resume) sid="$2"; resumed=1; shift 2 ;;
     *) shift ;;
   esac
 done
-printf '%s\n' "$args" > "${FAKE_CLAUDE_ARGS:-/dev/null}"
 prompt=$(cat)
-printf '%s' "$prompt" > "${FAKE_CLAUDE_STDIN:-/dev/null}"
-wt=$(printf '%s\n' "$prompt" | sed -n 's/^worktree: //p' | head -n 1)
-diff=$(printf '%s\n' "$prompt" | sed -n 's/^pr diff: //p' | head -n 1)
+if [ -n "$resumed" ]; then
+  # A resumed session runs in the same directory; replay what the first run
+  # was given, and read what FAKE_CLAUDE_RESUME_READS names.
+  printf '%s\n' "$args" > "${FAKE_CLAUDE_RESUME_ARGS:-/dev/null}"
+  printf '%s' "$prompt" > "${FAKE_CLAUDE_RESUME_STDIN:-/dev/null}"
+  . ./fake-session
+  FAKE_CLAUDE_READS="${FAKE_CLAUDE_RESUME_READS-${FAKE_CLAUDE_READS-}}"
+  FAKE_CLAUDE_MODE="${FAKE_CLAUDE_RESUME_MODE:-${FAKE_CLAUDE_MODE:-success}}"
+else
+  printf '%s\n' "$args" > "${FAKE_CLAUDE_ARGS:-/dev/null}"
+  printf '%s' "$prompt" > "${FAKE_CLAUDE_STDIN:-/dev/null}"
+  wt=$(printf '%s\n' "$prompt" | sed -n 's/^worktree: //p' | head -n 1)
+  diff=$(printf '%s\n' "$prompt" | sed -n 's/^pr diff: //p' | head -n 1)
+  printf 'wt=%q\ndiff=%q\n' "$wt" "$diff" > ./fake-session
+fi
 
 # Events mimic claude's stream-json output: tool calls, then the result.
 n=0
@@ -30,10 +43,14 @@ explore() {
   for f in ${FAKE_CLAUDE_READS-kev.go README.md kev_test.go}; do read_file "$wt/$f"; done
   printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"Sync","path":"%s"}}]}}\n' "$wt"
 }
+# result reports a run like claude does: turns for this run, but the cost of
+# the whole session, so a resumed run adds to what the session cost so far.
 result() {
   printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$sid"
   explore
-  printf '{"type":"result","subtype":"success","is_error":false,"num_turns":%s,"total_cost_usd":%s,"session_id":"%s","result":"","structured_output":%s}\n' "$1" "$2" "$sid" "$3"
+  cost=$(awk -v a="${session_cost:-0}" -v b="$2" 'BEGIN { print a + b }')
+  printf 'session_cost=%s\n' "$cost" >> ./fake-session
+  printf '{"type":"result","subtype":"success","is_error":false,"num_turns":%s,"total_cost_usd":%s,"session_id":"%s","result":"","structured_output":%s}\n' "$1" "$cost" "$sid" "$3"
 }
 case "${FAKE_CLAUDE_MODE:-success}" in
   success)

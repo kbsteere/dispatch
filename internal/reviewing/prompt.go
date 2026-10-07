@@ -330,3 +330,28 @@ func ciSection(problems []CIProblem) string {
 	}
 	return b.String()
 }
+
+// ContinuationPrompt asks a session whose review was incomplete to read
+// what it skipped and answer again. Gaps name paths from the PR, so they are
+// sanitised.
+func ContinuationPrompt(gaps, securityRefs []string) string {
+	var b strings.Builder
+	b.WriteString(
+		"Your review is incomplete, so it cannot be accepted yet. Before answering, you still need to:\n",
+	)
+	for _, g := range gaps {
+		fmt.Fprintf(&b, "- %s\n", SanitizeTerminal(g))
+	}
+	if len(securityRefs) > 0 {
+		b.WriteString("\nThe security review guide's references are:\n")
+		for _, r := range securityRefs {
+			fmt.Fprintf(&b, "- %s\n", r)
+		}
+		b.WriteString("Read the ones that apply to what this PR changes.\n")
+	}
+	b.WriteString("\nRead those files now with the Read tool. A changed file counts as read " +
+		"when you open it, or when you read its whole section of the PR diff. Then return " +
+		"the complete review again in the same structured format, keeping every finding " +
+		"from your previous answer that still stands and adding any the new reading turned up.\n")
+	return b.String()
+}

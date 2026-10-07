@@ -299,3 +299,22 @@ func TestBuildPromptListsNonBlockingChecks(t *testing.T) {
 	assert.Contains(t, p, "- skillup")
 	assert.NotContains(t, BuildPrompt(PromptInput{Pass: PassFull}), "## Non-blocking checks")
 }
+
+func TestContinuationPrompt(t *testing.T) {
+	p := ContinuationPrompt(
+		[]string{
+			"never read changed file bots/kev/sync.go",
+			"read none of the security review guide's references",
+			"never read changed file evil\x1b[2J.go",
+		},
+		[]string{"/state/sessions/s1/security/path-traversal.md"},
+	)
+	assert.Contains(t, p, "- never read changed file bots/kev/sync.go\n")
+	assert.Contains(t, p, "- /state/sessions/s1/security/path-traversal.md\n")
+	assert.Contains(t, p, "whole section of the PR diff")
+	assert.Contains(t, p, "same structured format")
+	assert.NotContains(t, p, "\x1b", "paths from the PR are sanitised")
+
+	assert.NotContains(t, ContinuationPrompt([]string{"read no documentation or design docs"}, nil),
+		"security review guide", "references are listed only when there are some")
+}

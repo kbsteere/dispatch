@@ -79,6 +79,9 @@ type RunRecord struct {
 	CostUSD   float64   `json:"cost_usd"`
 	Outcome   string    `json:"outcome"`
 	At        time.Time `json:"at"`
+	// Continuations counts the times the session was resumed to finish an
+	// incomplete pass; Turns and CostUSD include them.
+	Continuations int `json:"continuations,omitempty"`
 }
 
 type HeadSeen struct {

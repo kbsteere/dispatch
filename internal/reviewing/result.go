@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // OutFinding is one problem the reviewer reports, anchored to a line of the
@@ -66,6 +68,35 @@ type RunResult struct {
 	Reads []string
 	// Searches counts the session's Grep and Glob calls.
 	Searches int
+	// Ranges are the lines each successful Read covered, by path.
+	Ranges map[string][]LineRange
+}
+
+// LineRange is an inclusive, 1-based range of lines.
+type LineRange struct{ From, To int }
+
+// readDefaultLimit is how many lines a Read without a limit returns.
+const readDefaultLimit = 2000
+
+// readRange is the lines a Read with this offset and limit covered.
+func readRange(offset, limit int) LineRange {
+	from := max(offset, 1)
+	if limit <= 0 {
+		limit = readDefaultLimit
+	}
+	return LineRange{From: from, To: from + limit - 1}
+}
+
+// lenientInt decodes a JSON number or numeric string, and anything else as
+// zero, so an odd tool input never makes a result unreadable.
+type lenientInt int
+
+func (n *lenientInt) UnmarshalJSON(b []byte) error {
+	v, err := strconv.Atoi(strings.Trim(string(b), `"`))
+	if err == nil {
+		*n = lenientInt(v)
+	}
+	return nil
 }
 
 // streamEvent is one event of claude's output. Assistant events carry tool
@@ -91,7 +122,9 @@ type contentBlock struct {
 	ToolUseID string `json:"tool_use_id"`
 	IsError   bool   `json:"is_error"`
 	Input     struct {
-		FilePath string `json:"file_path"`
+		FilePath string     `json:"file_path"`
+		Offset   lenientInt `json:"offset"`
+		Limit    lenientInt `json:"limit"`
 	} `json:"input"`
 }
 
@@ -122,7 +155,11 @@ func ParseResult(out []byte) (RunResult, error) {
 	if err != nil {
 		return RunResult{}, fmt.Errorf("parsing claude output: %w", err)
 	}
-	reads := map[string]string{} // tool_use id -> path
+	type read struct {
+		path  string
+		lines LineRange
+	}
+	reads := map[string]read{} // tool_use id -> what it read
 	failed := map[string]struct{}{}
 	var res RunResult
 	found := false
@@ -130,7 +167,10 @@ func ParseResult(out []byte) (RunResult, error) {
 		for _, c := range ev.Message.Content {
 			switch {
 			case c.Type == "tool_use" && c.Name == "Read" && c.Input.FilePath != "":
-				reads[c.ID] = filepath.Clean(c.Input.FilePath)
+				reads[c.ID] = read{
+					path:  filepath.Clean(c.Input.FilePath),
+					lines: readRange(int(c.Input.Offset), int(c.Input.Limit)),
+				}
 			case c.Type == "tool_use" && (c.Name == "Grep" || c.Name == "Glob"):
 				res.Searches++
 			case c.Type == "tool_result" && c.IsError:
@@ -151,15 +191,17 @@ func ParseResult(out []byte) (RunResult, error) {
 	if !found {
 		return RunResult{}, errors.New("claude output has no result event")
 	}
-	seen := map[string]struct{}{}
-	for id, p := range reads {
+	for id, r := range reads {
 		if _, bad := failed[id]; bad {
 			continue
 		}
-		if _, dup := seen[p]; !dup {
-			seen[p] = struct{}{}
-			res.Reads = append(res.Reads, p)
+		if res.Ranges == nil {
+			res.Ranges = map[string][]LineRange{}
 		}
+		if _, dup := res.Ranges[r.path]; !dup {
+			res.Reads = append(res.Reads, r.path)
+		}
+		res.Ranges[r.path] = append(res.Ranges[r.path], r.lines)
 	}
 	slices.Sort(res.Reads)
 	return res, nil

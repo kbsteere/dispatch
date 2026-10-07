@@ -508,6 +508,8 @@ func TestReviewShallowPassCannotApprove(t *testing.T) {
 		"read no existing tests for the changed code",
 	}, st.ReviewGaps)
 	assert.True(t, strings.HasPrefix(st.Note, "review incomplete: "), st.Note)
+	assert.Equal(t, maxContinuations, st.LastRun.Continuations,
+		"the session was asked to finish before the gaps stood")
 }
 
 func TestReviewShallowPassStillPostsFindings(t *testing.T) {
@@ -905,4 +907,55 @@ func TestNonBlockingThread(t *testing.T) {
 		nonBlockingThread("Could we scope the `build.v1` match to the scanning subscriptions?"),
 	)
 	assert.False(t, nonBlockingThread("This panics on a nil map; a minor change fixes it."))
+}
+
+func TestReviewContinuesAnIncompletePass(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	dir := t.TempDir()
+	resumeStdin, resumeArgs := filepath.Join(dir, "stdin"), filepath.Join(dir, "args")
+	t.Setenv("FAKE_CLAUDE_READS", "kev.go") // skips the docs and tests
+	t.Setenv("FAKE_CLAUDE_RESUME_READS", "README.md kev_test.go")
+	t.Setenv("FAKE_CLAUDE_RESUME_STDIN", resumeStdin)
+	t.Setenv("FAKE_CLAUDE_RESUME_ARGS", resumeArgs)
+
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted, "the continued review is complete")
+	assert.InDelta(t, 2.5, out.CostUSD, 1e-9, "the continuation's cost is part of the pass")
+
+	st := h.state(t)
+	assert.Empty(t, st.ReviewGaps)
+	assert.Equal(t, h.head, st.CodeReviewedHead)
+	assert.Equal(t, 1, st.LastRun.Continuations)
+	assert.Equal(t, 14, st.LastRun.Turns)
+	cost, _, runs := st.Spend()
+	assert.InDelta(t, 2.5, cost, 1e-9)
+	assert.Equal(t, 1, runs, "a continuation is not another review")
+	assert.Equal(t, 1, st.ReviewsByDay[Day(h.now)], "nor does it count toward the daily limit")
+
+	prompt, err := os.ReadFile(resumeStdin)
+	require.NoError(t, err)
+	assert.Contains(t, string(prompt), "- read no documentation or design docs\n")
+	assert.Contains(t, string(prompt), "- read no existing tests for the changed code\n")
+	args, err := os.ReadFile(resumeArgs)
+	require.NoError(t, err)
+	assert.Contains(t, string(args), "--resume "+st.LastRun.SessionID)
+	assert.NotContains(t, string(args), "--session-id")
+}
+
+func TestReviewKeepsIncompletePassWhenContinuationFails(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	t.Setenv("FAKE_CLAUDE_READS", "kev.go")
+	t.Setenv("FAKE_CLAUDE_RESUME_MODE", "crash")
+
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err, "a failed continuation does not fail the pass")
+	assert.Empty(t, h.gh.posted)
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	assert.Equal(t, []string{
+		"read no documentation or design docs",
+		"read no existing tests for the changed code",
+	}, st.ReviewGaps)
+	assert.Equal(t, 1, st.LastRun.Continuations, "it stops after the first failure")
 }

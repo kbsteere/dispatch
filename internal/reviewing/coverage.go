@@ -12,6 +12,10 @@ import (
 // maxGaps bounds how many gaps a review records.
 const maxGaps = 10
 
+// maxPerFileChecks is the most changed code files a pass must each read. A
+// larger PR is judged on its diff and the other checks alone.
+const maxPerFileChecks = 40
+
 // coverageInput is what a pass's completeness is judged on.
 type coverageInput struct {
 	Pass   Pass
@@ -25,7 +29,9 @@ type coverageInput struct {
 	SinceLast string
 	Changed   []string
 	// Reads are the files the session opened with Read.
-	Reads    []string
+	Reads []string
+	// Ranges are the lines each Read covered, by path.
+	Ranges   map[string][]LineRange
 	Searches int
 	// SecurityRefs are the security guide reference files the session was
 	// given; when code changed, at least one must be read.
@@ -33,12 +39,13 @@ type coverageInput struct {
 }
 
 // reviewGaps lists what a full or incremental pass failed to read: the
-// diff, every changed code file, documentation on a full pass, and, when
-// code changed, existing tests, a search for usages, and the security
-// guide. An incremental pass is judged on what changed since the last
-// review. A pass with gaps has not
-// reviewed the code and cannot approve. Comments-only passes have no
-// requirements. Paths from the reviewer are only compared, never opened.
+// diff; every changed code file, opened or with its whole change read in
+// the diff, up to maxPerFileChecks files; documentation on a full pass;
+// and, when code changed, existing tests, a search for usages, and the
+// security guide. An incremental pass is judged on what changed since the
+// last review. A pass with gaps has not reviewed the code and cannot
+// approve. Comments-only passes have no requirements. Paths from the
+// reviewer are only compared, never opened.
 func reviewGaps(in coverageInput) []string {
 	if in.Pass == PassLedger {
 		return nil
@@ -55,20 +62,28 @@ func reviewGaps(in coverageInput) []string {
 	}
 
 	codeChanged := false
+	var code []string
 	for _, f := range in.Changed {
-		if skippable(f) {
+		if skippable(f) || !isCode(f) {
+			// Config, data, and docs changes are fully visible in the diff.
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(in.Worktree, f)); err != nil {
 			continue // deleted by the PR
 		}
-		// Config, data, and docs changes are fully visible in the diff;
-		// code needs its surrounding file read.
-		if isCode(f) && !opened(f) {
-			gaps = append(gaps, "never read changed file "+f)
-		}
-		if isCode(f) && !isTest(f) {
+		code = append(code, f)
+		if !isTest(f) {
 			codeChanged = true
+		}
+	}
+	if len(code) <= maxPerFileChecks {
+		// Code needs its surrounding file read, unless the reviewer read
+		// the file's whole change in the diff.
+		inDiff := readInDiff(in.Ranges, in.Diff, in.SinceLast)
+		for _, f := range code {
+			if _, ok := inDiff[f]; !ok && !opened(f) {
+				gaps = append(gaps, "never read changed file "+f)
+			}
 		}
 	}
 	// A follow-up review builds on the full review that read the docs.
@@ -198,4 +213,66 @@ func (r readSet) opened(worktree, p string) bool {
 	}
 	_, ok := r[filepath.Clean(p)]
 	return ok
+}
+
+// readInDiff returns the files whose whole section of one of the diffs was
+// covered by the lines the reviewer read.
+func readInDiff(ranges map[string][]LineRange, diffs ...string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, d := range diffs {
+		read := ranges[filepath.Clean(d)]
+		if d == "" || len(read) == 0 {
+			continue
+		}
+		b, err := os.ReadFile(d)
+		if err != nil {
+			continue
+		}
+		for f, section := range diffSections(string(b)) {
+			if covers(read, section) {
+				out[f] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+// diffSections maps each file in a git diff to the lines of its section,
+// from its "diff --git" header to the line before the next one.
+func diffSections(diff string) map[string]LineRange {
+	out := map[string]LineRange{}
+	var cur string
+	lines := strings.Split(strings.TrimSuffix(diff, "\n"), "\n")
+	for i, l := range lines {
+		header, ok := strings.CutPrefix(l, "diff --git ")
+		if !ok {
+			continue
+		}
+		if cur != "" {
+			out[cur] = LineRange{From: out[cur].From, To: i}
+		}
+		cur = ""
+		if j := strings.LastIndex(header, " b/"); j >= 0 {
+			cur = header[j+len(" b/"):]
+			out[cur] = LineRange{From: i + 1}
+		}
+	}
+	if cur != "" {
+		out[cur] = LineRange{From: out[cur].From, To: len(lines)}
+	}
+	return out
+}
+
+// covers reports whether the union of read includes every line of want.
+func covers(read []LineRange, want LineRange) bool {
+	sorted := slices.Clone(read)
+	slices.SortFunc(sorted, func(a, b LineRange) int { return a.From - b.From })
+	next := want.From
+	for _, r := range sorted {
+		if r.From > next {
+			break
+		}
+		next = max(next, r.To+1)
+	}
+	return next > want.To
 }

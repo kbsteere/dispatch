@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,4 +43,50 @@ func TestLiveClaudeSandbox(t *testing.T) {
 		_, statErr := os.Stat(c)
 		assert.True(t, os.IsNotExist(statErr), "no shell: %s must not exist", c)
 	}
+}
+
+func TestLiveClaudeResume(t *testing.T) {
+	if os.Getenv("DISPATCH_LIVE_CLAUDE") != "1" {
+		t.Skip("set DISPATCH_LIVE_CLAUDE=1 to run against the real claude CLI")
+	}
+	cwd := t.TempDir()
+	first, second := filepath.Join(cwd, "a.txt"), filepath.Join(cwd, "b.txt")
+	require.NoError(t, os.WriteFile(first, []byte("alpha\n"), 0o600))
+	require.NoError(t, os.WriteFile(second, []byte("bravo\n"), 0o600))
+	schema := `{"type":"object","additionalProperties":false,"required":["words"],"properties":{"words":{"type":"array","items":{"type":"string"}}}}`
+	spec := RunSpec{
+		SessionID: NewSessionID(), Schema: schema, CWD: cwd, MaxTurns: 6, MaxBudgetUSD: 1,
+		Timeout: 3 * time.Minute, EventsPath: filepath.Join(cwd, "events.jsonl"),
+		Prompt: "Read " + first + " and return the words in it.",
+	}
+	r, err := Start(context.Background(), spec)
+	require.NoError(t, err)
+	res, err := r.Wait()
+	require.NoError(t, err)
+	require.NoError(t, res.Err())
+
+	spec.Resume = true
+	spec.Prompt = "You skipped a file. Read " + second + " too, then return every word from both files."
+	r, err = Start(context.Background(), spec)
+	require.NoError(t, err)
+	more, err := r.Wait()
+	require.NoError(t, err)
+	require.NoError(t, more.Err())
+	t.Logf("first: turns=%d cost=%.4f; resumed: turns=%d cost=%.4f session=%s",
+		res.Turns, res.CostUSD, more.Turns, more.CostUSD, more.SessionID)
+
+	assert.Equal(t, spec.SessionID, more.SessionID, "the same session continued")
+	assert.GreaterOrEqual(t, more.CostUSD, res.CostUSD,
+		"a resumed run reports the session's total cost, which dispatch relies on")
+	assert.Contains(t, string(more.Structured), "alpha", "it remembers the first run")
+	assert.Contains(t, string(more.Structured), "bravo")
+	assert.Equal(t, []string{second}, more.Reads, "reads are the continuation's own")
+	events, err := os.ReadFile(spec.EventsPath)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		2,
+		strings.Count(string(events), `"type":"result"`),
+		"both runs' events are kept",
+	)
 }

@@ -45,6 +45,9 @@ type RunSpec struct {
 	Timeout      time.Duration
 	// EventsPath, when set, receives a copy of the session's event stream.
 	EventsPath string
+	// Resume continues the session SessionID instead of starting it; its
+	// events are appended to EventsPath.
+	Resume bool
 }
 
 // BuildArgs returns the claude arguments for s. The prompt is not among
@@ -56,7 +59,6 @@ func BuildArgs(s RunSpec) []string {
 		// what the session read.
 		"--output-format", "stream-json",
 		"--verbose",
-		"--session-id", s.SessionID,
 		"--max-turns", strconv.Itoa(s.MaxTurns),
 		"--max-budget-usd", fmt.Sprintf("%.2f", s.MaxBudgetUSD),
 		// User settings can carry hooks and permissions that widen what a
@@ -64,6 +66,11 @@ func BuildArgs(s RunSpec) []string {
 		"--setting-sources", "local",
 		"--tools", reviewerTools,
 		"--permission-mode", "dontAsk",
+	}
+	if s.Resume {
+		args = append(args, "--resume", s.SessionID)
+	} else {
+		args = append(args, "--session-id", s.SessionID)
 	}
 	for _, d := range s.AddDirs {
 		args = append(args, "--add-dir", d)
@@ -118,7 +125,11 @@ func Start(ctx context.Context, s RunSpec) (*Run, error) {
 	cmd.Stdout = &r.stdout
 	cmd.Stderr = &r.stderr
 	if s.EventsPath != "" {
-		f, err := os.OpenFile(s.EventsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		mode := os.O_TRUNC
+		if s.Resume {
+			mode = os.O_APPEND
+		}
+		f, err := os.OpenFile(s.EventsPath, os.O_CREATE|os.O_WRONLY|mode, 0o600)
 		if err != nil {
 			cancel()
 			return nil, err
