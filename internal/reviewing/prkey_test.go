@@ -64,3 +64,29 @@ func TestSanitizeTerminal(t *testing.T) {
 	in := "fix\x1b]52;c;ZXZpbA==\x07 clipboard\x1b[2J\r\nline2\tok\u009b31m"
 	assert.Equal(t, "fix]52;c;ZXZpbA== clipboard[2J\nline2\tok31m", SanitizeTerminal(in))
 }
+
+func TestParsePRNumber(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want int
+		ok   bool
+	}{
+		{"66370", 66370, true},
+		{"#216533", 216533, true},
+		{"  42 ", 42, true},
+		{"0", 0, false},
+		{"-5", 0, false},
+		{"12a", 0, false},
+		{"", 0, false},
+		{"#", 0, false},
+		{"99999999999999999999999", 0, false},
+		{"chainguard-dev/mono#66370", 0, false},
+		{"https://github.com/chainguard-dev/mono/pull/66370", 0, false},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			n, ok := ParsePRNumber(tc.in)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.want, n)
+		})
+	}
+}

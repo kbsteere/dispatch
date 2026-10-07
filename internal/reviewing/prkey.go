@@ -65,6 +65,19 @@ func ParsePRRef(s string) (PRKey, error) {
 	return PRKey{Owner: m[1], Repo: m[2], Number: n}, nil
 }
 
+// ParsePRNumber reads a bare PR number, such as 66370 or #66370.
+func ParsePRNumber(s string) (int, bool) {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
+	if s == "" || strings.Trim(s, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
 // SanitizeTerminal removes control characters other than newline and tab so
 // untrusted text cannot emit terminal escape sequences.
 func SanitizeTerminal(s string) string {

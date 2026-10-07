@@ -129,6 +129,7 @@ type GitHub interface {
 	Search(ctx context.Context, query string, maxPages int) ([]SearchHit, RateLimit, error)
 	Details(ctx context.Context, nodeIDs []string) ([]PRDetail, RateLimit, error)
 	Resolve(ctx context.Context, k PRKey) (string, error)
+	OpenPRs(ctx context.Context, keys []PRKey) ([]PRKey, error)
 	RequiredContexts(ctx context.Context, k PRKey, branch string) (RequiredContexts, error)
 	PostReview(ctx context.Context, k PRKey, p ReviewPayload) (string, error)
 	ReplyThread(ctx context.Context, threadID, body string) (string, error)
@@ -597,6 +598,65 @@ func (g *ghClient) Resolve(ctx context.Context, k PRKey) (string, error) {
 	return resp.Repository.PullRequest.ID, nil
 }
 
+// OpenPRs returns which of keys name an open pull request, asking for all of
+// them in one query. Keys that name no PR, or a missing repository, are left
+// out.
+func (g *ghClient) OpenPRs(ctx context.Context, keys []PRKey) ([]PRKey, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	var params, fields strings.Builder
+	vars := make(map[string]any, 3*len(keys))
+	for i, k := range keys {
+		fmt.Fprintf(&params, "$o%d: String!, $r%d: String!, $n%d: Int!, ", i, i, i)
+		fmt.Fprintf(
+			&fields,
+			"p%d: repository(owner: $o%d, name: $r%d) { pullRequest(number: $n%d) { state } } ",
+			i, i, i, i,
+		)
+		vars[fmt.Sprintf("o%d", i)] = k.Owner
+		vars[fmt.Sprintf("r%d", i)] = k.Repo
+		vars[fmt.Sprintf("n%d", i)] = k.Number
+	}
+	query := fmt.Sprintf(
+		"query(%s) { %s}",
+		strings.TrimSuffix(params.String(), ", "),
+		fields.String(),
+	)
+	var resp map[string]*struct {
+		PullRequest *struct {
+			State string `json:"state"`
+		} `json:"pullRequest"`
+	}
+	if err := g.gql.DoWithContext(ctx, query, vars, &resp); err != nil && !onlyNotFound(err) {
+		return nil, err
+	}
+	var open []PRKey
+	for i, k := range keys {
+		if r := resp[fmt.Sprintf("p%d", i)]; r != nil && r.PullRequest != nil &&
+			r.PullRequest.State == "OPEN" {
+			open = append(open, k)
+		}
+	}
+	return open, nil
+}
+
+// onlyNotFound reports a GraphQL error whose every item is NOT_FOUND, which
+// GitHub returns, alongside the data it did find, for a missing repository
+// or PR number.
+func onlyNotFound(err error) bool {
+	var gqlErr *api.GraphQLError
+	if !errors.As(err, &gqlErr) || len(gqlErr.Errors) == 0 {
+		return false
+	}
+	for _, e := range gqlErr.Errors {
+		if e.Type != "NOT_FOUND" {
+			return false
+		}
+	}
+	return true
+}
+
 func isStatus(err error, codes ...int) bool {
 	var httpErr *api.HTTPError
 	if !errors.As(err, &httpErr) {
@@ -986,5 +1046,9 @@ func (f failingGitHub) CheckReport(context.Context, PRKey, int64) (CheckReport, 
 }
 
 func (f failingGitHub) BaseChecks(context.Context, PRKey, string) (map[string]string, error) {
+	return nil, f.err
+}
+
+func (f failingGitHub) OpenPRs(context.Context, []PRKey) ([]PRKey, error) {
 	return nil, f.err
 }

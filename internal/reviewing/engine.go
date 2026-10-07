@@ -317,6 +317,63 @@ func (e *Engine) Pin(ctx context.Context, k PRKey) error {
 	return err
 }
 
+// ResolveNumber finds the open PR numbered n in the repositories the watch
+// scopes with repo:. It fails when none or more than one of them has it open.
+func (e *Engine) ResolveNumber(ctx context.Context, n int) (PRKey, error) {
+	repos := scopeRepos(e.d.Watch.Scopes)
+	if len(repos) == 0 {
+		return PRKey{}, fmt.Errorf(
+			"%s has no repo: scopes to look in; type owner/repo#%d",
+			e.Name(),
+			n,
+		)
+	}
+	keys := make([]PRKey, 0, len(repos))
+	names := make([]string, 0, len(repos))
+	for _, r := range repos {
+		keys = append(keys, PRKey{Owner: r.Owner, Repo: r.Repo, Number: n})
+		names = append(names, r.Repo)
+	}
+	open, err := e.d.GitHub.OpenPRs(ctx, keys)
+	if err != nil {
+		return PRKey{}, err
+	}
+	switch len(open) {
+	case 1:
+		return open[0], nil
+	case 0:
+		return PRKey{}, fmt.Errorf("no open PR #%d in %s", n, strings.Join(names, ", "))
+	default:
+		in := make([]string, 0, len(open))
+		for _, k := range open {
+			in = append(in, k.Repo)
+		}
+		return PRKey{}, fmt.Errorf(
+			"#%d is open in %s; type owner/repo#%d",
+			n,
+			strings.Join(in, " and "),
+			n,
+		)
+	}
+}
+
+// scopeRepos returns the repositories named by repo: scopes, skipping any
+// whose owner or name is invalid.
+func scopeRepos(scopes []string) []PRKey {
+	var out []PRKey
+	for _, s := range scopes {
+		name, ok := strings.CutPrefix(s, "repo:")
+		if !ok {
+			continue
+		}
+		owner, repo, ok := strings.Cut(name, "/")
+		if ok && ValidName(owner) && ValidName(repo) {
+			out = append(out, PRKey{Owner: owner, Repo: repo})
+		}
+	}
+	return out
+}
+
 func (e *Engine) Unpin(k PRKey) error {
 	_, err := e.update(k, func(st *PRState) { st.Pinned = false })
 	return err

@@ -631,3 +631,37 @@ func TestDetailsPaginatesChecks(t *testing.T) {
 	}
 	assert.Equal(t, "SUCCESS", RequiredState(ds[0].Checks, req, last.StartedAt.Add(time.Hour)))
 }
+
+func TestOpenPRs(t *testing.T) {
+	keys := []PRKey{
+		{"chainguard-dev", "mono", 66370},
+		{"chainguard-dev", "stereo", 66370},
+		{"chainguard-dev", "omnibump", 66370},
+	}
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		assert.Equal(t, "mono", r.Variables["r0"])
+		assert.Equal(t, "omnibump", r.Variables["r2"])
+		assert.EqualValues(t, 66370, r.Variables["n1"])
+		assert.NotContains(t, r.Query, "mono", "names travel as variables, not query text")
+		// GitHub answers what it found and reports the missing PR as an error.
+		return `{"data":{
+		  "p0":{"pullRequest":{"state":"OPEN"}},
+		  "p1":{"pullRequest":{"state":"MERGED"}},
+		  "p2":{"pullRequest":null}},
+		 "errors":[{"type":"NOT_FOUND","path":["p2","pullRequest"],
+		  "message":"Could not resolve to a PullRequest with the number of 66370."}]}`
+	}, noREST(t))
+
+	open, err := gh.OpenPRs(context.Background(), keys)
+	require.NoError(t, err, "a missing PR is not a failure")
+	assert.Equal(t, []PRKey{{"chainguard-dev", "mono", 66370}}, open, "merged PRs are left out")
+}
+
+func TestOpenPRsOtherErrors(t *testing.T) {
+	gh, _ := fakeGH(t, func(gqlRequest) string {
+		return `{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}`
+	}, noREST(t))
+	_, err := gh.OpenPRs(context.Background(), []PRKey{{"chainguard-dev", "mono", 1}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rate limit")
+}

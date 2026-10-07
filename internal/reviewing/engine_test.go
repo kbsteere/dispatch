@@ -43,6 +43,10 @@ type fakeGitHub struct {
 	reports map[int64]CheckReport
 	base    map[string]string
 	filters []string
+	// open are the PRs OpenPRs reports open; asked are the keys it was
+	// asked about.
+	open  map[PRKey]struct{}
+	asked []PRKey
 }
 
 func (f *fakeGitHub) Viewer(context.Context) (string, error) { return f.viewer, nil }
@@ -929,4 +933,73 @@ func TestNonBlockingChecksNeverHoldUpCI(t *testing.T) {
 	e.d.Watch.NonBlockingChecks = []string{"skillup"}
 	assert.Equal(t, "SUCCESS", e.signature(t.Context(), d, "kbsteere").CI,
 		"a failing skillup does not hold up approval")
+}
+
+func (f *fakeGitHub) OpenPRs(_ context.Context, keys []PRKey) ([]PRKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, keys...)
+	var out []PRKey
+	for _, k := range keys {
+		if _, ok := f.open[k]; ok {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+
+func TestResolveNumber(t *testing.T) {
+	mono := PRKey{"chainguard-dev", "mono", 66370}
+	stereo := PRKey{"chainguard-dev", "stereo", 66370}
+	scopes := []string{
+		"repo:chainguard-dev/mono",
+		"repo:chainguard-dev/stereo",
+		"repo:chainguard-dev/omnibump",
+		"org:wolfi-dev",
+	}
+	for _, tc := range []struct {
+		name    string
+		open    []PRKey
+		want    PRKey
+		wantErr string
+	}{
+		{name: "one open match", open: []PRKey{mono}, want: mono},
+		{name: "none open", wantErr: "no open PR #66370 in mono, stereo, omnibump"},
+		{
+			name:    "open in several",
+			open:    []PRKey{mono, stereo},
+			wantErr: "#66370 is open in mono and stereo; type owner/repo#66370",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := t0
+			gh := &fakeGitHub{viewer: "kbsteere", open: map[PRKey]struct{}{}}
+			for _, k := range tc.open {
+				gh.open[k] = struct{}{}
+			}
+			e := newTestEngine(t, gh, &now)
+			e.d.Watch.Scopes = scopes
+
+			got, err := e.ResolveNumber(context.Background(), 66370)
+			assert.Equal(t, []PRKey{
+				mono, stereo, {"chainguard-dev", "omnibump", 66370},
+			}, gh.asked, "only repo: scopes are searched, all at once")
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestResolveNumberWithoutRepoScopes(t *testing.T) {
+	now := t0
+	gh := &fakeGitHub{viewer: "kbsteere"}
+	e := newTestEngine(t, gh, &now)
+	e.d.Watch.Scopes = []string{"org:chainguard-dev"}
+	_, err := e.ResolveNumber(context.Background(), 12)
+	require.ErrorContains(t, err, "no repo: scopes")
+	assert.Empty(t, gh.asked, "GitHub is not asked")
 }

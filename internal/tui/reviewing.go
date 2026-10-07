@@ -329,7 +329,7 @@ func (m *Model) toggleFollow(row data.RowData) tea.Cmd {
 }
 
 // addRefPrompt asks for the PR to add to the review watch.
-const addRefPrompt = "Add PR to the review watch (URL or owner/repo#N):"
+const addRefPrompt = "Add PR to the review watch (number, owner/repo#N or URL):"
 
 // askAddRef asks, in the current section, for a PR to add to the review
 // watch.
@@ -341,17 +341,25 @@ func (m *Model) askAddRef() tea.Cmd {
 	return s.AskInput(addRefPrompt, m.addRef)
 }
 
-// addRef adds a PR typed as owner/repo#N or a URL.
+// addRef adds a PR typed as owner/repo#N, a URL, or a bare number looked up
+// in the watch's repositories.
 func (m *Model) addRef(ref string) tea.Cmd {
 	e := m.targetEngine()
 	if e == nil {
 		return noWatches
 	}
+	n, bare := reviewing.ParsePRNumber(ref)
 	k, err := reviewing.ParsePRRef(ref)
-	if err != nil {
+	if err != nil && !bare {
 		return func() tea.Msg { return reviewActionMsg{err: err} }
 	}
 	return func() tea.Msg {
+		if bare {
+			var err error
+			if k, err = e.ResolveNumber(context.Background(), n); err != nil {
+				return reviewActionMsg{err: err}
+			}
+		}
 		if err := e.Pin(context.Background(), k); err != nil {
 			return reviewActionMsg{err: err}
 		}
