@@ -331,6 +331,10 @@ func (e *Engine) apply(
 		if f.Category == CategorySecurity {
 			f.Blocking = true
 		}
+		// A data-heavy repo's test suggestions never hold up a PR.
+		if f.Category == CategoryTestGap && e.prOnly(job.Key) {
+			f.Blocking = false
+		}
 		if !files[f.Path] || f.Line <= 0 {
 			// A finding dispatch cannot anchor to a changed line is still a
 			// finding; hold the pass for the user rather than dropping it,

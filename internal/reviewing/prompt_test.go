@@ -278,3 +278,12 @@ func TestBuildPromptOffersUnpostedFindingsToRaiseAgain(t *testing.T) {
 	assert.Contains(t, unposted, "raise it again in `findings` at its current line")
 	assert.Contains(t, unposted, "- policies.yaml.tpl:242 blocking=true: runs at 13:00 with dlq")
 }
+
+func TestPromptWordsTestSuggestionsAsNonBlocking(t *testing.T) {
+	p := BuildPrompt(PromptInput{Pass: PassFull})
+	assert.Contains(t, p, "Suggesting an extra test for a change that is otherwise correct")
+	assert.Contains(t, p, `"You could add a smoke test like:"`)
+	assert.Contains(t, p, `Never "Please add"`)
+	assert.Contains(t, BuildPrompt(PromptInput{Pass: PassFull, PROnly: true}),
+		"Test suggestions in this repository are always non-blocking.")
+}

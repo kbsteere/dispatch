@@ -868,3 +868,25 @@ func TestReviewWaitsWhenTheCheckPassesOnMain(t *testing.T) {
 	require.NoError(t, out.Err)
 	assert.Empty(t, h.gh.posted, "a check that passes on main was broken by the PR")
 }
+
+func TestReviewTestSuggestionInPROnlyRepoNeverBlocks(t *testing.T) {
+	// stereo#216533: a smoke-test suggestion was posted as blocking.
+	h := newReviewHarness(t, "smoke", func(w *config.ReviewWatch) {
+		w.PROnlyRepos = []string{"chainguard-dev/mono"}
+	})
+	t.Setenv("FAKE_CLAUDE_READS", "")
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	require.Len(t, h.gh.posted, 1)
+	p := h.gh.posted[0]
+	assert.Equal(t, "APPROVE", p.Event, "a test suggestion does not hold up the PR")
+	require.Len(t, p.Comments, 1)
+	assert.True(
+		t,
+		strings.HasPrefix(p.Comments[0].Body, "non-blocking: You could add a smoke test"),
+	)
+	st := h.state(t)
+	require.Len(t, st.Ledger, 1)
+	assert.False(t, st.Ledger[0].Blocking)
+}

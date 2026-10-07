@@ -54,6 +54,9 @@ case "${FAKE_CLAUDE_MODE:-success}" in
   ci_related)
     result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"clean","ci":[{"check":"scan-urls","related":true,"reason":"the new feed URL in kev.go returns 404"}]}'
     ;;
+  smoke)
+    result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":true,"category":"test-gap","body":"You could add a smoke test that imports the package from the built venv."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":[],"code":[],"usages":[],"tests":[]},"verdict":"approve","verdict_reason":"only a test suggestion"}'
+    ;;
   phantom)
     result 7 1.25 '{"findings":[],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"clean","examined":{"docs":["docs/design.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;

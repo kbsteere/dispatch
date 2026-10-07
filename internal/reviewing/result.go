@@ -196,3 +196,6 @@ type CIAssessment struct {
 	Related bool   `json:"related"`
 	Reason  string `json:"reason"`
 }
+
+// CategoryTestGap marks a missing or suggested test.
+const CategoryTestGap = "test-gap"
