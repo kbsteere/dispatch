@@ -161,3 +161,68 @@ func TestSectionPromptConfirmation(t *testing.T) {
 	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.NotNil(t, cmd, "y runs the action")
 }
+
+type addRefMsg struct{ ref string }
+
+func TestSectionAskInputOnEmptyTable(t *testing.T) {
+	m := newTestSection(t)
+	m.SetData(reviewing.WatchStatus{LastPoll: now}, nil)
+	var got []string
+	m.AskInput("Add PR to the review watch (URL or owner/repo#N):", func(ref string) tea.Cmd {
+		got = append(got, ref)
+		return func() tea.Msg { return addRefMsg{ref} }
+	})
+
+	assert.Contains(t, ansi.Strip(m.GetPromptConfirmation()), "Add PR to the review watch",
+		"the prompt shows even with no PR selected")
+
+	for _, r := range "  https://github.com/chainguard-dev/mono/pull/66370 " {
+		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.False(t, m.IsPromptConfirmationShown, "enter closes the prompt")
+	require.Equal(t, []string{"https://github.com/chainguard-dev/mono/pull/66370"}, got,
+		"the typed reference is submitted once, trimmed")
+	require.NotNil(t, cmd)
+	assert.Contains(
+		t,
+		batchMsgs(cmd),
+		tea.Msg(addRefMsg{"https://github.com/chainguard-dev/mono/pull/66370"}),
+	)
+	assert.Empty(t, m.PromptConfirmationBox.Value(), "the prompt is cleared")
+
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Len(t, got, 1, "a closed prompt does not submit again")
+}
+
+func TestSectionAskInputCancelled(t *testing.T) {
+	m := newTestSection(t)
+	called := false
+	m.AskInput("Add PR:", func(string) tea.Cmd { called = true; return nil })
+	m.PromptConfirmationBox.SetValue("chainguard-dev/stereo#216533")
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.False(t, m.IsPromptConfirmationShown)
+	assert.False(t, called, "esc submits nothing")
+
+	m.AskInput("Add PR:", func(string) tea.Cmd { called = true; return nil })
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.False(t, called, "empty text submits nothing")
+}
+
+// batchMsgs runs cmd, expanding batches, and returns the messages it
+// produces.
+func batchMsgs(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	b, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, c := range b {
+		out = append(out, batchMsgs(c)...)
+	}
+	return out
+}

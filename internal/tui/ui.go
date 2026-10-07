@@ -498,7 +498,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.reviewers) == 0 {
 					return m, noWatches
 				}
-				return m, m.openSidebarForPRInput(m.prView.SetIsAddingReviewRef)
+				return m, m.askAddRef()
 
 			case key.Matches(msg, keys.PRKeys.ReviewSendHeld):
 				return m, m.sendDraft(currRowData)
@@ -874,9 +874,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.notify(msg.note))
 		}
 		cmds = append(cmds, m.refreshWatchViews())
-
-	case prview.AddReviewRefMsg:
-		cmds = append(cmds, m.addRef(msg.Ref))
 
 	case notificationPRFetchedMsg:
 		if msg.Err == nil {

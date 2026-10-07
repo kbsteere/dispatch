@@ -195,7 +195,9 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		var cmd tea.Cmd
 		pr := m.GetCurrRow()
 		v := m.PromptConfirmationBox.Value()
-		if m.GetPromptConfirmationAction() == section.AskedConfirmationAction &&
+		if m.GetPromptConfirmationAction() == section.AskedInputAction {
+			cmd = m.SubmittedCmd(v)
+		} else if m.GetPromptConfirmationAction() == section.AskedConfirmationAction &&
 			(v == "y" || v == "Y") {
 			cmd = m.ConfirmedCmd()
 		} else if pr != nil &&

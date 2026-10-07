@@ -328,6 +328,19 @@ func (m *Model) toggleFollow(row data.RowData) tea.Cmd {
 	}
 }
 
+// addRefPrompt asks for the PR to add to the review watch.
+const addRefPrompt = "Add PR to the review watch (URL or owner/repo#N):"
+
+// askAddRef asks, in the current section, for a PR to add to the review
+// watch.
+func (m *Model) askAddRef() tea.Cmd {
+	s := m.getCurrSection()
+	if s == nil {
+		return nil
+	}
+	return s.AskInput(addRefPrompt, m.addRef)
+}
+
 // addRef adds a PR typed as owner/repo#N or a URL.
 func (m *Model) addRef(ref string) tea.Cmd {
 	e := m.targetEngine()

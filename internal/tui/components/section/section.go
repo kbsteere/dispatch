@@ -49,10 +49,11 @@ type BaseModel struct {
 	ShowAuthorIcon            bool
 	IsFilteredByCurrentRemote bool
 	IsLoading                 bool
-	// askedPrompt and onConfirm back a confirmation asked with
-	// AskConfirmation rather than a built-in action.
+	// askedPrompt, onConfirm and onSubmit back a question asked with
+	// AskConfirmation or AskInput rather than a built-in action.
 	askedPrompt string
 	onConfirm   func() tea.Cmd
+	onSubmit    func(string) tea.Cmd
 }
 
 type NewSectionOptions struct {
@@ -197,6 +198,7 @@ type PromptConfirmation interface {
 	GetPromptConfirmationAction() string
 	GetPromptConfirmation() string
 	AskConfirmation(prompt string, onYes func() tea.Cmd) tea.Cmd
+	AskInput(prompt string, onSubmit func(string) tea.Cmd) tea.Cmd
 }
 
 func (m *BaseModel) GetDimensions() constants.Dimensions {
@@ -503,6 +505,9 @@ func (m *BaseModel) GetPromptConfirmation() string {
 		case m.PromptConfirmationAction == AskedConfirmationAction:
 			prompt = m.askedPrompt + " (y/N) "
 
+		case m.PromptConfirmationAction == AskedInputAction:
+			prompt = m.askedPrompt + " "
+
 		case m.PromptConfirmationAction == "close" && m.Ctx.View.IsPRLike():
 			prompt = "Are you sure you want to close this PR? (y/N) "
 
@@ -565,4 +570,27 @@ func (m *BaseModel) ConfirmedCmd() tea.Cmd {
 		return nil
 	}
 	return onYes()
+}
+
+// AskedInputAction is the prompt action for text asked with AskInput.
+const AskedInputAction = "askedInput"
+
+// AskInput shows prompt and runs onSubmit with the trimmed text the user
+// enters. Sections run it from their prompt handling through SubmittedCmd.
+func (m *BaseModel) AskInput(prompt string, onSubmit func(string) tea.Cmd) tea.Cmd {
+	m.askedPrompt, m.onSubmit = prompt, onSubmit
+	m.PromptConfirmationAction = AskedInputAction
+	return m.SetIsPromptConfirmationShown(true)
+}
+
+// SubmittedCmd runs the callback of an AskInput prompt with the entered
+// text, once. Empty text runs nothing.
+func (m *BaseModel) SubmittedCmd(value string) tea.Cmd {
+	onSubmit := m.onSubmit
+	m.askedPrompt, m.onSubmit = "", nil
+	value = strings.TrimSpace(value)
+	if onSubmit == nil || value == "" {
+		return nil
+	}
+	return onSubmit(value)
 }

@@ -14,33 +14,8 @@ import (
 
 	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/common"
-	"github.com/kbsteere/dispatch/v4/internal/tui/components/cmpcontroller"
 	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
 )
-
-// AddReviewRefMsg carries a PR reference typed into the add-to-watch prompt.
-type AddReviewRefMsg struct {
-	Ref string
-}
-
-// SetIsAddingReviewRef opens or closes the prompt for adding a PR to the
-// review watch by reference.
-func (m *Model) SetIsAddingReviewRef(on bool) tea.Cmd {
-	if m.pr == nil {
-		return nil
-	}
-	if !on {
-		if m.editor.Mode() == cmpcontroller.ModeAddReviewRef {
-			m.editor.Exit()
-		}
-		return nil
-	}
-	return m.editor.Enter(cmpcontroller.EnterOptions{
-		Mode:   cmpcontroller.ModeAddReviewRef,
-		Prompt: constants.AddReviewRefPrompt,
-		Repo:   m.repoRef(),
-	})
-}
 
 func (m *Model) currWatch() (reviewing.PRState, bool) {
 	if m.pr == nil || m.ctx.WatchPRs == nil {
