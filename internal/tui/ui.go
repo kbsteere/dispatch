@@ -258,13 +258,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Down):
 			if currSection != nil {
-				prevRow := currSection.CurrRow()
-				nextRow := currSection.NextRow()
-				if prevRow != nextRow && nextRow == currSection.NumRows()-1 &&
-					m.ctx.View != config.RepoView {
-					cmds = append(cmds, currSection.FetchNextPageSectionRows()...)
-				}
-				cmd = m.onViewedRowChanged()
+				cmd = m.selectNextRow(currSection)
 			}
 
 		case key.Matches(msg, m.keys.Up):
@@ -971,6 +965,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button != tea.MouseLeft {
 			return m, nil
 		}
+
+	case tea.MouseWheelMsg:
+		return m, m.onMouseWheel(msg)
 
 	case tea.WindowSizeMsg:
 		m.onWindowSizeChanged(msg)

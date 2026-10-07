@@ -44,6 +44,7 @@ The `repoPaths` mapping tells dispatch where repos live locally; AI reviews and 
 | `B` | Open the finished review's Claude session interactively |
 | `d` | Full-screen diff via your configured pager (e.g. delta) |
 | `[` / `]` | Cycle preview tabs (Overview, Activity, Commits, Checks, Files, Diff, Review) |
+| Mouse wheel | Scroll the preview pane, or move the selection in the table, depending on where the pointer is |
 | `f` | Add the selected PR to the review watch, or remove a PR you added |
 | `F` | Add a PR to the review watch by `owner/repo#N` or URL |
 | `S` | Post the review shown in the Review tab, held or dry-run (asks y/N) |

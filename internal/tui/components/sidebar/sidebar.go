@@ -141,3 +141,7 @@ func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
 	}
 	m.viewport.SetWidth(m.GetSidebarContentWidth())
 }
+
+// ScrollUp and ScrollDown move the sidebar's content by n lines.
+func (m *Model) ScrollUp(n int)   { m.viewport.ScrollUp(n) }
+func (m *Model) ScrollDown(n int) { m.viewport.ScrollDown(n) }
