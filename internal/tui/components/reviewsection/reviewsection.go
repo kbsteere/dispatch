@@ -2,6 +2,7 @@ package reviewsection
 
 import (
 	"fmt"
+	"image/color"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -94,12 +95,26 @@ func (m Model) BuildRows() []table.Row {
 	rows := make([]table.Row, 0, len(m.states))
 	for _, s := range m.states {
 		c := Cells(s, now)
+		status := lipgloss.NewStyle().Foreground(m.toneColor(StatusTone(s))).Render(c.Status)
 		rows = append(
 			rows,
-			table.Row{c.Status, c.PR, c.Author, c.You, c.Open, ciGlyph(c.CI), c.Spend, c.Updated},
+			table.Row{status, c.PR, c.Author, c.You, c.Open, ciGlyph(c.CI), c.Spend, c.Updated},
 		)
 	}
 	return rows
+}
+
+func (m Model) toneColor(t Tone) color.Color {
+	switch t {
+	case ToneGood:
+		return m.Ctx.Theme.SuccessText
+	case ToneBad:
+		return m.Ctx.Theme.ErrorText
+	case ToneBusy:
+		return m.Ctx.Theme.WarningText
+	default:
+		return m.Ctx.Theme.FaintText
+	}
 }
 
 func (m *Model) NumRows() int { return len(m.states) }

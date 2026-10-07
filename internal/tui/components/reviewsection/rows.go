@@ -294,6 +294,44 @@ func NextPoll(ws reviewing.WatchStatus, now time.Time) string {
 
 // approvedOnGitHub reports whether your approval exists on the PR: dispatch
 // posted one at a head, or GitHub shows your approval on the current head.
+// Tone groups row statuses by what they ask of the reader, so the Status
+// column can be colored.
+type Tone int
+
+const (
+	// ToneQuiet is waiting on someone else, or finished.
+	ToneQuiet Tone = iota
+	// ToneGood is approved on GitHub.
+	ToneGood
+	// ToneBad needs the author or you to act.
+	ToneBad
+	// ToneBusy is in progress or not yet settled.
+	ToneBusy
+)
+
+// StatusTone is the tone of the status Cells shows for s.
+func StatusTone(s reviewing.PRState) Tone {
+	switch {
+	case s.Inactive:
+		return ToneQuiet
+	case s.ForceReview && s.Status != reviewing.StatusReviewing:
+		return ToneBusy
+	}
+	switch s.Status {
+	case reviewing.StatusApproved:
+		if s.DryRun || !approvedOnGitHub(s) {
+			return ToneBusy
+		}
+		return ToneGood
+	case reviewing.StatusChangesRequested, reviewing.StatusFailed, reviewing.StatusNeedsAttention:
+		return ToneBad
+	case reviewing.StatusReviewing, reviewing.StatusWaitingOnCI, reviewing.StatusThrottled:
+		return ToneBusy
+	default:
+		return ToneQuiet
+	}
+}
+
 func approvedOnGitHub(s reviewing.PRState) bool {
 	return s.ApprovedHead != "" || (s.MyReview == "APPROVED" && s.MyReviewOnHead)
 }

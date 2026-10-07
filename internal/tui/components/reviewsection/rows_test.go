@@ -321,3 +321,40 @@ func TestSortStatesKeepsPRsClosedInTheLastFiveMinutes(t *testing.T) {
 	assert.Equal(t, "✓", c.You, "your approval stays visible after it merges")
 	assert.Equal(t, "closed", Cells(closed, now).Status)
 }
+
+func TestStatusTone(t *testing.T) {
+	approved := st("mono", 66370, reviewing.StatusApproved, time.Minute)
+	approved.ApprovedHead = "4f1c2a9"
+	unposted := st("mono", 66370, reviewing.StatusApproved, time.Minute)
+	dry := approved
+	dry.DryRun = true
+	queued := st("stereo", 216533, reviewing.StatusChangesRequested, time.Minute)
+	queued.ForceReview = true
+	merged := approved
+	merged.Inactive, merged.ClosedState = true, "MERGED"
+
+	for _, tc := range []struct {
+		name string
+		s    reviewing.PRState
+		want Tone
+	}{
+		{"approved on GitHub", approved, ToneGood},
+		{"approved but not posted", unposted, ToneBusy},
+		{"approved in dry run", dry, ToneBusy},
+		{"queued for a re-review", queued, ToneBusy},
+		{"merged", merged, ToneQuiet},
+		{"changes requested", st("mono", 61307, reviewing.StatusChangesRequested, 0), ToneBad},
+		{"failed", st("mono", 1, reviewing.StatusFailed, 0), ToneBad},
+		{"needs attention", st("mono", 2, reviewing.StatusNeedsAttention, 0), ToneBad},
+		{"reviewing", st("mono", 3, reviewing.StatusReviewing, 0), ToneBusy},
+		{"waiting on CI", st("mono", 4, reviewing.StatusWaitingOnCI, 0), ToneBusy},
+		{"throttled", st("mono", 5, reviewing.StatusThrottled, 0), ToneBusy},
+		{"waiting on author", st("mono", 6, reviewing.StatusWaitingOnAuthor, 0), ToneQuiet},
+		{"waiting on others", st("mono", 7, reviewing.StatusWaitingOnOthers, 0), ToneQuiet},
+		{"baseline", st("mono", 8, reviewing.StatusBaseline, 0), ToneQuiet},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, StatusTone(tc.s))
+		})
+	}
+}

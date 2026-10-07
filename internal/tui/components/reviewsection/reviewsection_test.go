@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,8 @@ func TestSectionShowsWatchStateInOrder(t *testing.T) {
 	require.Equal(t, 2, m.NumRows())
 	assert.Equal(t, 2, m.GetTotalCount())
 	rows := m.BuildRows()
-	assert.Equal(t, "attention", rows[0][0])
+	assert.Equal(t, "attention", ansi.Strip(rows[0][0]))
+	assert.NotEqual(t, "attention", rows[0][0], "the status is colored")
 	assert.Equal(
 		t,
 		"mono#66173 version-reconciler: enable heuristic Actions EOL for every project",
