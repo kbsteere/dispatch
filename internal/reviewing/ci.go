@@ -36,11 +36,11 @@ func (e *Engine) loadCIProblems(
 	d PRDetail,
 	dir string,
 ) ([]CIProblem, map[string]string) {
-	req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef)
+	checks, err := e.requiredChecks(ctx, d)
 	if err != nil {
 		return nil, nil
 	}
-	problems := ciProblems(RequiredChecks(d.Checks, req, e.d.Now()))
+	problems := ciProblems(checks)
 	if len(problems) == 0 {
 		return nil, nil
 	}

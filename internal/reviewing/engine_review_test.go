@@ -890,3 +890,19 @@ func TestReviewTestSuggestionInPROnlyRepoNeverBlocks(t *testing.T) {
 	require.Len(t, st.Ledger, 1)
 	assert.False(t, st.Ledger[0].Blocking)
 }
+
+func TestNonBlockingThread(t *testing.T) {
+	assert.True(
+		t,
+		nonBlockingThread(
+			"**Suggestion (non-blocking).** Have you thought about trying this in staging first?",
+		),
+	)
+	assert.True(t, nonBlockingThread("nit: rename `x`"))
+	assert.True(t, nonBlockingThread("Optional: add a log line"))
+	assert.False(
+		t,
+		nonBlockingThread("Could we scope the `build.v1` match to the scanning subscriptions?"),
+	)
+	assert.False(t, nonBlockingThread("This panics on a nil map; a minor change fixes it."))
+}

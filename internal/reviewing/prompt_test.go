@@ -287,3 +287,15 @@ func TestPromptWordsTestSuggestionsAsNonBlocking(t *testing.T) {
 	assert.Contains(t, BuildPrompt(PromptInput{Pass: PassFull, PROnly: true}),
 		"Test suggestions in this repository are always non-blocking.")
 }
+
+func TestBuildPromptListsNonBlockingChecks(t *testing.T) {
+	p := BuildPrompt(
+		PromptInput{
+			Pass:  PassFull,
+			Watch: config.ReviewWatch{NonBlockingChecks: []string{"skillup"}},
+		},
+	)
+	assert.Contains(t, p, "## Non-blocking checks")
+	assert.Contains(t, p, "- skillup")
+	assert.NotContains(t, BuildPrompt(PromptInput{Pass: PassFull}), "## Non-blocking checks")
+}

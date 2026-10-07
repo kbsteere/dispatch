@@ -35,8 +35,11 @@ type ReviewWatch struct {
 	IgnoreLogins []string `yaml:"ignoreLogins,omitempty"`
 	// PROnlyRepos are owner/repo names whose reviews cover only the PR's
 	// own contents, for repositories that are mostly data.
-	PROnlyRepos []string        `yaml:"prOnlyRepos,omitempty" validate:"dive,reponame"`
-	Limits      ReviewingLimits `yaml:"limits,omitempty"`
+	PROnlyRepos []string `yaml:"prOnlyRepos,omitempty" validate:"dive,reponame"`
+	// NonBlockingChecks are CI checks whose failures never hold up an
+	// approval, even where a repository marks them required.
+	NonBlockingChecks []string        `yaml:"nonBlockingChecks,omitempty" validate:"dive,required"`
+	Limits            ReviewingLimits `yaml:"limits,omitempty"`
 }
 
 // ReviewingForConfig configures autonomous reviews of other people's PRs.

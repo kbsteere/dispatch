@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -388,7 +389,7 @@ func (e *Engine) apply(
 			ThreadID: id,
 			Path:     t.Path,
 			Line:     t.Line,
-			Blocking: true,
+			Blocking: !nonBlockingThread(t.Comments[0].Body),
 			Summary:  summarize(t.Comments[0].Body),
 			Status:   FindingOutstanding,
 		})
@@ -497,9 +498,8 @@ func (e *Engine) decide(
 	}
 	var note string
 	if sig.CI != "SUCCESS" {
-		if req, err := e.d.GitHub.RequiredContexts(ctx, fresh.Key, fresh.BaseRef); err == nil {
-			snap.CIExcused, note = ciExcuse(
-				RequiredChecks(fresh.Checks, req, e.d.Now()), draft.CI, draft.CIBase)
+		if checks, err := e.requiredChecks(ctx, fresh); err == nil {
+			snap.CIExcused, note = ciExcuse(checks, draft.CI, draft.CIBase)
 		}
 	}
 	action, status := Decide(snap, tally)
@@ -782,3 +782,11 @@ func changedFor(job Job, files ReviewFiles) []string {
 	}
 	return job.Detail.Files
 }
+
+// nonBlockingRe matches a review thread that opens by calling itself a nit
+// or a suggestion, as "**Suggestion (non-blocking).**" does.
+var nonBlockingRe = regexp.MustCompile(`(?i)^\W*(nit|non-blocking|suggestion|optional|minor)\b`)
+
+// nonBlockingThread reports whether another reviewer's thread, which dispatch
+// agreed with, said it should not block.
+func nonBlockingThread(body string) bool { return nonBlockingRe.MatchString(body) }

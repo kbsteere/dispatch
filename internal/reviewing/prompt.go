@@ -141,6 +141,14 @@ func BuildPrompt(in PromptInput) string {
 	if len(in.CI) > 0 {
 		b.WriteString(ciSection(in.CI))
 	}
+	if len(in.Watch.NonBlockingChecks) > 0 {
+		b.WriteString(
+			"\n## Non-blocking checks\n\nFailures of these CI checks, and problems of the kind they report (for skillup: a skill file's length or format), are non-blocking. Mark such findings `blocking: false` and word them as suggestions.\n",
+		)
+		for _, c := range in.Watch.NonBlockingChecks {
+			fmt.Fprintf(&b, "- %s\n", c)
+		}
+	}
 	if len(in.Watch.Focus) > 0 {
 		b.WriteString("\n## Watch focus rules\n")
 		for _, f := range in.Watch.Focus {

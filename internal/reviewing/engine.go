@@ -378,8 +378,8 @@ func (e *Engine) signature(ctx context.Context, d PRDetail, viewer string) Signa
 	}
 	events, resolved := d.Events()
 	ci := ciUnknown
-	if req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef); err == nil {
-		ci = RequiredState(d.Checks, req, e.d.Now())
+	if checks, err := e.requiredChecks(ctx, d); err == nil {
+		ci = checksState(checks)
 	}
 	return Signature{
 		Head:   d.HeadOID,
@@ -974,4 +974,24 @@ func (s WatchStatus) StateLabel() string {
 		return "paused: " + s.Paused
 	}
 	return s.Mode
+}
+
+// requiredChecks reduces d's head checks to the required ones that can hold
+// up an approval: the watch's non-blocking checks are left out.
+func (e *Engine) requiredChecks(ctx context.Context, d PRDetail) ([]RequiredCheck, error) {
+	req, err := e.d.GitHub.RequiredContexts(ctx, d.Key, d.BaseRef)
+	if err != nil {
+		return nil, err
+	}
+	skip := e.d.Watch.NonBlockingChecks
+	nodes := slices.DeleteFunc(slices.Clone(d.Checks), func(n CheckNode) bool {
+		return slices.Contains(skip, n.Name)
+	})
+	kept := make(RequiredContexts, len(req))
+	for name, apps := range req {
+		if !slices.Contains(skip, name) {
+			kept[name] = apps
+		}
+	}
+	return RequiredChecks(nodes, kept, e.d.Now()), nil
 }

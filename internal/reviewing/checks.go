@@ -125,8 +125,13 @@ func RequiredChecks(nodes []CheckNode, req RequiredContexts, now time.Time) []Re
 // cancelled, PENDING if any is still running within ciStuckAfter, STUCK if
 // the only unfinished ones are stuck, else SUCCESS.
 func RequiredState(nodes []CheckNode, req RequiredContexts, now time.Time) string {
+	return checksState(RequiredChecks(nodes, req, now))
+}
+
+// checksState summarises reduced required checks; see RequiredState.
+func checksState(checks []RequiredCheck) string {
 	state := "SUCCESS"
-	for _, c := range RequiredChecks(nodes, req, now) {
+	for _, c := range checks {
 		switch c.Bucket {
 		case "fail", "cancel":
 			return "FAILURE"

@@ -24,6 +24,7 @@ reviewingFor:
       scopes: [repo:chainguard-dev/mono, repo:chainguard-dev/stereo, repo:chainguard-dev/omnibump]
       dryRun: true
       prOnlyRepos: [chainguard-dev/stereo]
+      nonBlockingChecks: [skillup]
       focus:
         - every new gRPC handler records a latency metric
       limits:
@@ -50,6 +51,7 @@ func TestReviewingForParses(t *testing.T) {
 	assert.True(t, w.PROnly("chainguard-dev/stereo"))
 	assert.True(t, w.PROnly("Chainguard-Dev/Stereo"), "GitHub names are case-insensitive")
 	assert.False(t, w.PROnly("chainguard-dev/mono"))
+	assert.Equal(t, []string{"skillup"}, w.NonBlockingChecks)
 
 	lim := cfg.ReviewingFor.LimitsFor(w)
 	assert.Equal(t, 10.0, lim.MaxBudgetUsd)

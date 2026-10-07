@@ -904,3 +904,22 @@ func TestPollLearnsHowEarlierPRsEndedAfterStartup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "MERGED", stateOf(t, e, k).ClosedState)
 }
+
+func TestNonBlockingChecksNeverHoldUpCI(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	d := detail(1, a)
+	d.Checks = append(d.Checks, CheckNode{
+		Typename:   "CheckRun",
+		Name:       "skillup",
+		Status:     "COMPLETED",
+		Conclusion: "FAILURE",
+		IsRequired: true,
+	})
+	e := newTestEngine(t, &fakeGitHub{}, &now)
+	assert.Equal(t, "FAILURE", e.signature(t.Context(), d, "kbsteere").CI)
+
+	e.d.Watch.NonBlockingChecks = []string{"skillup"}
+	assert.Equal(t, "SUCCESS", e.signature(t.Context(), d, "kbsteere").CI,
+		"a failing skillup does not hold up approval")
+}
