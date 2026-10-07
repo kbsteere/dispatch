@@ -94,11 +94,12 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		Changed:      changedFor(job, files),
 		Reads:        res.Reads,
 		Searches:     res.Searches,
-		Examined:     review.Examined,
+		SinceLast:    files.SinceLast,
 		SecurityRefs: files.SecurityRefs,
 	})
 	_, _ = e.update(job.Key, func(s *PRState) {
-		s.Examined = &review.Examined
+		verified := verifiedExamined(review.Examined, slot, res.Reads)
+		s.Examined = &verified
 		s.ReviewGaps = gaps
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 		s.CIAssessment = review.CI

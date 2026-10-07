@@ -488,6 +488,7 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 	e.mu.Unlock()
 	inResults := map[PRKey]bool{}
 	var ids []string
+	var left []string // PRs that left the search, to learn how they ended
 	for _, h := range hits {
 		inResults[h.Key] = true
 		if refreshAll || needsDetail(byKey[h.Key], h.UpdatedAt, now) {
@@ -501,9 +502,17 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 		switch {
 		case st.Pinned && st.NodeID != "":
 			ids = append(ids, st.NodeID)
+		case refreshAll && st.Inactive && st.ClosedState == "" && st.NodeID != "" &&
+			recentlyUpdated(st, now):
+			// Learn whether a PR that left before this dispatch started was
+			// merged or closed.
+			left = append(left, st.NodeID)
 		case st.Claim != nil || !st.Inactive || st.ForceReview:
 			// Merged, closed, back to draft, or out of scope: stop
 			// reviewing it and hide it until the search returns it.
+			if !st.Inactive && st.NodeID != "" {
+				left = append(left, st.NodeID)
+			}
 			if st.Claim != nil {
 				e.kill(st.Key)
 			}
@@ -528,6 +537,8 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 			return nil, lim.PollInterval, err
 		}
 	}
+
+	e.recordClosed(ctx, left, viewer, now)
 
 	initialized := e.store.Initialized()
 	var jobs []Job
@@ -942,4 +953,39 @@ func (e *Engine) requeue(k PRKey, out Outcome, err error) Outcome {
 	e.mu.Unlock()
 	out.Status, out.Note, out.Err = st.Status, note, err
 	return out
+}
+
+// closedShownFor is how long a merged or closed PR stays in the table.
+const closedShownFor = 7 * 24 * time.Hour
+
+// maxClosedLookups bounds how many PRs that left the search one poll reads.
+const maxClosedLookups = 20
+
+func recentlyUpdated(st PRState, now time.Time) bool {
+	t, err := time.Parse(time.RFC3339, st.UpdatedAt)
+	return err == nil && now.Sub(t) < closedShownFor
+}
+
+// recordClosed reads PRs that left the watch's search and records whether
+// they were merged or closed, and the user's standing review on them. A PR
+// that is still open (back to draft or out of scope) records nothing.
+func (e *Engine) recordClosed(ctx context.Context, ids []string, viewer string, now time.Time) {
+	if len(ids) == 0 {
+		return
+	}
+	details, rl, err := e.d.GitHub.Details(ctx, ids[:min(len(ids), maxClosedLookups)])
+	e.observe(rl)
+	if err != nil {
+		return
+	}
+	for _, d := range details {
+		if d.State != "MERGED" && d.State != "CLOSED" {
+			continue
+		}
+		_, _ = e.update(d.Key, func(s *PRState) {
+			s.ClosedState = d.State
+			s.ClosedAt = cmp.Or(d.ClosedAt, now)
+			s.MyReview, s.MyReviewOnHead = myReview(d.Reviews, viewer, d.HeadOID)
+		})
+	}
 }

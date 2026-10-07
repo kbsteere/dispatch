@@ -37,7 +37,7 @@ func TestSortStates(t *testing.T) {
 		st("mono", 7, reviewing.StatusWaitingOnCI, time.Minute),
 		st("mono", 8, reviewing.StatusFailed, time.Minute),
 	}
-	got := SortStates(in)
+	got := SortStates(in, now)
 	var order []int
 	for _, s := range got {
 		order = append(order, s.Key.Number)
@@ -56,6 +56,7 @@ func TestSortStatesHidesInactive(t *testing.T) {
 	merged.Inactive = true
 	got := SortStates(
 		[]reviewing.PRState{merged, st("stereo", 367322, reviewing.StatusFailed, time.Minute)},
+		now,
 	)
 	require.Len(t, got, 1)
 	assert.Equal(t, 367322, got[0].Key.Number)
@@ -65,6 +66,7 @@ func TestSortStatesSkipsInvalidKeys(t *testing.T) {
 	bad := st("..", 1, reviewing.StatusApproved, time.Minute)
 	got := SortStates(
 		[]reviewing.PRState{bad, st("mono", 2, reviewing.StatusApproved, time.Minute)},
+		now,
 	)
 	require.Len(t, got, 1)
 	assert.Equal(t, 2, got[0].Key.Number)
@@ -178,6 +180,7 @@ func TestPRData(t *testing.T) {
 
 func TestCellsMarksDryRunStatus(t *testing.T) {
 	s := st("stereo", 367322, reviewing.StatusApproved, time.Minute)
+	s.ApprovedHead = "d5dcdad"
 	assert.Equal(t, "approved", Cells(s, now).Status)
 	s.DryRun = true
 	assert.Equal(t, "approved (dry)", Cells(s, now).Status, "nothing was posted")
@@ -193,7 +196,7 @@ func TestSortStatesPutsRequestedReviewsFirst(t *testing.T) {
 		asked,
 		askedToo,
 		st("mono", 66370, reviewing.StatusChangesRequested, time.Minute),
-	})
+	}, now)
 	var order []int
 	for _, s := range got {
 		order = append(order, s.Key.Number)
@@ -269,4 +272,48 @@ func TestNextPoll(t *testing.T) {
 	assert.Equal(t, "resumes 07:53", NextPoll(ws, now))
 	ws.Paused, ws.NextPoll = "", now.Add(-14*time.Hour)
 	assert.Equal(t, "polling now", NextPoll(ws, now), "an overdue poll, as after sleep, is due now")
+}
+
+func TestCellsMarksApprovalsThatNeverReachedGitHub(t *testing.T) {
+	// mono#65196 read "approved" though no approval was ever posted.
+	s := st("mono", 65196, reviewing.StatusApproved, time.Hour)
+	assert.Equal(t, "approved (not posted)", Cells(s, now).Status)
+
+	s.MyReview, s.MyReviewOnHead = "APPROVED", true
+	assert.Equal(t, "approved", Cells(s, now).Status, "your approval is on the PR")
+	s.MyReview, s.MyReviewOnHead = "APPROVED", false
+	assert.Equal(
+		t,
+		"approved (not posted)",
+		Cells(s, now).Status,
+		"an approval on an older commit does not count",
+	)
+	s.MyReview, s.ApprovedHead = "", "ef91cc3d"
+	assert.Equal(t, "approved", Cells(s, now).Status, "dispatch posted it")
+}
+
+func TestSortStatesKeepsPRsClosedThisWeek(t *testing.T) {
+	merged := st("mono", 64516, reviewing.StatusApproved, 30*time.Hour)
+	merged.Inactive, merged.ClosedState, merged.ClosedAt = true, "MERGED", now.Add(-30*time.Hour)
+	merged.MyReview, merged.MyReviewOnHead = "APPROVED", true
+	closed := st("mono", 66155, reviewing.StatusFailed, time.Hour)
+	closed.Inactive, closed.ClosedState, closed.ClosedAt = true, "CLOSED", now.Add(-time.Hour)
+	old := st("mono", 60001, reviewing.StatusApproved, 10*24*time.Hour)
+	old.Inactive, old.ClosedState, old.ClosedAt = true, "MERGED", now.Add(-8*24*time.Hour)
+	drafted := st("mono", 60002, reviewing.StatusReviewing, time.Hour)
+	drafted.Inactive = true // back to draft: not shown
+	open := st("stereo", 135128, reviewing.StatusApproved, 2*time.Hour)
+
+	got := SortStates([]reviewing.PRState{merged, old, open, drafted, closed}, now)
+	var order []int
+	for _, s := range got {
+		order = append(order, s.Key.Number)
+	}
+	assert.Equal(t, []int{135128, 66155, 64516}, order,
+		"open PRs first, then this week's closed PRs newest first; older and drafted ones hidden")
+
+	c := Cells(merged, now)
+	assert.Equal(t, "merged", c.Status)
+	assert.Equal(t, "✓", c.You, "your approval stays visible after it merges")
+	assert.Equal(t, "closed", Cells(closed, now).Status)
 }

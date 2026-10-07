@@ -504,8 +504,6 @@ func TestReviewShallowPassCannotApprove(t *testing.T) {
 	assert.Equal(t, StatusNeedsAttention, st.Status)
 	assert.Empty(t, st.CodeReviewedHead, "an incomplete pass never counts as reading the code")
 	assert.Equal(t, []string{
-		"listed README.md as examined but never opened it",
-		"listed kev_test.go as examined but never opened it",
 		"read no documentation or design docs",
 		"read no existing tests for the changed code",
 	}, st.ReviewGaps)
@@ -523,14 +521,21 @@ func TestReviewShallowPassStillPostsFindings(t *testing.T) {
 	assert.NotEmpty(t, h.state(t).ReviewGaps)
 }
 
-func TestReviewClaimedReadThatNeverHappenedCannotApprove(t *testing.T) {
+func TestReviewDropsClaimedReadsThatNeverHappened(t *testing.T) {
 	h := newReviewHarness(t, "phantom", nil)
 	out := h.e.Review(t.Context(), h.job)
 	require.NoError(t, out.Err)
-	assert.Empty(t, h.gh.posted)
-	assert.Equal(t,
-		[]string{"listed docs/design.md as examined but never opened it"},
-		h.state(t).ReviewGaps)
+	assert.Equal(t, ActionApprove, out.Posted, "the reads it needed did happen")
+	st := h.state(t)
+	assert.Empty(t, st.ReviewGaps)
+	require.NotNil(t, st.Examined)
+	assert.NotContains(
+		t,
+		st.Examined.Docs,
+		"docs/design.md",
+		"a read that never happened is not shown",
+	)
+	assert.Equal(t, []string{"kev.go"}, st.Examined.Code)
 }
 
 func TestReviewCompletePassRecordsWhatItRead(t *testing.T) {

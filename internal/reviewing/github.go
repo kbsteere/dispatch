@@ -74,11 +74,13 @@ type PRDetail struct {
 	BaseOID   string
 	Mergeable string
 	UpdatedAt string
-	Files     []string
-	Comments  []Comment
-	Reviews   []Review
-	Threads   []Thread
-	Checks    []CheckNode
+	// ClosedAt is when the PR was merged or closed; zero while open.
+	ClosedAt time.Time
+	Files    []string
+	Comments []Comment
+	Reviews  []Review
+	Threads  []Thread
+	Checks   []CheckNode
 }
 
 // Events lists the PR's activity and who resolved each resolved thread.
@@ -304,7 +306,7 @@ func (g *ghClient) Search(
 const detailQuery = `query($id: ID!) {
   rateLimit { cost remaining resetAt }
   node(id: $id) { ... on PullRequest {
-    id number state isDraft title body updatedAt mergeable
+    id number state isDraft title body updatedAt closedAt mergeable
     author { login }
     headRefOid baseRefName baseRefOid
     repository { name owner { login } }
@@ -340,6 +342,7 @@ type detailJSON struct {
 	Title      string        `json:"title"`
 	Body       string        `json:"body"`
 	UpdatedAt  string        `json:"updatedAt"`
+	ClosedAt   time.Time     `json:"closedAt"`
 	Mergeable  string        `json:"mergeable"`
 	Author     *loginJSON    `json:"author"`
 	HeadRefOid string        `json:"headRefOid"`
@@ -395,6 +398,7 @@ func (n detailJSON) toDetail() PRDetail {
 		BaseOID:   n.BaseRefOid,
 		Mergeable: n.Mergeable,
 		UpdatedAt: n.UpdatedAt,
+		ClosedAt:  n.ClosedAt,
 	}
 	for _, f := range n.Files.Nodes {
 		d.Files = append(d.Files, f.Path)

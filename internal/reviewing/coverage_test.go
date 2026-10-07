@@ -40,14 +40,6 @@ func TestReviewGaps(t *testing.T) {
 				"/home/u/Dev/cg/mono/main/docs/version-pipeline/overview.svg",
 			},
 			Searches: 3,
-			Examined: Examined{
-				Docs: []string{
-					"bots/kev/README.md",
-					"/home/u/Dev/cg/mono/main/docs/version-pipeline/overview.svg",
-				},
-				Code:  []string{"bots/kev/sync.go"},
-				Tests: []string{"bots/kev/sync_test.go"},
-			},
 		}
 		if mut != nil {
 			mut(&c)
@@ -60,48 +52,30 @@ func TestReviewGaps(t *testing.T) {
 		in   coverageInput
 		want []string
 	}{
+		{"complete; lockfile and deleted file need no read", in(nil), nil},
 		{
-			"complete; lockfile and deleted file need no read",
-			in(nil),
-			nil,
-		},
-		{
-			"changed file never read",
+			"changed code file never read",
 			in(
 				func(c *coverageInput) { c.Reads = without(c.Reads, filepath.Join(wt, "bots/kev/sync.go")) },
 			),
-			[]string{
-				"listed bots/kev/sync.go as examined but never opened it",
-				"never read changed file bots/kev/sync.go",
-			},
+			[]string{"never read changed file bots/kev/sync.go"},
 		},
 		{
 			"no tests read for changed code",
-			in(func(c *coverageInput) {
-				c.Reads = without(c.Reads, filepath.Join(wt, "bots/kev/sync_test.go"))
-				c.Examined.Tests = nil
-			}),
+			in(
+				func(c *coverageInput) { c.Reads = without(c.Reads, filepath.Join(wt, "bots/kev/sync_test.go")) },
+			),
 			[]string{"read no existing tests for the changed code"},
 		},
 		{
-			"no docs read",
-			in(func(c *coverageInput) {
-				c.Reads = c.Reads[:3]
-				c.Examined.Docs = nil
-			}),
+			"no docs read on a full pass",
+			in(func(c *coverageInput) { c.Reads = c.Reads[:3] }),
 			[]string{"read no documentation or design docs"},
 		},
 		{
 			"never searched for usages",
 			in(func(c *coverageInput) { c.Searches = 0 }),
 			[]string{"never searched for usages of the changed code"},
-		},
-		{
-			"claimed a read that never happened",
-			in(func(c *coverageInput) {
-				c.Examined.Usages = []string{"bots/kev/cmd/main.go"}
-			}),
-			[]string{"listed bots/kev/cmd/main.go as examined but never opened it"},
 		},
 		{
 			"diff never read",
@@ -115,32 +89,40 @@ func TestReviewGaps(t *testing.T) {
 		},
 		{
 			"pr-only repo needs only the diff",
-			in(func(c *coverageInput) {
-				c.PROnly = true
-				c.Reads, c.Searches, c.Examined = []string{diff}, 0, Examined{}
-			}),
+			in(func(c *coverageInput) { c.PROnly = true; c.Reads, c.Searches = []string{diff}, 0 }),
 			nil,
-		},
-		{
-			"pr-only repo still checks claimed reads",
-			in(func(c *coverageInput) {
-				c.PROnly = true
-				c.Reads, c.Examined = []string{
-					diff,
-				}, Examined{
-					Code: []string{"version_data/consul-k8s.yaml"},
-				}
-			}),
-			[]string{"listed version_data/consul-k8s.yaml as examined but never opened it"},
 		},
 		{
 			"data-only change needs no tests or searches",
 			in(func(c *coverageInput) {
 				c.Changed = []string{"bots/kev/README.md"}
 				c.Reads = []string{diff, filepath.Join(wt, "bots/kev/README.md")}
-				c.Searches, c.Examined = 0, Examined{}
+				c.Searches = 0
 			}),
 			nil,
+		},
+		{
+			// mono#66370: the author moved a cron schedule in a template.
+			"follow-up with a config-only change needs only the diff since last review",
+			in(func(c *coverageInput) {
+				c.Pass, c.SinceLast = PassIncremental, "/state/sessions/s1/since-last-review.diff"
+				c.Changed = []string{"env/400-alert-slack-bot/policies.yaml.tpl"}
+				c.Reads, c.Searches = []string{c.SinceLast}, 0
+			}),
+			nil,
+		},
+		{
+			"follow-up that changes code still needs tests and usages, not docs",
+			in(func(c *coverageInput) {
+				c.Pass, c.SinceLast = PassIncremental, "/state/sessions/s1/since-last-review.diff"
+				c.Changed = []string{"bots/kev/sync.go"}
+				c.Reads = []string{c.SinceLast, filepath.Join(wt, "bots/kev/sync.go")}
+				c.Searches = 0
+			}),
+			[]string{
+				"read no existing tests for the changed code",
+				"never searched for usages of the changed code",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -151,21 +133,29 @@ func TestReviewGaps(t *testing.T) {
 }
 
 func TestReviewGapsAreCapped(t *testing.T) {
-	ex := Examined{}
+	wt := t.TempDir()
+	var changed []string
 	for i := range 15 {
-		ex.Code = append(ex.Code, filepath.Join("pkg", string(rune('a'+i))+".go"))
+		f := filepath.Join("pkg", string(rune('a'+i))+".go")
+		require.NoError(t, os.MkdirAll(filepath.Join(wt, "pkg"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(wt, f), []byte("package pkg\n"), 0o600))
+		changed = append(changed, f)
 	}
-	gaps := reviewGaps(
-		coverageInput{
-			Pass:     PassFull,
-			PROnly:   true,
-			Diff:     "/d",
-			Reads:    []string{"/d"},
-			Examined: ex,
-		},
-	)
+	gaps := reviewGaps(coverageInput{
+		Pass: PassFull, Worktree: wt, Diff: "/d", Reads: []string{"/d"}, Changed: changed,
+	})
 	require.Len(t, gaps, maxGaps+1)
-	assert.Equal(t, "and 5 more", gaps[maxGaps])
+	assert.Equal(t, "and 8 more", gaps[maxGaps])
+}
+
+func TestVerifiedExaminedDropsUnopenedPaths(t *testing.T) {
+	// mono#66370's follow-up listed files it had read in an earlier session.
+	got := verifiedExamined(Examined{
+		Docs: []string{"bots/sustaining-automation/docs/alert-slack-bot.md"},
+		Code: []string{"env/400-alert-slack-bot/policies.yaml.tpl", "/s/since-last-review.diff"},
+	}, "/wt", []string{"/s/since-last-review.diff"})
+	assert.Empty(t, got.Docs)
+	assert.Equal(t, []string{"/s/since-last-review.diff"}, got.Code)
 }
 
 func TestFileKinds(t *testing.T) {

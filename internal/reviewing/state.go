@@ -114,7 +114,11 @@ type PRState struct {
 	MyReviewOnHead bool   `json:"my_review_on_head,omitempty"`
 	// Inactive marks a PR the watch's search no longer returns (merged,
 	// closed, back to draft, or out of scope). It is hidden until it returns.
-	Inactive    bool       `json:"inactive,omitempty"`
+	Inactive bool `json:"inactive,omitempty"`
+	// ClosedState is MERGED or CLOSED once an inactive PR is known to have
+	// been merged or closed, at ClosedAt.
+	ClosedState string     `json:"closed_state,omitempty"`
+	ClosedAt    time.Time  `json:"closed_at,omitempty"`
 	Status      Status     `json:"status,omitempty"`
 	UpdatedAt   string     `json:"updated_at,omitempty"`
 	ReviewedSig *Signature `json:"reviewed_sig,omitempty"`

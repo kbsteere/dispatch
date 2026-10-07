@@ -19,20 +19,24 @@ type coverageInput struct {
 	// Worktree is the PR checkout; Changed paths are relative to it.
 	Worktree string
 	// Diff is the path of the PR diff file written for the session.
-	Diff    string
-	Changed []string
+	Diff string
+	// SinceLast is the diff since the last review, on an incremental pass;
+	// reading it counts as reading the diff.
+	SinceLast string
+	Changed   []string
 	// Reads are the files the session opened with Read.
 	Reads    []string
 	Searches int
-	Examined Examined
 	// SecurityRefs are the security guide reference files the session was
 	// given; when code changed, at least one must be read.
 	SecurityRefs []string
 }
 
 // reviewGaps lists what a full or incremental pass failed to read: the
-// diff, every changed code file, documentation, and, when code changed,
-// existing tests and a search for usages. A pass with gaps has not
+// diff, every changed code file, documentation on a full pass, and, when
+// code changed, existing tests, a search for usages, and the security
+// guide. An incremental pass is judged on what changed since the last
+// review. A pass with gaps has not
 // reviewed the code and cannot approve. Comments-only passes have no
 // requirements. Paths from the reviewer are only compared, never opened.
 func reviewGaps(in coverageInput) []string {
@@ -52,14 +56,8 @@ func reviewGaps(in coverageInput) []string {
 	}
 
 	var gaps []string
-	if !opened(in.Diff) {
+	if !opened(in.Diff) && (in.SinceLast == "" || !opened(in.SinceLast)) {
 		gaps = append(gaps, "never read the PR diff")
-	}
-	ex := in.Examined
-	for _, p := range slices.Concat(ex.Docs, ex.Code, ex.Usages, ex.Tests) {
-		if !opened(p) {
-			gaps = append(gaps, fmt.Sprintf("listed %s as examined but never opened it", p))
-		}
 	}
 	if in.PROnly {
 		return capGaps(gaps)
@@ -82,7 +80,8 @@ func reviewGaps(in coverageInput) []string {
 			codeChanged = true
 		}
 	}
-	if !slices.ContainsFunc(in.Reads, isDoc) {
+	// A follow-up review builds on the full review that read the docs.
+	if in.Pass == PassFull && !slices.ContainsFunc(in.Reads, isDoc) {
 		gaps = append(gaps, "read no documentation or design docs")
 	}
 	if codeChanged {
@@ -170,4 +169,29 @@ var docExts = []string{
 // isDoc reports whether p is documentation or a diagram.
 func isDoc(p string) bool {
 	return slices.Contains(docExts, strings.ToLower(path.Ext(p)))
+}
+
+// verifiedExamined keeps only the examined paths the session really opened.
+// The reviewer's list is shown to the user, so it must not claim reads that
+// did not happen; requirements are checked against reads, not this list.
+func verifiedExamined(ex Examined, worktree string, reads []string) Examined {
+	read := make(map[string]struct{}, len(reads))
+	for _, p := range reads {
+		read[filepath.Clean(p)] = struct{}{}
+	}
+	keep := func(paths []string) []string {
+		return slices.DeleteFunc(slices.Clone(paths), func(p string) bool {
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(worktree, p)
+			}
+			_, ok := read[filepath.Clean(p)]
+			return !ok
+		})
+	}
+	return Examined{
+		Docs:   keep(ex.Docs),
+		Code:   keep(ex.Code),
+		Usages: keep(ex.Usages),
+		Tests:  keep(ex.Tests),
+	}
 }

@@ -49,7 +49,7 @@ func NewModel(id int, ctx *context.ProgramContext, watch string) Model {
 func Columns() []table.Column {
 	grow := true
 	return []table.Column{
-		{Title: "Status", Width: utils.IntPtr(17)},
+		{Title: "Status", Width: utils.IntPtr(22)},
 		{Title: "PR", Grow: &grow},
 		{Title: "Author", Width: utils.IntPtr(14)},
 		{Title: "You", Width: utils.IntPtr(4)},
@@ -66,7 +66,7 @@ func (m *Model) Watch() string { return m.Config.Title }
 // SetData replaces the table's contents with the watch's current state.
 func (m *Model) SetData(ws reviewing.WatchStatus, states []reviewing.PRState) {
 	m.status = ws
-	m.states = SortStates(states)
+	m.states = SortStates(states, m.now())
 	m.TotalCount = len(m.states)
 	m.Table.SetRows(m.BuildRows())
 	// Until the first poll finishes there is nothing to show yet; say so

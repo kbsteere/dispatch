@@ -861,3 +861,56 @@ func (f *fakeGitHub) BaseChecks(context.Context, PRKey, string) (map[string]stri
 	defer f.mu.Unlock()
 	return f.base, nil
 }
+
+func TestPollRecordsMergedPRs(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	gh := &fakeGitHub{
+		viewer: "kbsteere", hits: []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: a}},
+		details: map[string]PRDetail{"N1": detail(1, a)},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, err := e.Poll(t.Context())
+	require.NoError(t, err)
+
+	// The PR merges with your approval and leaves the search.
+	merged := detail(1, a)
+	merged.State = "MERGED"
+	merged.ClosedAt = t0.Add(time.Hour)
+	merged.Reviews = []Review{
+		{Author: "kbsteere", State: "APPROVED", CommitOID: a, SubmittedAt: t0},
+	}
+	gh.details["N1"] = merged
+	gh.hits = nil
+	now = t0.Add(2 * time.Hour)
+	_, _, err = e.Poll(t.Context())
+	require.NoError(t, err)
+
+	st := stateOf(t, e, k)
+	assert.True(t, st.Inactive)
+	assert.Equal(t, "MERGED", st.ClosedState)
+	assert.Equal(t, t0.Add(time.Hour), st.ClosedAt)
+	assert.Equal(t, "APPROVED", st.MyReview)
+	assert.True(t, st.MyReviewOnHead)
+}
+
+func TestPollLearnsHowEarlierPRsEndedAfterStartup(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 1}
+	merged := detail(1, a)
+	merged.State, merged.ClosedAt = "MERGED", t0
+	gh := &fakeGitHub{viewer: "kbsteere", details: map[string]PRDetail{"N1": merged}}
+	e := newTestEngine(t, gh, &now)
+	require.NoError(t, e.store.MarkInitialized())
+	// Left the search before this dispatch started, as mono#64516 did.
+	_, err := e.update(k, func(s *PRState) {
+		s.NodeID, s.Inactive, s.Status = "N1", true, StatusApproved
+		s.UpdatedAt = t0.Add(-time.Hour).Format(time.RFC3339)
+	})
+	require.NoError(t, err)
+	_, _, err = e.Poll(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "MERGED", stateOf(t, e, k).ClosedState)
+}

@@ -56,19 +56,39 @@ func updatedAt(s reviewing.PRState) time.Time {
 	return t
 }
 
-// SortStates returns the active, valid states in display order without
-// modifying the input: PRs requesting your review first, then by status
-// and most recent update. Inactive PRs (merged, closed, back to draft) and
-// states whose key fails validation are dropped.
-func SortStates(states []reviewing.PRState) []reviewing.PRState {
+// closedShownFor is how long a merged or closed PR stays in the table.
+const closedShownFor = 7 * 24 * time.Hour
+
+// shownClosed reports whether s is a PR merged or closed within
+// closedShownFor of now.
+func shownClosed(s reviewing.PRState, now time.Time) bool {
+	return s.Inactive && (s.ClosedState == "MERGED" || s.ClosedState == "CLOSED") &&
+		now.Sub(s.ClosedAt) <= closedShownFor
+}
+
+// SortStates returns the states to show, in display order, without
+// modifying the input: open PRs requesting your review first, then other
+// open PRs by status and most recent update, then PRs merged or closed in
+// the last week, newest first. Other inactive PRs (back to draft, out of
+// scope) and states whose key fails validation are dropped.
+func SortStates(states []reviewing.PRState, now time.Time) []reviewing.PRState {
 	out := make([]reviewing.PRState, 0, len(states))
 	for _, s := range states {
-		if !s.Inactive && reviewing.ValidName(s.Key.Owner) && reviewing.ValidName(s.Key.Repo) &&
-			s.Key.Number > 0 {
+		if (!s.Inactive || shownClosed(s, now)) && reviewing.ValidName(s.Key.Owner) &&
+			reviewing.ValidName(s.Key.Repo) && s.Key.Number > 0 {
 			out = append(out, s)
 		}
 	}
 	slices.SortStableFunc(out, func(a, b reviewing.PRState) int {
+		if a.Inactive != b.Inactive {
+			if b.Inactive {
+				return -1
+			}
+			return 1
+		}
+		if a.Inactive {
+			return b.ClosedAt.Compare(a.ClosedAt)
+		}
 		// PRs that request your review come first.
 		if a.ReviewRequested != b.ReviewRequested {
 			if a.ReviewRequested {
@@ -128,8 +148,13 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 	if s.ForceReview && s.Status != reviewing.StatusReviewing {
 		c.Status = "queued"
 	}
-	if s.DryRun {
+	switch {
+	case s.Inactive:
+		c.Status = strings.ToLower(s.ClosedState)
+	case s.DryRun:
 		c.Status += " (dry)"
+	case s.Status == reviewing.StatusApproved && !approvedOnGitHub(s):
+		c.Status += " (not posted)"
 	}
 	if s.ReviewRequested {
 		c.PR += " (requested)"
@@ -278,4 +303,10 @@ func NextPoll(ws reviewing.WatchStatus, now time.Time) string {
 		return "next poll <1m"
 	}
 	return fmt.Sprintf("next poll %dm", int((d+time.Minute-1)/time.Minute))
+}
+
+// approvedOnGitHub reports whether your approval exists on the PR: dispatch
+// posted one at a head, or GitHub shows your approval on the current head.
+func approvedOnGitHub(s reviewing.PRState) bool {
+	return s.ApprovedHead != "" || (s.MyReview == "APPROVED" && s.MyReviewOnHead)
 }
