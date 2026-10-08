@@ -168,6 +168,8 @@ type ReviewFiles struct {
 	// CIBase is how each check fared on the base branch, when a required
 	// check had failed or stuck at the start of the pass.
 	CIBase map[string]string
+	// lines are the lines of each file GitHub takes inline comments on.
+	lines diffLines
 }
 
 // safeGitArgs keep git from running external programs configured in the
@@ -175,7 +177,8 @@ type ReviewFiles struct {
 var safeGitArgs = []string{"-c", "core.fsmonitor=", "-c", "diff.external=", "-c", "core.pager=cat"}
 
 // WriteReviewFiles writes the PR diff, its commit log, and the diff since
-// the last reviewed head into dir.
+// the last reviewed head into dir. Each diff line in a file's new version is
+// numbered with its line there; see numberDiff.
 func WriteReviewFiles(
 	ctx context.Context,
 	repo LocalRepo,
@@ -184,15 +187,21 @@ func WriteReviewFiles(
 	if !ValidSHA(mergeBase) || !ValidSHA(head) {
 		return ReviewFiles{}, errors.New("invalid sha")
 	}
+	var files ReviewFiles
 	write := func(name string, args ...string) (string, error) {
 		out, err := gitCmd(ctx, repo.GitDir, append(slices.Clone(safeGitArgs), args...)...)
 		if err != nil {
 			return "", err
 		}
+		if args[0] == "diff" {
+			if name == "pr.diff" {
+				files.lines = commentableLines(string(out))
+			}
+			out = []byte(numberDiff(string(out)))
+		}
 		p := filepath.Join(dir, name)
 		return p, os.WriteFile(p, out, 0o600)
 	}
-	var files ReviewFiles
 	var err error
 	if files.Diff, err = write(
 		"pr.diff",

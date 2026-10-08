@@ -141,7 +141,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 		s.CIAssessment = review.CI
 	})
-	applied := e.apply(ctx, job, st, review, gaps, files.CIBase, readDiffLines(files.Diff))
+	applied := e.apply(ctx, job, st, review, gaps, files, slot)
 	applied.CostUSD = out.CostUSD
 	return applied
 }
@@ -336,8 +336,8 @@ func (e *Engine) apply(
 	st PRState,
 	review ReviewOutput,
 	gaps []string,
-	ciBase map[string]string,
-	lines diffLines,
+	files ReviewFiles,
+	worktree string,
 ) Outcome {
 	// Findings the author never saw were offered to the reviewer to raise
 	// again; whatever it re-raised is in review.Findings.
@@ -352,7 +352,7 @@ func (e *Engine) apply(
 
 	draft := Draft{
 		Head: d.HeadOID, Verdict: review.Verdict, VerdictReason: review.VerdictReason,
-		CI: review.CI, CIBase: ciBase,
+		CI: review.CI, CIBase: files.CIBase,
 	}
 	for _, f := range review.Findings {
 		if f.Category == CategorySecurity {
@@ -377,7 +377,27 @@ func (e *Engine) apply(
 			)
 			continue
 		}
-		draft.Comments = append(draft.Comments, findingComment(f, lines))
+		if docPreference(f) {
+			out.Note = strings.TrimSpace(
+				out.Note + fmt.Sprintf(" Dropped a style comment on %s:%d.", f.Path, f.Line),
+			)
+			continue
+		}
+		if misplacedSuggestion(f, worktree) {
+			if !f.Blocking {
+				out.Note = strings.TrimSpace(out.Note + fmt.Sprintf(
+					" Dropped a suggestion on %s:%d that does not match the lines it replaces.",
+					f.Path, f.Line))
+				continue
+			}
+			// A blocking problem is never dropped; the user decides where
+			// it goes.
+			draft.Unanchored = append(draft.Unanchored, f)
+			draft.Reasons = append(draft.Reasons, fmt.Sprintf(
+				"suggestion on %s:%d does not match the lines it would replace", f.Path, f.Line))
+			continue
+		}
+		draft.Comments = append(draft.Comments, findingComment(f, files.lines))
 		draft.Findings = append(draft.Findings, Finding{
 			ID: nextFindingID(append(st.Ledger, draft.Findings...)), Path: f.Path, Line: f.Line,
 			Blocking: f.Blocking, Summary: summarize(f.Body), Status: FindingOutstanding,
@@ -937,14 +957,11 @@ func (e *Engine) recordContinuation(k PRKey, res RunResult) {
 	})
 }
 
-// readDiffLines reads the PR diff at path into the lines GitHub accepts
-// inline comments on, or nil, accepting every line, if it cannot be read.
-func readDiffLines(path string) diffLines {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	return commentableLines(string(b))
+// docPreference reports whether f is a non-blocking comment on a
+// documentation file that names no bug or stated rule: the reviewer's taste
+// in prose, which is never posted.
+func docPreference(f OutFinding) bool {
+	return !f.Blocking && isDoc(f.Path) && f.Category == CategoryDesign
 }
 
 // findingComment is the review comment for a finding: inline when GitHub

@@ -82,6 +82,18 @@ case "${FAKE_CLAUDE_MODE:-success}" in
     # did not change.
     result 7 1.25 '{"findings":[{"path":"kev.go","line":304,"blocking":false,"category":"test-gap","body":"no test covers the once-per-process guard in `SetupMetrics`."},{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could log the feed URL it failed on."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"","examined":{"docs":["README.md"],"code":["kev.go"],"usages":[],"tests":["kev_test.go"]},"verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;
+  docstyle)
+    # Like mono#65196: a heading-style nit on a new doc, beside a stated
+    # rule the doc breaks.
+    result 6 1 '{"findings":[{"path":"docs/vision.md","line":8,"blocking":false,"category":"design","body":"nit: this is the only heading in the doc that ends with a period.\n\n```suggestion\n## Where we are, honestly\n```"},{"path":"docs/vision.md","line":2,"blocking":false,"category":"rule","body":"non-blocking: docs/README.md requires an `owners` field in the frontmatter, and this doc has none."}],"ledger":[],"agreed_threads":[],"design_refs":"docs/README.md","note":"","verdict":"approve","verdict_reason":"nothing blocking"}'
+    ;;
+  misplaced|misplaced_blocking)
+    # Like mono#65196: a fix for the heading at line 8, anchored on line
+    # 14, where the heading sits in the diff file.
+    blocking=false
+    if [ "$FAKE_CLAUDE_MODE" = misplaced_blocking ]; then blocking=true; fi
+    result 6 1 '{"findings":[{"path":"docs/vision.md","line":14,"blocking":'"$blocking"',"category":"rule","body":"docs/README.md requires headings without trailing punctuation.\n\n```suggestion\n## Where we are, honestly\n```"}],"ledger":[],"agreed_threads":[],"design_refs":"docs/README.md","note":"","verdict":"approve","verdict_reason":"nothing blocking"}'
+    ;;
   nit)
     result 6 1 '{"findings":[{"path":"kev.go","line":1,"blocking":false,"body":"`Sync` could return early when the feed is empty, which skips one allocation."}],"ledger":[],"agreed_threads":[],"design_refs":"none","note":"one nit","verdict":"approve","verdict_reason":"nothing blocking"}'
     ;;

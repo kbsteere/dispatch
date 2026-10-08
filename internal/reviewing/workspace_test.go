@@ -15,12 +15,18 @@ import (
 // prOrigin builds an origin with main plus a PR ref like GitHub's pull/7/head.
 func prOrigin(t *testing.T) (origin, head string) {
 	t.Helper()
+	return prOriginWith(t, map[string]string{"kev.go": "package kev\n"})
+}
+
+// prOriginWith is an origin whose PR 7 adds files, by path.
+func prOriginWith(t *testing.T, files map[string]string) (origin, head string) {
+	t.Helper()
 	origin = newOrigin(t)
 	gitT(t, origin, "checkout", "-q", "-b", "feature")
-	require.NoError(
-		t,
-		os.WriteFile(filepath.Join(origin, "kev.go"), []byte("package kev\n"), 0o644),
-	)
+	for p, content := range files {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(origin, p)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(origin, p), []byte(content), 0o644))
+	}
 	gitT(t, origin, "add", ".")
 	gitT(t, origin, "commit", "-q", "-m", "feature")
 	head = strings.TrimSpace(gitT(t, origin, "rev-parse", "HEAD"))
@@ -149,13 +155,25 @@ func TestWriteReviewFiles(t *testing.T) {
 	assert.Equal(t, filepath.Join(dir, "pr.diff"), files.Diff)
 	diff, err := os.ReadFile(files.Diff)
 	require.NoError(t, err)
-	assert.Contains(t, string(diff), "+package kev")
+	assert.Contains(
+		t,
+		string(diff),
+		"\nL1     +package kev",
+		"each line carries its number in the file",
+	)
+	assert.Contains(t, string(diff), "\n+++ b/kev.go\n", "headers are left alone")
+	assert.Equal(
+		t,
+		diffLines{"kev.go": {1: {}}},
+		files.lines,
+		"commentable lines come from the raw diff",
+	)
 	commits, err := os.ReadFile(files.Commits)
 	require.NoError(t, err)
 	assert.Contains(t, string(commits), "feature")
 	since, err := os.ReadFile(files.SinceLast)
 	require.NoError(t, err)
-	assert.Contains(t, string(since), "+package kev")
+	assert.Contains(t, string(since), "\nL1     +package kev")
 	info, err := os.Stat(files.Diff)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())

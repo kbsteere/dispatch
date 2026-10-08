@@ -241,3 +241,6 @@ type CIAssessment struct {
 
 // CategoryTestGap marks a missing or suggested test.
 const CategoryTestGap = "test-gap"
+
+// CategoryDesign marks a divergence from the code's documented intent.
+const CategoryDesign = "design"

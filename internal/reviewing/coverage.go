@@ -283,42 +283,84 @@ func covers(read []LineRange, want LineRange) bool {
 // comment on: those inside the diff's hunks on the new side.
 type diffLines map[string]map[int]struct{}
 
+// walkDiff calls fn for each line of a git diff with the file it belongs
+// to, whether it is a line of a hunk, and its line number in the new version
+// of the file, or 0 when it has none: headers, deleted lines, and "\ No
+// newline" markers.
+func walkDiff(diff string, fn func(path string, inHunk bool, line int, text string)) {
+	var path string
+	next := 0
+	for l := range strings.SplitSeq(diff, "\n") {
+		if header, ok := strings.CutPrefix(l, "diff --git "); ok {
+			path, next = "", 0
+			if j := strings.LastIndex(header, " b/"); j >= 0 {
+				path = header[j+len(" b/"):]
+			}
+			fn(path, false, 0, l)
+			continue
+		}
+		if hunk, ok := strings.CutPrefix(l, "@@ "); ok && path != "" {
+			next = hunkStart(hunk)
+			fn(path, false, 0, l)
+			continue
+		}
+		switch {
+		case next == 0:
+			// File headers before the first hunk.
+			fn(path, false, 0, l)
+		case strings.HasPrefix(l, "+"), strings.HasPrefix(l, " "):
+			fn(path, true, next, l)
+			next++
+		case strings.HasPrefix(l, "-"), strings.HasPrefix(l, `\`):
+			fn(path, true, 0, l)
+		default:
+			next = 0
+			fn(path, false, 0, l)
+		}
+	}
+}
+
 // commentableLines reads a git diff into the lines GitHub accepts inline
 // comments on.
 func commentableLines(diff string) diffLines {
 	out := diffLines{}
-	var lines map[int]struct{}
-	next := 0
-	for _, l := range strings.Split(diff, "\n") {
-		if header, ok := strings.CutPrefix(l, "diff --git "); ok {
-			lines = nil
-			next = 0
-			if j := strings.LastIndex(header, " b/"); j >= 0 {
-				lines = map[int]struct{}{}
-				out[header[j+len(" b/"):]] = lines
-			}
-			continue
+	walkDiff(diff, func(path string, _ bool, line int, _ string) {
+		if path == "" {
+			return
 		}
-		if lines == nil {
-			continue
+		if out[path] == nil {
+			out[path] = map[int]struct{}{}
 		}
-		if hunk, ok := strings.CutPrefix(l, "@@ "); ok {
-			next = hunkStart(hunk)
-			continue
+		if line > 0 {
+			out[path][line] = struct{}{}
 		}
-		if next == 0 {
-			continue // file headers before the first hunk
-		}
-		switch {
-		case strings.HasPrefix(l, "+"), strings.HasPrefix(l, " "):
-			lines[next] = struct{}{}
-			next++
-		case strings.HasPrefix(l, "-"), strings.HasPrefix(l, `\`):
-		default:
-			next = 0
-		}
-	}
+	})
 	return out
+}
+
+// numberDiff prefixes each hunk line of a git diff with its line number in
+// the new version of the file, as "L38", so a reader of the diff never has
+// to work the number out. Deleted lines are indented to match. Headers are
+// unchanged.
+func numberDiff(diff string) string {
+	var b strings.Builder
+	b.Grow(len(diff) + len(diff)/4)
+	first := true
+	walkDiff(diff, func(_ string, inHunk bool, line int, text string) {
+		if !first {
+			b.WriteByte('\n')
+		}
+		first = false
+		switch {
+		case line > 0:
+			fmt.Fprintf(&b, "L%-6d%s", line, text)
+		case inHunk:
+			b.WriteString("       " + text)
+		default:
+			b.WriteString(text)
+		}
+	})
+	return b.String()
 }
 
 // hunkStart is the new-side start line of a hunk header such as

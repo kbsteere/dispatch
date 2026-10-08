@@ -402,10 +402,9 @@ func mustRead(t *testing.T, p string) string {
 	return string(b)
 }
 
-func TestCommentableLines(t *testing.T) {
-	// A modified file with two hunks, a deletion, and a missing final
-	// newline, then a new file.
-	diff := `diff --git a/pkg/memusage/heartbeat.go b/pkg/memusage/heartbeat.go
+// heartbeatDiff is a modified file with two hunks, a deletion, and a missing
+// final newline, then a new file.
+const heartbeatDiff = `diff --git a/pkg/memusage/heartbeat.go b/pkg/memusage/heartbeat.go
 index 1111111..2222222 100644
 --- a/pkg/memusage/heartbeat.go
 +++ b/pkg/memusage/heartbeat.go
@@ -429,7 +428,9 @@ new file mode 100644
 +package memusage
 +
 `
-	lines := commentableLines(diff)
+
+func TestCommentableLines(t *testing.T) {
+	lines := commentableLines(heartbeatDiff)
 	keys := func(m map[int]struct{}) []int { return slices.Sorted(maps.Keys(m)) }
 	assert.Equal(t, []int{10, 11, 12, 13, 111, 112, 113}, keys(lines["pkg/memusage/heartbeat.go"]))
 	assert.Equal(t, []int{1, 2}, keys(lines["pkg/memusage/heartbeat_test.go"]))
@@ -461,4 +462,45 @@ func TestFindingComment(t *testing.T) {
 	rng := findingComment(OutFinding{Path: "kev.go", StartLine: 300, Line: 304, Body: "x"}, lines)
 	assert.True(t, strings.HasPrefix(rng.Body, "Lines 300–304: "), rng.Body)
 	assert.Zero(t, rng.StartLine)
+}
+
+func TestNumberDiff(t *testing.T) {
+	want := `diff --git a/pkg/memusage/heartbeat.go b/pkg/memusage/heartbeat.go
+index 1111111..2222222 100644
+--- a/pkg/memusage/heartbeat.go
++++ b/pkg/memusage/heartbeat.go
+@@ -10,4 +10,5 @@ import (
+L10     	"time"
+       -	"sync"
+L11    +	"sync/atomic"
+L12    +	"os"
+L13     )
+@@ -110,3 +111,3 @@ func (b *beat) sample() {
+L111    	cur := b.read()
+       -	if cur > b.last {
+L112   +	if cur > b.peak {
+L113    		b.log(cur)
+       \ No newline at end of file
+diff --git a/pkg/memusage/heartbeat_test.go b/pkg/memusage/heartbeat_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/memusage/heartbeat_test.go
+@@ -0,0 +1,2 @@
+L1     +package memusage
+L2     +
+`
+	got := numberDiff(heartbeatDiff)
+	assert.Equal(t, want, got)
+	assert.Equal(t, strings.Count(heartbeatDiff, "\n"), strings.Count(got, "\n"),
+		"line positions in the diff file are unchanged, so read ranges still cover it")
+	assert.Equal(t, diffSections(heartbeatDiff), diffSections(got))
+}
+
+func TestNumberDiffNewFileHeadingSitsAtItsFileLine(t *testing.T) {
+	// mono#65196: a new doc whose heading is file line 8 and diff line 14.
+	diff := "diff --git a/docs/vision.md b/docs/vision.md\nnew file mode 100644\n" +
+		"index 0000000..2ee7dac\n--- /dev/null\n+++ b/docs/vision.md\n@@ -0,0 +1,14 @@\n" +
+		strings.TrimSuffix("+"+strings.ReplaceAll(visionDoc, "\n", "\n+"), "+")
+	lines := strings.Split(numberDiff(diff), "\n")
+	assert.Equal(t, "L8     +## Where we are, honestly.", lines[13])
 }

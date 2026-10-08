@@ -3,8 +3,10 @@ package reviewing
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,8 +29,19 @@ type reviewHarness struct {
 
 func newReviewHarness(t *testing.T, mode string, watch func(*config.ReviewWatch)) *reviewHarness {
 	t.Helper()
+	return newReviewHarnessWith(t, mode, watch, map[string]string{"kev.go": "package kev\n"})
+}
+
+// newReviewHarnessWith is a review harness whose PR adds files, by path.
+func newReviewHarnessWith(
+	t *testing.T,
+	mode string,
+	watch func(*config.ReviewWatch),
+	files map[string]string,
+) *reviewHarness {
+	t.Helper()
 	t.Setenv("FAKE_CLAUDE_MODE", mode)
-	origin, head := prOrigin(t)
+	origin, head := prOriginWith(t, files)
 	useRemotes(t, origin, origin)
 	touchKeyAvailable(t, false)
 	clone := filepath.Join(t.TempDir(), "clone")
@@ -37,7 +50,7 @@ func newReviewHarness(t *testing.T, mode string, watch func(*config.ReviewWatch)
 
 	k := PRKey{"chainguard-dev", "mono", 7}
 	d := detail(7, head)
-	d.Key, d.NodeID, d.Files, d.BaseOID = k, "N7", []string{"kev.go"}, base
+	d.Key, d.NodeID, d.Files, d.BaseOID = k, "N7", slices.Sorted(maps.Keys(files)), base
 	gh := &fakeGitHub{
 		viewer: "kbsteere", details: map[string]PRDetail{"N7": d},
 		threadRefs: []ThreadRef{{ID: "PRRT_new", Path: "kev.go", Line: 1}},
@@ -1030,4 +1043,54 @@ func TestReviewLeavesFailedFileThreadUnposted(t *testing.T) {
 	assert.False(t, st.Ledger[0].Posted, "the next pass offers the line-304 finding again")
 	assert.Empty(t, st.Ledger[0].ThreadID)
 	assert.True(t, st.Ledger[1].Posted)
+}
+
+func TestReviewDropsStyleCommentsOnDocs(t *testing.T) {
+	h := newReviewHarnessWith(t, "docstyle", nil, map[string]string{"docs/vision.md": visionDoc})
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted, "a doc with only a style nit is approved")
+
+	require.Len(t, h.gh.posted, 1)
+	require.Len(t, h.gh.posted[0].Comments, 1, "the heading-style nit is never posted")
+	assert.Equal(t, 2, h.gh.posted[0].Comments[0].Line, "the stated frontmatter rule still is")
+
+	st := h.state(t)
+	require.Len(t, st.Ledger, 1)
+	assert.Equal(t, "rule", st.Ledger[0].Category)
+	assert.Contains(t, st.Note, "Dropped a style comment on docs/vision.md:8.")
+}
+
+func TestReviewDropsMisplacedSuggestion(t *testing.T) {
+	h := newReviewHarnessWith(t, "misplaced", nil, map[string]string{"docs/vision.md": visionDoc})
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted)
+
+	require.Len(t, h.gh.posted, 1)
+	assert.Empty(t, h.gh.posted[0].Comments,
+		"mono#65196: committing it would have replaced line 14 with a second heading")
+	assert.Empty(t, h.gh.fileComments)
+	st := h.state(t)
+	assert.Empty(t, st.Ledger)
+	assert.Contains(t, st.Note, "docs/vision.md:14 that does not match the lines it replaces")
+}
+
+func TestReviewHoldsMisplacedBlockingSuggestion(t *testing.T) {
+	h := newReviewHarnessWith(t, "misplaced_blocking", nil,
+		map[string]string{"docs/vision.md": visionDoc})
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Empty(t, h.gh.posted, "a blocking problem is never dropped or posted on the wrong line")
+
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	require.NotEmpty(t, st.HeldDraft)
+	b, err := os.ReadFile(st.HeldDraft)
+	require.NoError(t, err)
+	assert.Contains(
+		t,
+		string(b),
+		"suggestion on docs/vision.md:14 does not match the lines it would replace",
+	)
 }
