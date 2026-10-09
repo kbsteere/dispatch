@@ -1,10 +1,12 @@
 package reviewsection
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,4 +227,26 @@ func batchMsgs(cmd tea.Cmd) []tea.Msg {
 		out = append(out, batchMsgs(c)...)
 	}
 	return out
+}
+
+func TestSectionSummaryNeverWraps(t *testing.T) {
+	m := newTestSection(t)
+	ws := reviewing.WatchStatus{
+		Name: "sustaining-automation", Mode: "live", DailyBudget: 100, SpentToday: 5.29,
+		SpentWeek: 106.74, SpentMonth: 106.74, InFlight: 3, Queued: 2, QuotaRemaining: 4321,
+		LastPoll: now,
+	}
+	states := []reviewing.PRState{st("mono", 66173, reviewing.StatusApproved, time.Hour)}
+	m.SetData(ws, states)
+	m.UpdateProgramContext(m.Ctx)
+	wide := lipgloss.Height(m.View())
+
+	// The preview pane leaves the table less room than the summary needs.
+	m.Ctx.MainContentWidth = 80
+	m.UpdateProgramContext(m.Ctx)
+	view := m.View()
+	assert.Equal(t, wide, lipgloss.Height(view), "a wrapped summary pushes the footer off screen")
+	summary, _, _ := strings.Cut(view, "\n")
+	assert.LessOrEqual(t, lipgloss.Width(summary), 80)
+	assert.Contains(t, ansi.Strip(view), "sustaining-automation · live · $5.29/$100 today")
 }

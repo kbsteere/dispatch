@@ -736,7 +736,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
 		m.setCurrentViewSections(newSections)
-		m.tabs.SetCurrSectionId(1)
+		m.tabs.SetCurrSectionId(m.currSectionId)
 
 		if m.ctx.BackgroundSource != "bubbletea" {
 			log.Debugf("Setting markdownStyle in initMsg")

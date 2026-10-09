@@ -8,6 +8,7 @@ import (
 	bbHelp "charm.land/bubbles/v2/help"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kbsteere/dispatch/v4/internal/config"
 	"github.com/kbsteere/dispatch/v4/internal/git"
@@ -63,22 +64,12 @@ func (m Model) View() string {
 		if m.rightSection != nil {
 			rightSection = *m.rightSection
 		}
-		watch := m.renderWatch()
+		fixed := lipgloss.Width(viewSwitcher) + lipgloss.Width(leftSection) +
+			lipgloss.Width(rightSection) + lipgloss.Width(helpIndicator)
+		watch := m.renderWatch(m.ctx.ScreenWidth - fixed)
 		spacing := lipgloss.NewStyle().
 			Background(m.ctx.Theme.SelectedBackground).
-			Render(
-				strings.Repeat(
-					" ",
-					utils.Max(0,
-						m.ctx.ScreenWidth-lipgloss.Width(
-							viewSwitcher,
-						)-lipgloss.Width(leftSection)-
-							lipgloss.Width(watch)-
-							lipgloss.Width(rightSection)-
-							lipgloss.Width(
-								helpIndicator,
-							),
-					)))
+			Render(strings.Repeat(" ", utils.Max(0, m.ctx.ScreenWidth-fixed-lipgloss.Width(watch))))
 
 		footer = m.ctx.Styles.Common.FooterStyle.
 			Render(lipgloss.JoinHorizontal(lipgloss.Top, viewSwitcher, leftSection, spacing,
@@ -94,16 +85,17 @@ func (m Model) View() string {
 	return footer
 }
 
-// renderWatch shows the reviewingFor summary, if any watches are running.
-func (m Model) renderWatch() string {
-	if m.ctx.WatchFooter == "" {
+// renderWatch shows the reviewingFor summary, if any watches are running,
+// cut to fit width so the footer stays on one line.
+func (m Model) renderWatch(width int) string {
+	if m.ctx.WatchFooter == "" || width < 3 {
 		return ""
 	}
 	return lipgloss.NewStyle().
 		Background(m.ctx.Theme.SelectedBackground).
 		Foreground(m.ctx.Theme.FaintText).
 		Padding(0, 1).
-		Render(m.ctx.WatchFooter)
+		Render(ansi.Truncate(m.ctx.WatchFooter, width-2, "…"))
 }
 
 func (m *Model) SetShowConfirmQuit(val bool) {

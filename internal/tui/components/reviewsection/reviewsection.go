@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kbsteere/dispatch/v4/internal/config"
 	"github.com/kbsteere/dispatch/v4/internal/data"
@@ -240,11 +241,14 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 // View shows the watch summary where other sections show their search bar.
 func (m *Model) View() string {
 	height := lipgloss.Height(m.SearchBar.View(m.Ctx))
+	// The summary is cut to one line: a wrapped one makes the view taller than
+	// the screen and pushes the footer off it.
+	width := m.Ctx.MainContentWidth - 2*m.Ctx.Styles.Section.ContainerPadding - 2
 	summary := lipgloss.NewStyle().
 		Height(height).
 		Padding(0, 1).
 		Foreground(m.Ctx.Theme.FaintText).
-		Render(summaryLine(m.status, m.now()))
+		Render(ansi.Truncate(summaryLine(m.status, m.now()), max(width, 0), "…"))
 	return m.Ctx.Styles.Section.ContainerStyle.
 		Width(m.Ctx.MainContentWidth).
 		Render(lipgloss.JoinVertical(lipgloss.Left, summary, m.GetMainContent()))
