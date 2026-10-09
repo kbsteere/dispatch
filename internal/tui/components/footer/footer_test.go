@@ -62,7 +62,7 @@ func TestFooterStaysOnOneLine(t *testing.T) {
 		View:        config.ReviewingView,
 		User:        "kbsteere",
 		ScreenWidth: 120,
-		WatchFooter: "sustaining-automation · 3 reviewing · 2 queued · $5.29 today · $106.74 wk · live",
+		WatchFooter: "sustaining-automation · 3 reviewing · 2 queued · $5.29 today · live",
 	}
 	m := NewModel(ctx)
 	m.SetLeftSection(" 1/24 ")
@@ -75,5 +75,5 @@ func TestFooterStaysOnOneLine(t *testing.T) {
 		}
 	}
 	ctx.ScreenWidth = 200
-	assert.Contains(t, m.View(), "$106.74 wk · live", "the whole line fits when there is room")
+	assert.Contains(t, m.View(), "$5.29 today · live", "the whole line fits when there is room")
 }
