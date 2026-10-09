@@ -250,3 +250,23 @@ func TestSectionSummaryNeverWraps(t *testing.T) {
 	assert.LessOrEqual(t, lipgloss.Width(summary), 80)
 	assert.Contains(t, ansi.Strip(view), "sustaining-automation · live · $5.29/$100 today")
 }
+
+func TestSectionHidesStandingApprovals(t *testing.T) {
+	m := newTestSection(t)
+	done := st("stereo", 357102, reviewing.StatusApproved, time.Hour)
+	done.MyReview, done.MyReviewOnHead = "APPROVED", true
+	pushed := st("stereo", 357103, reviewing.StatusApproved, time.Hour)
+	pushed.MyReview = "APPROVED" // on an older commit
+	open := st("mono", 66173, reviewing.StatusWaitingOnAuthor, time.Hour)
+	ws := reviewing.WatchStatus{Name: "sustaining-automation", Mode: "live", DailyBudget: 100}
+
+	m.SetData(ws, []reviewing.PRState{done, pushed, open})
+	assert.Equal(t, 2, m.NumRows())
+	assert.Contains(t, ansi.Strip(m.View()), "· 1 approved hidden")
+	assert.NotContains(t, ansi.Strip(m.View()), "stereo#357102")
+
+	m.Ctx.ShowApproved = true
+	m.SetData(ws, []reviewing.PRState{done, pushed, open})
+	assert.Equal(t, 3, m.NumRows())
+	assert.NotContains(t, ansi.Strip(m.View()), "approved hidden")
+}

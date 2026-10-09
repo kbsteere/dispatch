@@ -68,6 +68,9 @@ type ProgramContext struct {
 	WatchDrafts map[string]reviewing.Draft
 	// WatchFooter summarises the reviewingFor watches for the footer.
 	WatchFooter string
+	// ShowApproved lists approved PRs in the Reviewing view even while their
+	// approval stands; see reviewsection.HideApproved.
+	ShowApproved bool
 }
 
 type ClaudeReviewState int

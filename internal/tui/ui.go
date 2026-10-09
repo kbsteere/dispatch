@@ -514,6 +514,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.PRKeys.ReviewPause):
 				return m, m.togglePause()
+
+			case key.Matches(msg, keys.PRKeys.ReviewShowApproved):
+				return m, m.toggleShowApproved()
 			}
 		case m.ctx.View == config.IssuesView:
 			switch {

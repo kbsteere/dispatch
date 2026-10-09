@@ -149,6 +149,50 @@ func TestReviewNowKeyQueuesAReview(t *testing.T) {
 	require.True(t, forced, "N in the Reviewing view queues a review of the selected PR")
 }
 
+func TestShowApprovedKeyTogglesInReviewingOnly(t *testing.T) {
+	cfg, err := config.ParseConfig(config.Location{
+		ConfigFlag:       "../config/testdata/test-config.yml",
+		SkipGlobalConfig: true,
+	})
+	require.NoError(t, err)
+	w := config.ReviewWatch{
+		Name:    "sustaining-automation",
+		Authors: []string{"tcnghia"},
+		Scopes:  []string{"repo:chainguard-dev/stereo"},
+	}
+	cfg.ReviewingFor.Watches = []config.ReviewWatch{w}
+	m := NewModel(config.Location{}, Repositories{})
+	m.ctx.Config = &cfg
+	m.ctx.Theme = theme.ParseTheme(&cfg)
+	m.ctx.Styles = context.InitStyles(m.ctx.Theme)
+	m.ctx.ScreenWidth, m.ctx.ScreenHeight = 200, 50
+	m.ctx.MainContentWidth, m.ctx.MainContentHeight = 200, 30
+	e, err := reviewing.NewEngine(reviewing.Deps{
+		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(),
+		GitHub: viewGitHub{}, LookupPath: func(string) (string, bool) { return "", false },
+	})
+	require.NoError(t, err)
+	t.Cleanup(e.Shutdown)
+	m.reviewers = reviewers{e}
+	m.ctx.View = config.NotificationsView
+	m.switchSelectedView()
+
+	press := tea.KeyPressMsg{Code: 'H', Text: "H"}
+	next, _ := m.Update(press)
+	m = next.(Model)
+	require.True(t, m.ctx.ShowApproved, "H in the Reviewing view shows approved PRs")
+	next, _ = m.Update(press)
+	m = next.(Model)
+	require.False(t, m.ctx.ShowApproved, "and hides them again")
+
+	m.ctx.View = config.ReviewingView
+	m.switchSelectedView()
+	require.Equal(t, config.PRsView, m.ctx.View)
+	next, _ = m.Update(press)
+	m = next.(Model)
+	require.False(t, m.ctx.ShowApproved, "H does nothing in the PRs view")
+}
+
 func TestStatusTicksRunOnceAndStopWhenIdle(t *testing.T) {
 	m := NewModel(config.Location{}, Repositories{})
 	m.ctx.Config = &config.Config{}

@@ -396,3 +396,42 @@ func TestCellsShowOpened(t *testing.T) {
 	s.CreatedAt = time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	assert.Equal(t, "2025-06-01", Cells(s, now).Opened)
 }
+
+func TestHideApproved(t *testing.T) {
+	// approvedOnHead is how a PR dispatch approved looks after the next poll.
+	approvedOnHead := func(n int) reviewing.PRState {
+		s := st("mono", n, reviewing.StatusApproved, time.Hour)
+		s.MyReview, s.MyReviewOnHead, s.ApprovedHead = "APPROVED", true, strings.Repeat("a", 40)
+		return s
+	}
+	pushed := approvedOnHead(2)
+	pushed.MyReviewOnHead = false
+	dismissed := approvedOnHead(3)
+	dismissed.MyReview = "DISMISSED"
+	dry := approvedOnHead(4)
+	dry.DryRun = true
+	requested := approvedOnHead(5)
+	requested.ReviewRequested = true
+	queued := approvedOnHead(6)
+	queued.ForceReview = true
+	merged := approvedOnHead(7)
+	merged.Inactive, merged.ClosedState = true, "MERGED"
+	pinned := approvedOnHead(8)
+	pinned.Pinned = true
+	notPosted := st("mono", 9, reviewing.StatusApproved, time.Hour)
+	changes := st("mono", 10, reviewing.StatusChangesRequested, time.Hour)
+	changes.MyReview, changes.MyReviewOnHead = "APPROVED", true
+
+	shown, hidden := HideApproved([]reviewing.PRState{
+		approvedOnHead(1), pushed, dismissed, dry, requested, queued, merged, pinned,
+		notPosted, changes,
+	})
+	assert.Equal(t, 2, hidden, "the standing approvals, pinned or not")
+	var got []int
+	for _, s := range shown {
+		got = append(got, s.Key.Number)
+	}
+	assert.Equal(t, []int{2, 3, 4, 5, 6, 7, 9, 10}, got,
+		"new commits, a dismissed approval, dry run, a fresh request, a queued review, "+
+			"a recent merge, an unposted approval, and other statuses stay")
+}

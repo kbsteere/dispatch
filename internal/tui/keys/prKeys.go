@@ -38,6 +38,7 @@ type PRKeyMap struct {
 	ReviewAllBaseline    key.Binding
 	PostAllDrafts        key.Binding
 	ReviewPause          key.Binding
+	ReviewShowApproved   key.Binding
 }
 
 var PRKeys = PRKeyMap{
@@ -153,6 +154,10 @@ var PRKeys = PRKeyMap{
 		key.WithKeys("Z"),
 		key.WithHelp("Z", "pause/resume review watch"),
 	),
+	ReviewShowApproved: key.NewBinding(
+		key.WithKeys("H"),
+		key.WithHelp("H", "show/hide approved PRs"),
+	),
 }
 
 func PRFullHelp() []key.Binding {
@@ -184,6 +189,7 @@ func PRFullHelp() []key.Binding {
 		PRKeys.ReviewAllBaseline,
 		PRKeys.PostAllDrafts,
 		PRKeys.ReviewPause,
+		PRKeys.ReviewShowApproved,
 	}
 }
 
@@ -268,6 +274,8 @@ func rebindPRKeys(keys []config.Keybinding) error {
 			key = &PRKeys.PostAllDrafts
 		case "reviewPause":
 			key = &PRKeys.ReviewPause
+		case "reviewShowApproved":
+			key = &PRKeys.ReviewShowApproved
 		default:
 			return fmt.Errorf("unknown built-in pr key: %q", prKey.Builtin)
 		}

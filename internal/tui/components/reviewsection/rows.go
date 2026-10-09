@@ -94,6 +94,22 @@ func SortStates(states []reviewing.PRState, now time.Time) []reviewing.PRState {
 	return out
 }
 
+// approvalStands reports an approved PR that asks nothing of you: your
+// approval is on its current head, and nobody has requested your review
+// again. New commits, a dismissed approval, or an approval never posted all
+// end it.
+func approvalStands(s reviewing.PRState) bool {
+	return s.Status == reviewing.StatusApproved && !s.Inactive && !s.DryRun && !s.ForceReview &&
+		!s.ReviewRequested && s.MyReview == "APPROVED" && s.MyReviewOnHead
+}
+
+// HideApproved returns the states without those whose approval stands, and
+// how many it left out.
+func HideApproved(states []reviewing.PRState) ([]reviewing.PRState, int) {
+	out := slices.DeleteFunc(slices.Clone(states), approvalStands)
+	return out, len(states) - len(out)
+}
+
 // RowCells are the text cells of one table row.
 type RowCells struct {
 	Status  string

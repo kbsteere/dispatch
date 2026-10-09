@@ -462,6 +462,19 @@ func (m *Model) togglePause() tea.Cmd {
 	return tea.Batch(m.notify(fmt.Sprintf("Resumed review watch %s", e.Name())), pollCmd(e))
 }
 
+// toggleShowApproved lists or hides approved PRs whose approval stands.
+func (m *Model) toggleShowApproved() tea.Cmd {
+	if m.ctx.View != config.ReviewingView {
+		return nil
+	}
+	m.ctx.ShowApproved = !m.ctx.ShowApproved
+	m.syncWatchState()
+	if m.ctx.ShowApproved {
+		return m.notify("Showing approved PRs")
+	}
+	return m.notify("Hiding approved PRs until they change")
+}
+
 // reviewAllBaseline queues a full review of every baselined PR in the
 // current watch after the user confirms the count and estimated cost.
 func (m *Model) reviewAllBaseline() tea.Cmd {

@@ -25,8 +25,10 @@ const SectionType = "review"
 // watch's local state, not from a GitHub search.
 type Model struct {
 	section.BaseModel
-	states   []reviewing.PRState
-	status   reviewing.WatchStatus
+	states []reviewing.PRState
+	status reviewing.WatchStatus
+	// hidden counts the approved PRs left out of states; see HideApproved.
+	hidden   int
 	now      func() time.Time
 	enriched map[string]data.EnrichedPullRequestData // full PR data by URL, once fetched
 }
@@ -69,7 +71,10 @@ func (m *Model) Watch() string { return m.Config.Title }
 // SetData replaces the table's contents with the watch's current state.
 func (m *Model) SetData(ws reviewing.WatchStatus, states []reviewing.PRState) {
 	m.status = ws
-	m.states = SortStates(states, m.now())
+	m.states, m.hidden = SortStates(states, m.now()), 0
+	if !m.Ctx.ShowApproved {
+		m.states, m.hidden = HideApproved(m.states)
+	}
 	m.TotalCount = len(m.states)
 	m.Table.SetRows(m.BuildRows())
 	// Until the first poll finishes there is nothing to show yet; say so
@@ -248,15 +253,19 @@ func (m *Model) View() string {
 		Height(height).
 		Padding(0, 1).
 		Foreground(m.Ctx.Theme.FaintText).
-		Render(ansi.Truncate(summaryLine(m.status, m.now()), max(width, 0), "…"))
+		Render(ansi.Truncate(summaryLine(m.status, m.hidden, m.now()), max(width, 0), "…"))
 	return m.Ctx.Styles.Section.ContainerStyle.
 		Width(m.Ctx.MainContentWidth).
 		Render(lipgloss.JoinVertical(lipgloss.Left, summary, m.GetMainContent()))
 }
 
-func summaryLine(ws reviewing.WatchStatus, now time.Time) string {
-	if next := NextPoll(ws, now); next != "" {
-		return Summary(ws) + " · " + next
+func summaryLine(ws reviewing.WatchStatus, hidden int, now time.Time) string {
+	s := Summary(ws)
+	if hidden > 0 {
+		s += fmt.Sprintf(" · %d approved hidden", hidden)
 	}
-	return Summary(ws)
+	if next := NextPoll(ws, now); next != "" {
+		s += " · " + next
+	}
+	return s
 }
