@@ -13,21 +13,22 @@ import (
 func TestFooterText(t *testing.T) {
 	assert.Equal(
 		t,
-		"sustaining-automation · 2 reviewing · $14.20 today · live",
+		"sustaining-automation · 2 reviewing · $14.20 today · $61.35 wk · live",
 		footerText(
-			[]reviewing.WatchStatus{
-				{Name: "sustaining-automation", InFlight: 2, SpentToday: 14.2, Mode: "live"},
-			},
+			[]reviewing.WatchStatus{{
+				Name: "sustaining-automation", InFlight: 2, SpentToday: 14.2, SpentWeek: 61.35,
+				Mode: "live",
+			}},
 		),
 	)
 	assert.Equal(
 		t,
-		"w · 0 reviewing · $100.00 today · paused: budget",
+		"w · 0 reviewing · $100.00 today · $0.00 wk · paused: budget",
 		footerText(
 			[]reviewing.WatchStatus{{Name: "w", SpentToday: 100, Mode: "live", Paused: "budget"}},
 		),
 	)
-	assert.Equal(t, "w · 0 reviewing · $0.00 today · dry run",
+	assert.Equal(t, "w · 0 reviewing · $0.00 today · $0.00 wk · dry run",
 		footerText([]reviewing.WatchStatus{{Name: "w", Mode: "dry run"}}))
 	assert.Equal(t, "", footerText(nil))
 }
@@ -47,9 +48,10 @@ func TestNextView(t *testing.T) {
 		reviewing, repo bool
 		want            config.ViewType
 	}{
-		{config.NotificationsView, true, false, config.PRsView},
-		{config.PRsView, true, false, config.ReviewingView},
-		{config.ReviewingView, true, false, config.IssuesView},
+		{config.NotificationsView, true, false, config.ReviewingView},
+		{config.ReviewingView, true, false, config.PRsView},
+		{config.PRsView, true, false, config.IssuesView},
+		{config.NotificationsView, false, false, config.PRsView},
 		{config.IssuesView, true, false, config.NotificationsView},
 		{config.PRsView, false, false, config.IssuesView},
 		{config.IssuesView, false, true, config.RepoView},
@@ -63,7 +65,7 @@ func TestNextView(t *testing.T) {
 
 func TestFooterTextShowsQueue(t *testing.T) {
 	assert.Equal(t,
-		"sustaining-automation · 3 reviewing · 25 queued · $7.17 today · live",
+		"sustaining-automation · 3 reviewing · 25 queued · $7.17 today · $0.00 wk · live",
 		footerText([]reviewing.WatchStatus{{
 			Name: "sustaining-automation", Mode: "live", InFlight: 3, Queued: 25, SpentToday: 7.17,
 		}}))

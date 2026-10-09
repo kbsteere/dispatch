@@ -120,9 +120,11 @@ func TestCellsEdgeCases(t *testing.T) {
 
 func TestSummaryBeforeFirstPollAndOnError(t *testing.T) {
 	ws := reviewing.WatchStatus{Name: "sustaining-automation", Mode: "dry run", DailyBudget: 100}
-	assert.Equal(t,
-		"sustaining-automation · dry run · $0.00/$100 today · 0 reviewing · polling GitHub…",
-		Summary(ws))
+	assert.Equal(
+		t,
+		"sustaining-automation · dry run · $0.00/$100 today · $0.00 week · $0.00 month · 0 reviewing · polling GitHub…",
+		Summary(ws),
+	)
 
 	ws.LastPoll = now
 	ws.QuotaRemaining = 3912
@@ -154,16 +156,21 @@ func TestSummaryLeadsWithPrompt(t *testing.T) {
 func TestSummary(t *testing.T) {
 	ws := reviewing.WatchStatus{
 		Name: "sustaining-automation", Mode: "live", SpentToday: 14.2, DailyBudget: 100,
+		SpentWeek: 61.35, SpentMonth: 203.8,
 		InFlight: 2, QuotaRemaining: 3912, LastPoll: now,
 	}
-	assert.Equal(t,
-		"sustaining-automation · live · $14.20/$100 today · 2 reviewing · quota 3,912",
-		Summary(ws))
+	assert.Equal(
+		t,
+		"sustaining-automation · live · $14.20/$100 today · $61.35 week · $203.80 month · 2 reviewing · quota 3,912",
+		Summary(ws),
+	)
 
 	ws.Paused, ws.QuotaRemaining = "budget", 0
-	assert.Equal(t,
-		"sustaining-automation · paused: budget · $14.20/$100 today · 2 reviewing · quota unknown",
-		Summary(ws))
+	assert.Equal(
+		t,
+		"sustaining-automation · paused: budget · $14.20/$100 today · $61.35 week · $203.80 month · 2 reviewing · quota unknown",
+		Summary(ws),
+	)
 }
 
 func TestPRData(t *testing.T) {
@@ -255,7 +262,7 @@ func TestQueuedReviews(t *testing.T) {
 				LastPoll:    now,
 			},
 		),
-		"$0.00/$100 today · 3 reviewing · 25 queued · quota unknown",
+		"$0.00/$100 today · $0.00 week · $0.00 month · 3 reviewing · 25 queued · quota unknown",
 	)
 }
 

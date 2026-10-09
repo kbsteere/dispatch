@@ -105,7 +105,7 @@ func TestMouseWheelMovesTheTableSelection(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(e.Shutdown)
 	m.reviewers = reviewers{e}
-	m.ctx.View = config.PRsView
+	m.ctx.View = config.NotificationsView
 	m.switchSelectedView()
 	next, _ := m.Update(pollCmd(e)())
 	m = next.(Model)

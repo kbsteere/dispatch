@@ -216,8 +216,9 @@ func Summary(ws reviewing.WatchStatus) string {
 	case ws.QuotaRemaining > 0:
 		quota = "quota " + thousands(ws.QuotaRemaining)
 	}
-	s := fmt.Sprintf("%s · %s · $%.2f/$%s today · %s · %s",
-		ws.Name, state, ws.SpentToday, trimFloat(ws.DailyBudget), ReviewCounts(ws), quota)
+	s := fmt.Sprintf("%s · %s · $%.2f/$%s today · $%.2f week · $%.2f month · %s · %s",
+		ws.Name, state, ws.SpentToday, trimFloat(ws.DailyBudget), ws.SpentWeek, ws.SpentMonth,
+		ReviewCounts(ws), quota)
 	if ws.Err != "" {
 		s += " · error: " + clip(reviewing.SanitizeTerminal(ws.Err), 80)
 	}

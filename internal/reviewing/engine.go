@@ -82,6 +82,10 @@ type WatchStatus struct {
 	// that has not started yet; see QueuedCount. Status leaves it zero.
 	Queued     int
 	SpentToday float64
+	// SpentWeek and SpentMonth are the cost since Monday and since the 1st,
+	// including today.
+	SpentWeek  float64
+	SpentMonth float64
 	Mode       string
 	Paused     string
 	Err        string
@@ -287,10 +291,13 @@ func (e *Engine) Status() WatchStatus {
 	if e.readOnly {
 		paused = "read-only"
 	}
+	now := e.d.Now()
 	return WatchStatus{
 		Name:           e.d.Watch.Name,
 		InFlight:       len(e.claimed),
-		SpentToday:     e.store.Spend(Day(e.d.Now())),
+		SpentToday:     e.store.Spend(Day(now)),
+		SpentWeek:      e.store.SpendSince(WeekStart(now), now),
+		SpentMonth:     e.store.SpendSince(MonthStart(now), now),
 		Mode:           mode,
 		Paused:         paused,
 		Err:            e.lastErr,

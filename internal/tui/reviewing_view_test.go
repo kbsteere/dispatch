@@ -81,7 +81,7 @@ func TestReviewingViewShowsPRsAfterFirstPoll(t *testing.T) {
 	m.reviewers = reviewers{e}
 
 	// The user switches to the Reviewing view before the first poll ends.
-	m.ctx.View = config.PRsView
+	m.ctx.View = config.NotificationsView
 	m.switchSelectedView()
 	require.Equal(t, config.ReviewingView, m.ctx.View)
 	rs, ok := m.getCurrSection().(*reviewsection.Model)
@@ -134,7 +134,7 @@ func TestReviewNowKeyQueuesAReview(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(e.Shutdown)
 	m.reviewers = reviewers{e}
-	m.ctx.View = config.PRsView
+	m.ctx.View = config.NotificationsView
 	m.switchSelectedView()
 	next, _ := m.Update(pollCmd(e)())
 	m = next.(Model)
@@ -219,7 +219,7 @@ func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(e.Shutdown)
 	m.reviewers = reviewers{e}
-	m.ctx.View = config.PRsView
+	m.ctx.View = config.NotificationsView
 	m.switchSelectedView()
 	next, _ := m.Update(pollCmd(e)()) // the first poll baselines the PR
 	m = next.(Model)

@@ -326,6 +326,21 @@ func TestPollRespectsBudget(t *testing.T) {
 	assert.Equal(t, "budget", e.Status().Paused)
 }
 
+func TestStatusReportsWeekAndMonthSpend(t *testing.T) {
+	now := t0 // Monday 2026-10-05
+	e := newTestEngine(t, &fakeGitHub{viewer: "kbsteere"}, &now)
+	for day, usd := range map[time.Time]float64{
+		now: 2.5, now.AddDate(0, 0, -1): 4, now.AddDate(0, 0, -5): 8,
+	} {
+		_, err := e.store.AddSpend(Day(day), usd)
+		require.NoError(t, err)
+	}
+	ws := e.Status()
+	assert.Equal(t, 2.5, ws.SpentToday)
+	assert.Equal(t, 2.5, ws.SpentWeek, "the week began this morning")
+	assert.Equal(t, 6.5, ws.SpentMonth, "September's spend stays out of October")
+}
+
 func TestPollThrottlesAndBacksOff(t *testing.T) {
 	now := t0
 	a := strings.Repeat("a", 40)

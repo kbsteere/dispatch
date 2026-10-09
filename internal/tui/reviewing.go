@@ -212,10 +212,11 @@ func footerText(statuses []reviewing.WatchStatus) string {
 		parts = append(
 			parts,
 			fmt.Sprintf(
-				"%s · %s · $%.2f today · %s",
+				"%s · %s · $%.2f today · $%.2f wk · %s",
 				s.Name,
 				reviewsection.ReviewCounts(s),
 				s.SpentToday,
+				s.SpentWeek,
 				state,
 			),
 		)

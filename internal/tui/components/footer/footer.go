@@ -189,8 +189,6 @@ func (m *Model) renderViewSwitcher(ctx *context.ProgramContext) string {
 	buttons := []string{
 		ctx.Styles.ViewSwitcher.ViewsSeparator.PaddingLeft(1).
 			Render(m.renderViewButton(config.NotificationsView)),
-		ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
-		m.renderViewButton(config.PRsView),
 	}
 	if ctx.Config != nil && len(ctx.Config.ReviewingFor.Watches) > 0 {
 		buttons = append(buttons,
@@ -198,6 +196,8 @@ func (m *Model) renderViewSwitcher(ctx *context.ProgramContext) string {
 			m.renderViewButton(config.ReviewingView))
 	}
 	buttons = append(buttons,
+		ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
+		m.renderViewButton(config.PRsView),
 		ctx.Styles.ViewSwitcher.ViewsSeparator.Render(viewSeparator),
 		m.renderViewButton(config.IssuesView))
 

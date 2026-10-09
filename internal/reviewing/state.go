@@ -280,6 +280,31 @@ func (s Store) Spend(day string) float64 {
 	return v.USD
 }
 
+// SpendSince is the total claude cost recorded on each day from from's day
+// through to's day, in local time.
+func (s Store) SpendSince(from, to time.Time) float64 {
+	from = from.Local()
+	last := Day(to)
+	var total float64
+	d := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.Local)
+	for ; Day(d) <= last; d = d.AddDate(0, 0, 1) {
+		total += s.Spend(Day(d))
+	}
+	return total
+}
+
+// WeekStart is the Monday of t's week, in local time.
+func WeekStart(t time.Time) time.Time {
+	t = t.Local()
+	return t.AddDate(0, 0, -(int(t.Weekday())+6)%7)
+}
+
+// MonthStart is the first day of t's month, in local time.
+func MonthStart(t time.Time) time.Time {
+	t = t.Local()
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.Local)
+}
+
 // AddSpend adds usd to day's total and returns the new total.
 func (s Store) AddSpend(day string, usd float64) (float64, error) {
 	total := s.Spend(day) + usd

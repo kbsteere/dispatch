@@ -1774,14 +1774,14 @@ func (m *Model) setCurrentViewSections(newSections []section.Section) {
 	m.tabs.SetSections(newSections)
 }
 
-// nextView is the view after v in the cycle Notifications → PRs →
-// Reviewing (when watches are configured) → Issues → Repo (when enabled).
+// nextView is the view after v in the cycle Notifications → Reviewing (when
+// watches are configured) → PRs → Issues → Repo (when enabled).
 func nextView(v config.ViewType, reviewing, repo bool) config.ViewType {
-	order := []config.ViewType{config.NotificationsView, config.PRsView}
+	order := []config.ViewType{config.NotificationsView}
 	if reviewing {
 		order = append(order, config.ReviewingView)
 	}
-	order = append(order, config.IssuesView)
+	order = append(order, config.PRsView, config.IssuesView)
 	if repo {
 		order = append(order, config.RepoView)
 	}

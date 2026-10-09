@@ -90,6 +90,45 @@ func TestSpend(t *testing.T) {
 	assert.Equal(t, 0.0, s.Spend("2026-10-06"))
 }
 
+func TestSpendSince(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), "w")
+	require.NoError(t, err)
+	// The watch's first week: Monday 2026-09-28 through Monday 2026-10-05,
+	// with nothing spent on 10-03.
+	for day, usd := range map[string]float64{
+		"2026-09-27": 9, "2026-09-28": 1.5, "2026-09-30": 4.25, "2026-10-01": 2,
+		"2026-10-02": 3.5, "2026-10-04": 1, "2026-10-05": 0.75,
+	} {
+		_, err := s.AddSpend(day, usd)
+		require.NoError(t, err)
+	}
+	sunday := time.Date(2026, 10, 4, 21, 30, 0, 0, time.Local)
+	assert.Equal(t, 12.25, s.SpendSince(WeekStart(sunday), sunday),
+		"Sunday closes the week that began Monday 09-28")
+	assert.Equal(t, 6.5, s.SpendSince(MonthStart(sunday), sunday),
+		"the month starts on 10-01, leaving September out")
+	monday := time.Date(2026, 10, 5, 0, 5, 0, 0, time.Local)
+	assert.Equal(t, 0.75, s.SpendSince(WeekStart(monday), monday), "Monday starts a fresh week")
+	assert.Equal(t, 0.0, s.SpendSince(sunday.AddDate(0, 0, 2), sunday), "an empty range")
+}
+
+func TestWeekAndMonthStart(t *testing.T) {
+	for _, tc := range []struct {
+		at, week, month string
+	}{
+		{"2026-10-09", "2026-10-05", "2026-10-01"}, // Friday
+		{"2026-10-05", "2026-10-05", "2026-10-01"}, // Monday
+		{"2026-10-04", "2026-09-28", "2026-10-01"}, // Sunday
+		{"2026-03-01", "2026-02-23", "2026-03-01"}, // Sunday, across February
+	} {
+		at, err := time.ParseInLocation("2006-01-02", tc.at, time.Local)
+		require.NoError(t, err)
+		at = at.Add(23*time.Hour + 59*time.Minute)
+		assert.Equal(t, tc.week, Day(WeekStart(at)), tc.at)
+		assert.Equal(t, tc.month, Day(MonthStart(at)), tc.at)
+	}
+}
+
 func TestInitializedMarker(t *testing.T) {
 	s, err := OpenStore(t.TempDir(), "w")
 	require.NoError(t, err)
