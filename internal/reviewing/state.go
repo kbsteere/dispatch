@@ -70,6 +70,18 @@ type Claim struct {
 	PID       int       `json:"pid"`
 	Since     time.Time `json:"since"`
 	Head      string    `json:"head"`
+	// Prev is the status before the claim, put back when the pass ends
+	// without a result; see dropClaim.
+	Prev Status `json:"prev,omitempty"`
+}
+
+// dropClaim ends st's claim without a pass result, putting back the status
+// the PR had before the claim.
+func (st *PRState) dropClaim() {
+	if st.Claim != nil && st.Status == StatusReviewing {
+		st.Status = st.Claim.Prev
+	}
+	st.Claim = nil
 }
 
 // RunRecord describes the last claude session run for a PR.

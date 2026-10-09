@@ -180,7 +180,7 @@ func (e *Engine) update(k PRKey, fn func(*PRState)) (PRState, error) {
 }
 
 func (e *Engine) release(k PRKey) {
-	_, _ = e.update(k, func(st *PRState) { st.Claim = nil })
+	_, _ = e.update(k, func(st *PRState) { st.dropClaim() })
 	e.mu.Lock()
 	delete(e.claimed, k)
 	delete(e.inflight, k)
@@ -202,6 +202,9 @@ func claimLive(st PRState, now time.Time) bool {
 	return st.Claim != nil && now.Sub(st.Claim.Since) < claimTTL
 }
 
+// interruptedNote explains a pass that stopped before it finished.
+const interruptedNote = "interrupted before it finished; reviewed again on the next change"
+
 // Startup kills claude processes left by an earlier dispatch, releases
 // their claims, prunes worktree slots, and removes old session dirs.
 func (e *Engine) Startup(ctx context.Context) error {
@@ -212,15 +215,20 @@ func (e *Engine) Startup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// A pass that was running when dispatch stopped never finished; so is
+	// one marked reviewing with no claim, which earlier versions left behind.
 	for _, st := range states {
-		if st.Claim == nil {
+		if st.Claim == nil && st.Status != StatusReviewing {
 			continue
 		}
-		KillOrphan(st.Claim.PID)
+		if st.Claim != nil {
+			KillOrphan(st.Claim.PID)
+		}
 		_, _ = e.update(st.Key, func(s *PRState) {
 			s.Claim = nil
 			if s.Status == StatusReviewing {
 				s.Status = StatusFailed
+				s.Note = interruptedNote
 			}
 		})
 	}
@@ -673,16 +681,16 @@ func (e *Engine) evaluate(
 	case d.State != "OPEN":
 		st.Pinned = false
 		kill = st.Claim != nil
-		st.Claim = nil
+		st.dropClaim()
 	case d.IsDraft:
 		kill = st.Claim != nil
-		st.Claim = nil
+		st.dropClaim()
 	default:
 		ObserveHead(&st, d.HeadOID, now)
 		ObserveCI(&st, sig.CI)
 		if claimLive(st, now) && st.Claim.Head != d.HeadOID {
 			kill = true
-			st.Claim = nil
+			st.dropClaim()
 		}
 		job, claimed = e.claimLocked(&st, d, sig, now, initialized, lim)
 	}
@@ -709,7 +717,7 @@ func (e *Engine) claimLocked(
 	if claimLive(*st, now) {
 		return Job{}, false
 	}
-	st.Claim = nil
+	st.dropClaim()
 	if !initialized && !st.Pinned {
 		st.ReviewedSig = &sig
 		st.Status = StatusBaseline
@@ -735,7 +743,11 @@ func (e *Engine) claimLocked(
 		return Job{}, false
 	}
 	pass := choosePass(st.CodeReviewedHead, d.HeadOID, st.ForceReview)
-	st.Claim = &Claim{Since: now, Head: d.HeadOID}
+	prev := st.Status
+	if prev == StatusReviewing {
+		prev = "" // left by an interrupted pass; nothing to put back
+	}
+	st.Claim = &Claim{Since: now, Head: d.HeadOID, Prev: prev}
 	st.Status = StatusReviewing
 	st.ForceReview = false
 	if trig == TriggerCI {

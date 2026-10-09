@@ -145,3 +145,29 @@ func TestParseResultToleratesOddReadInputs(t *testing.T) {
 	require.NoError(t, err, "an unexpected offset or limit never loses the result")
 	assert.Equal(t, []LineRange{{1, 2000}}, res.Ranges["/w/a.go"])
 }
+
+// TestParseResultSkipsPermissionDenied replays mono#61487: claude refused a
+// Glob outside the worktree and reported it as a system event whose message
+// is a string. The review still finished, and its result must not be lost.
+func TestParseResultSkipsPermissionDenied(t *testing.T) {
+	out := `{"type":"system","subtype":"init","session_id":"s1","permissionMode":"dontAsk"}
+{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"t1","name":"Glob","input":{"pattern":"**/melange*/pkg/config/config.go","path":"/home/u/go/pkg/mod/chainguard.dev"}}]}}
+{"type":"system","subtype":"permission_denied","tool_name":"Glob","tool_use_id":"t1","decision_reason_type":"mode",` +
+		`"message":"Permission to use Glob has been denied because Claude Code is running in don't ask mode."}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true}]}}
+{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/w/rules/source_rule.go"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2"}]}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":28,"total_cost_usd":0.9999496,` +
+		`"session_id":"s1","structured_output":{"verdict":"approve"}}
+`
+	res, err := ParseResult([]byte(out))
+	require.NoError(t, err)
+	require.NoError(t, res.Err())
+	assert.Equal(t, 28, res.Turns)
+	assert.InDelta(t, 0.9999496, res.CostUSD, 1e-9, "the spend is recorded")
+	assert.JSONEq(t, `{"verdict":"approve"}`, string(res.Structured))
+	assert.Equal(t, []string{"/w/rules/source_rule.go"}, res.Reads)
+	assert.Equal(t, 1, res.Searches, "the refused Glob was still a search attempt")
+}

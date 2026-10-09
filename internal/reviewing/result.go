@@ -110,9 +110,22 @@ type streamEvent struct {
 	NumTurns   int             `json:"num_turns"`
 	TotalCost  float64         `json:"total_cost_usd"`
 	Structured json.RawMessage `json:"structured_output"`
-	Message    struct {
-		Content []contentBlock `json:"content"`
-	} `json:"message"`
+	Message    eventMessage    `json:"message"`
+}
+
+// eventMessage is an event's message. Assistant and user events carry an
+// object of content blocks; other events, such as permission_denied, carry a
+// plain string, which holds no tool calls and is skipped.
+type eventMessage struct {
+	Content []contentBlock `json:"content"`
+}
+
+func (m *eventMessage) UnmarshalJSON(b []byte) error {
+	if b = bytes.TrimSpace(b); len(b) == 0 || b[0] != '{' {
+		return nil
+	}
+	type plain eventMessage
+	return json.Unmarshal(b, (*plain)(m))
 }
 
 type contentBlock struct {

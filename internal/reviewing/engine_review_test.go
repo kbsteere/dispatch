@@ -328,6 +328,10 @@ func TestReviewHoldsFindingsOutsideTheDiff(t *testing.T) {
 
 func TestReviewHeadMovedDiscards(t *testing.T) {
 	h := newReviewHarness(t, "finding", nil)
+	_, err := h.e.update(h.job.Key, func(st *PRState) {
+		st.Claim.Prev, st.Status = StatusWaitingOnAuthor, StatusReviewing
+	})
+	require.NoError(t, err)
 	h.gh.headAfterRun = strings.Repeat("e", 40)
 	out := h.e.Review(context.Background(), h.job)
 	require.NoError(t, out.Err)
@@ -335,6 +339,7 @@ func TestReviewHeadMovedDiscards(t *testing.T) {
 	st := h.state(t)
 	assert.Nil(t, st.Claim)
 	assert.Nil(t, st.ReviewedSig, "the new head is reviewed on a later poll")
+	assert.Equal(t, StatusWaitingOnAuthor, st.Status, "the status before the pass is put back")
 }
 
 func TestReviewDryRunWritesDraftOnly(t *testing.T) {

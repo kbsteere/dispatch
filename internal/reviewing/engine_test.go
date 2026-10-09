@@ -1079,3 +1079,63 @@ func (f *fakeGitHub) PostFileComment(
 	f.fileComments = append(f.fileComments, ReviewComment{Path: path, Body: body})
 	return fmt.Sprintf("PRRT_file%d", len(f.fileComments)), nil
 }
+
+// A pass that ends without a result, such as one that found no free worktree
+// or was stopped by quitting dispatch, puts back the status it replaced.
+func TestReleasePutsBackTheStatusBeforeTheClaim(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 371441}
+	gh := &fakeGitHub{viewer: "kbsteere"}
+	e := newTestEngine(t, gh, &now)
+	_, _, _ = e.Poll(context.Background())
+	gh.hits = []SearchHit{{Key: k, NodeID: "N1", UpdatedAt: a}}
+	gh.details = map[string]PRDetail{"N1": detail(371441, a)}
+	_, _ = e.update(k, func(s *PRState) { s.Status = StatusApproved })
+	require.NoError(t, e.Force(k))
+
+	jobs, _, _ := e.Poll(context.Background())
+	require.Len(t, jobs, 1)
+	st := stateOf(t, e, k)
+	require.Equal(t, StatusReviewing, st.Status)
+	require.Equal(t, StatusApproved, st.Claim.Prev)
+
+	e.release(k)
+	st = stateOf(t, e, k)
+	assert.Nil(t, st.Claim)
+	assert.Equal(t, StatusApproved, st.Status, "not left showing reviewing")
+}
+
+func TestClaimLeftByAnInterruptedPassRecordsNothingToPutBack(t *testing.T) {
+	now := t0
+	a := strings.Repeat("a", 40)
+	k := PRKey{"chainguard-dev", "stereo", 8}
+	gh := &fakeGitHub{viewer: "kbsteere"}
+	e := newTestEngine(t, gh, &now)
+	_, _, _ = e.Poll(context.Background())
+	gh.hits = []SearchHit{{Key: k, NodeID: "N8", UpdatedAt: a}}
+	gh.details = map[string]PRDetail{"N8": detail(8, a)}
+	_, _ = e.update(k, func(s *PRState) { s.Status = StatusReviewing })
+	require.NoError(t, e.Force(k))
+
+	jobs, _, _ := e.Poll(context.Background())
+	require.Len(t, jobs, 1)
+	e.release(k)
+	assert.NotEqual(t, StatusReviewing, stateOf(t, e, k).Status)
+}
+
+func TestStartupRepairsReviewingWithoutAClaim(t *testing.T) {
+	now := t0
+	e := newTestEngine(t, &fakeGitHub{viewer: "kbsteere"}, &now)
+	stale := PRKey{"chainguard-dev", "stereo", 371441}
+	done := PRKey{"chainguard-dev", "stereo", 371442}
+	_, _ = e.update(stale, func(s *PRState) { s.Status = StatusReviewing; s.Verdict = "approve" })
+	_, _ = e.update(done, func(s *PRState) { s.Status = StatusApproved })
+
+	require.NoError(t, e.Startup(context.Background()))
+	st := stateOf(t, e, stale)
+	assert.Equal(t, StatusFailed, st.Status)
+	assert.Equal(t, interruptedNote, st.Note)
+	assert.Zero(t, st.Backoff, "an interrupted pass is not a failure to back off from")
+	assert.Equal(t, StatusApproved, stateOf(t, e, done).Status)
+}
