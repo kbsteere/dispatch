@@ -478,28 +478,45 @@ func (m *Model) toggleShowApproved() tea.Cmd {
 // reviewAllBaseline queues a full review of every baselined PR in the
 // current watch after the user confirms the count and estimated cost.
 func (m *Model) reviewAllBaseline() tea.Cmd {
+	return m.queueAll(reviewing.StatusBaseline, baselinePrompt,
+		"No baseline PRs to review", "Queued full reviews of %d baseline PRs")
+}
+
+// retryFailed queues another review of every failed PR in the current
+// watch, skipping backoff, after the user confirms the count and estimated
+// cost.
+func (m *Model) retryFailed() tea.Cmd {
+	return m.queueAll(reviewing.StatusFailed, retryPrompt,
+		"No failed reviews to retry", "Queued retries of %d failed reviews")
+}
+
+// queueAll forces a review of every open PR with the given status in the
+// current watch once the user answers prompt. done is a format for the
+// number queued.
+func (m *Model) queueAll(
+	status reviewing.Status,
+	prompt func(int, reviewing.WatchStatus) string,
+	none, done string,
+) tea.Cmd {
 	e := m.targetEngine()
 	if e == nil {
 		return noWatches
 	}
 	n := 0
 	for _, st := range e.States() {
-		if !st.Inactive && st.Status == reviewing.StatusBaseline {
+		if !st.Inactive && st.Status == status {
 			n++
 		}
 	}
 	if n == 0 {
-		return m.notify("No baseline PRs to review")
+		return m.notify(none)
 	}
-	return m.confirm(baselinePrompt(n, e.Status()), func() tea.Cmd {
-		queued, err := e.ForceBaseline()
+	return m.confirm(prompt(n, e.Status()), func() tea.Cmd {
+		queued, err := e.ForceAll(status)
 		if err != nil {
 			return func() tea.Msg { return reviewActionMsg{err: err} }
 		}
-		return tea.Batch(
-			m.notify(fmt.Sprintf("Queued full reviews of %d baseline PRs", queued)),
-			pollCmd(e),
-		)
+		return tea.Batch(m.notify(fmt.Sprintf(done, queued)), pollCmd(e))
 	})
 }
 
@@ -513,6 +530,17 @@ const (
 func baselinePrompt(n int, ws reviewing.WatchStatus) string {
 	return fmt.Sprintf(
 		"Queue full reviews of %d baseline PRs (about $%.0f–%.0f; $%.2f of $%.0f spent today)?",
+		n,
+		float64(n)*reviewCostLow,
+		float64(n)*reviewCostHigh,
+		ws.SpentToday,
+		ws.DailyBudget,
+	)
+}
+
+func retryPrompt(n int, ws reviewing.WatchStatus) string {
+	return fmt.Sprintf(
+		"Retry %d failed reviews (about $%.0f–%.0f; $%.2f of $%.0f spent today)?",
 		n,
 		float64(n)*reviewCostLow,
 		float64(n)*reviewCostHigh,

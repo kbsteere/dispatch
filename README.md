@@ -50,6 +50,7 @@ The `repoPaths` mapping tells dispatch where repos live locally; AI reviews and 
 | `S` | Post the review shown in the Review tab, held or dry-run (asks y/N) |
 | `N` | Review the selected watched PR now |
 | `E` | Queue full reviews of every baseline PR in the watch (asks y/N with a cost estimate) |
+| `T` | Retry every failed review in the watch now, skipping backoff (asks y/N with a cost estimate) |
 | `U` | Post every unposted dry-run draft in the watch (asks y/N; approvals are checked again first) |
 | `Z` | Pause or resume the review watch |
 | `H` | Show or hide approved PRs whose approval still stands |

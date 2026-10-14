@@ -17,6 +17,14 @@ func TestBaselinePrompt(t *testing.T) {
 	)
 }
 
+func TestRetryPrompt(t *testing.T) {
+	assert.Equal(
+		t,
+		"Retry 6 failed reviews (about $2–8; $14.20 of $100 spent today)?",
+		retryPrompt(6, reviewing.WatchStatus{SpentToday: 14.2, DailyBudget: 100}),
+	)
+}
+
 func TestPostPrompt(t *testing.T) {
 	drafts := map[reviewing.PRKey]reviewing.Draft{
 		{Owner: "chainguard-dev", Repo: "stereo", Number: 366936}: {Event: "APPROVE"},

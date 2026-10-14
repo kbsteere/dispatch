@@ -917,16 +917,17 @@ func (e *Engine) markRequested(ctx context.Context, hits []SearchHit) {
 	}
 }
 
-// ForceBaseline queues a full review of every open PR the watch has only
-// baselined, and returns how many it queued. Reviews still run a few at a
-// time and stop at the daily budget.
-func (e *Engine) ForceBaseline() (int, error) {
+// ForceAll queues a review of every open PR with the given status, such as
+// every baselined PR or every PR whose last pass failed, and returns how
+// many it queued. Forcing skips backoff and the per-PR daily limit; reviews
+// still run a few at a time and stop at the daily budget.
+func (e *Engine) ForceAll(status Status) (int, error) {
 	if e.readOnly {
 		return 0, errors.New("watch is read-only in this dispatch")
 	}
 	n := 0
 	for _, st := range e.States() {
-		if st.Inactive || st.Status != StatusBaseline {
+		if st.Inactive || st.Status != status {
 			continue
 		}
 		if err := e.Force(st.Key); err != nil {

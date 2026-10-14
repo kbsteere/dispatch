@@ -509,6 +509,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, keys.PRKeys.ReviewAllBaseline):
 				return m, m.reviewAllBaseline()
 
+			case key.Matches(msg, keys.PRKeys.ReviewRetryFailed):
+				return m, m.retryFailed()
+
 			case key.Matches(msg, keys.PRKeys.PostAllDrafts):
 				return m, m.postAllDrafts()
 

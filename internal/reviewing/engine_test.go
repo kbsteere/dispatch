@@ -508,6 +508,8 @@ func TestSecondEngineIsReadOnly(t *testing.T) {
 	assert.False(t, e1.ReadOnly())
 	assert.True(t, e2.ReadOnly())
 	assert.Equal(t, "read-only", e2.Status().Paused)
+	_, err := e2.ForceAll(StatusFailed)
+	assert.Error(t, err, "a read-only watch queues nothing")
 	jobs, _, err := e2.Poll(context.Background())
 	assert.NoError(t, err)
 	assert.Empty(t, jobs)
@@ -776,7 +778,7 @@ func TestPollRefreshesEveryPRAfterStartup(t *testing.T) {
 	assert.Equal(t, calls+1, gh.detailCalls, "the first poll after startup re-reads every PR")
 }
 
-func TestForceBaselineQueuesOnlyBaselinedPRs(t *testing.T) {
+func TestForceAllQueuesOnlyBaselinedPRs(t *testing.T) {
 	now := t0
 	e := newTestEngine(t, &fakeGitHub{}, &now)
 	keys := map[string]PRKey{
@@ -794,7 +796,7 @@ func TestForceBaselineQueuesOnlyBaselinedPRs(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	n, err := e.ForceBaseline()
+	n, err := e.ForceAll(StatusBaseline)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 	assert.True(t, stateOf(t, e, keys["baseline"]).ForceReview)
@@ -1138,4 +1140,65 @@ func TestStartupRepairsReviewingWithoutAClaim(t *testing.T) {
 	assert.Equal(t, interruptedNote, st.Note)
 	assert.Zero(t, st.Backoff, "an interrupted pass is not a failure to back off from")
 	assert.Equal(t, StatusApproved, stateOf(t, e, done).Status)
+}
+
+func TestForceAllQueuesOnlyOpenFailedPRs(t *testing.T) {
+	now := t0
+	e := newTestEngine(t, &fakeGitHub{}, &now)
+	keys := map[string]PRKey{
+		"failed":   {"chainguard-dev", "stereo", 386271},
+		"merged":   {"chainguard-dev", "stereo", 386273},
+		"reviewed": {"chainguard-dev", "stereo", 386277},
+	}
+	for name, k := range keys {
+		_, err := e.update(k, func(s *PRState) {
+			s.Status = StatusFailed
+			s.Inactive = name == "merged"
+			if name == "reviewed" {
+				s.Status = StatusNeedsAttention
+			}
+		})
+		require.NoError(t, err)
+	}
+	n, err := e.ForceAll(StatusFailed)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.True(t, stateOf(t, e, keys["failed"]).ForceReview)
+	assert.False(t, stateOf(t, e, keys["merged"]).ForceReview)
+	assert.False(t, stateOf(t, e, keys["reviewed"]).ForceReview)
+}
+
+func TestForceAllRetriesFailedDuringBackoff(t *testing.T) {
+	// mono#61487 failed eight times and was told to wait hours; retrying
+	// failed reviews runs it on the next poll instead.
+	now := t0
+	a := strings.Repeat("a", 40)
+	d := detail(61487, a)
+	gh := &fakeGitHub{
+		viewer:  "kbsteere",
+		hits:    []SearchHit{{Key: d.Key, NodeID: d.NodeID, UpdatedAt: a}},
+		details: map[string]PRDetail{d.NodeID: d},
+	}
+	e := newTestEngine(t, gh, &now)
+	_, _, err := e.Poll(context.Background())
+	require.NoError(t, err)
+	_, err = e.update(d.Key, func(s *PRState) {
+		s.Status = StatusFailed
+		s.Backoff = Backoff{Until: now.Add(8 * time.Hour), Step: 8}
+	})
+	require.NoError(t, err)
+
+	now = now.Add(4 * time.Minute)
+	jobs, _, err := e.Poll(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, jobs, "a failed PR waits out its backoff")
+
+	n, err := e.ForceAll(StatusFailed)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	now = now.Add(4 * time.Minute)
+	jobs, _, err = e.Poll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, jobs, 1, "the retry skips the backoff")
+	assert.Equal(t, d.Key, jobs[0].Key)
 }

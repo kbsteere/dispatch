@@ -126,9 +126,10 @@ func TestReviewNowKeyQueuesAReview(t *testing.T) {
 	m.ctx.Theme = theme.ParseTheme(&cfg)
 	m.ctx.Styles = context.InitStyles(m.ctx.Theme)
 	m.ctx.ScreenWidth, m.ctx.ScreenHeight = 200, 50
+	root := t.TempDir()
 	m.ctx.MainContentWidth, m.ctx.MainContentHeight = 200, 30
 	e, err := reviewing.NewEngine(reviewing.Deps{
-		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(),
+		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: root,
 		GitHub: viewGitHub{}, LookupPath: func(string) (string, bool) { return "", false },
 	})
 	require.NoError(t, err)
@@ -238,7 +239,10 @@ func TestHeartbeatAfterSleepResyncs(t *testing.T) {
 	assert.Equal(t, woke, m.lastBeat)
 }
 
-func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
+// newBulkModel is a dispatch in the Reviewing view with one watch whose
+// first poll has baselined one PR.
+func newBulkModel(t *testing.T) (Model, *reviewing.Engine, reviewing.Store) {
+	t.Helper()
 	cfg, err := config.ParseConfig(config.Location{
 		ConfigFlag:       "../config/testdata/test-config.yml",
 		SkipGlobalConfig: true,
@@ -255,9 +259,10 @@ func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
 	m.ctx.Theme = theme.ParseTheme(&cfg)
 	m.ctx.Styles = context.InitStyles(m.ctx.Theme)
 	m.ctx.ScreenWidth, m.ctx.ScreenHeight = 200, 50
+	root := t.TempDir()
 	m.ctx.MainContentWidth, m.ctx.MainContentHeight = 200, 30
 	e, err := reviewing.NewEngine(reviewing.Deps{
-		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: t.TempDir(),
+		Watch: w, Limits: config.DefaultReviewingLimits(), StateRoot: root,
 		GitHub: viewGitHub{}, LookupPath: func(string) (string, bool) { return "", false },
 	})
 	require.NoError(t, err)
@@ -267,7 +272,13 @@ func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
 	m.switchSelectedView()
 	next, _ := m.Update(pollCmd(e)()) // the first poll baselines the PR
 	m = next.(Model)
+	store, err := reviewing.OpenStore(root, w.Name)
+	require.NoError(t, err)
+	return m, e, store
+}
 
+func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
+	m, e, _ := newBulkModel(t)
 	press := func(k tea.KeyPressMsg) {
 		next, _ := m.Update(k)
 		m = next.(Model)
@@ -296,4 +307,43 @@ func TestReviewAllBaselineAsksThenQueues(t *testing.T) {
 	press(tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.False(t, m.getCurrSection().IsPromptConfirmationFocused())
 	assert.True(t, forced(), "answering y queues the baseline PR")
+}
+
+func TestRetryFailedAsksThenQueues(t *testing.T) {
+	m, e, store := newBulkModel(t)
+	// The sample config runs a custom command on T, and custom commands win
+	// over built-in keys.
+	m.ctx.Config.Keybindings.Prs = nil
+	press := func(k tea.KeyPressMsg) {
+		next, _ := m.Update(k)
+		m = next.(Model)
+	}
+	forced := func() bool {
+		for _, st := range e.States() {
+			if st.ForceReview {
+				return true
+			}
+		}
+		return false
+	}
+	retry := tea.KeyPressMsg{Code: 'T', Text: "T"}
+
+	press(retry)
+	assert.False(t, m.getCurrSection().IsPromptConfirmationFocused(),
+		"with nothing failed there is nothing to confirm")
+
+	states, err := store.AllPRs()
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	failed := states[0]
+	failed.Status = reviewing.StatusFailed
+	failed.Backoff = reviewing.Backoff{Until: time.Now().Add(8 * time.Hour), Step: 8}
+	require.NoError(t, store.SavePR(failed))
+
+	press(retry)
+	require.True(t, m.getCurrSection().IsPromptConfirmationFocused(), "T asks before queueing")
+	assert.Contains(t, m.getCurrSection().GetPromptConfirmation(), "Retry 1 failed reviews")
+	press(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	press(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.True(t, forced(), "answering y queues the failed PR")
 }
