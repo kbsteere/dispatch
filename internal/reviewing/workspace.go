@@ -148,7 +148,7 @@ func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string, onTou
 	if err == nil || errors.Is(err, ErrKeyTouch) {
 		return err
 	}
-	if dropped, derr := DropBrokenRefs(ctx, repo); derr != nil || len(dropped) == 0 {
+	if dropped, derr := dropBrokenRefs(ctx, repo); derr != nil || len(dropped) == 0 {
 		return err
 	}
 	return fetchSpecs(ctx, repo, k, specs, onTouch)
@@ -183,17 +183,24 @@ func fetchSpecs(
 
 var dispatchRefRe = regexp.MustCompile(`^refs/dispatch/[0-9]+/(head|base)$`)
 
-// DropBrokenRefs deletes dispatch refs that reach objects missing from the
+// dropBrokenRefs deletes dispatch refs that reach objects missing from the
 // repository, other than through the user's branches, and returns their
 // names. Only refs under refs/dispatch/ are ever deleted.
-func DropBrokenRefs(ctx context.Context, repo LocalRepo) ([]string, error) {
-	out, err := gitCmd(ctx, repo.GitDir, "for-each-ref", "--format=%(refname)", "refs/dispatch/")
+func dropBrokenRefs(ctx context.Context, repo LocalRepo) ([]string, error) {
+	out, err := gitCmd(
+		ctx,
+		repo.GitDir,
+		"for-each-ref",
+		"--format=%(objectname) %(refname)",
+		"refs/dispatch/",
+	)
 	if err != nil {
 		return nil, err
 	}
 	var dropped []string
-	for _, ref := range strings.Fields(string(out)) {
-		if !dispatchRefRe.MatchString(ref) {
+	for line := range strings.Lines(string(out)) {
+		oid, ref, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if !ValidSHA(oid) || !dispatchRefRe.MatchString(ref) {
 			continue
 		}
 		// A missing tip makes rev-list fail; a missing object below it is
@@ -206,7 +213,9 @@ func DropBrokenRefs(ctx context.Context, repo LocalRepo) ([]string, error) {
 		if err == nil && !strings.Contains("\n"+string(objs), "\n?") {
 			continue
 		}
-		if _, err := gitCmd(ctx, repo.GitDir, "update-ref", "-d", ref); err != nil {
+		// Deleting only while the ref still names the object checked leaves
+		// a ref another process just updated alone.
+		if _, err := gitCmd(ctx, repo.GitDir, "update-ref", "-d", ref, oid); err != nil {
 			return dropped, err
 		}
 		dropped = append(dropped, ref)

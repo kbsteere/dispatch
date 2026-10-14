@@ -380,7 +380,7 @@ func TestDropBrokenRefsRemovesOnlyBrokenDispatchRefs(t *testing.T) {
 	require.NoError(t, FetchPR(ctx, repo, PRKey{"chainguard-dev", "stereo", 7}, "main", nil))
 	breakDispatchRef(t, clone)
 
-	dropped, err := DropBrokenRefs(ctx, repo)
+	dropped, err := dropBrokenRefs(ctx, repo)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"refs/dispatch/9/head"}, dropped)
 	refs := gitT(t, clone, "for-each-ref", "--format=%(refname)")
