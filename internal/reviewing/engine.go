@@ -98,6 +98,8 @@ type WatchStatus struct {
 	// Prompt is an action the user must take now, such as touching a
 	// security key; empty when none.
 	Prompt string
+	// TouchFor is the PR whose fetch waits for that touch; zero when none.
+	TouchFor PRKey
 	// NextPoll is when the next poll is due; zero when one is due now.
 	NextPoll time.Time
 }
@@ -121,6 +123,7 @@ type Engine struct {
 	lastErr  string
 	lastPoll time.Time
 	prompt   string // an action the user must take now, such as touching a security key
+	touchFor PRKey  // the PR whose fetch waits for a security key touch
 	closing  bool
 	// refreshed is set once a poll has re-read every PR's details, which
 	// the first poll after startup does so derived fields are current.
@@ -313,6 +316,7 @@ func (e *Engine) Status() WatchStatus {
 		DailyBudget:    e.d.Limits.DailyBudgetUsd,
 		LastPoll:       e.lastPoll,
 		Prompt:         e.prompt,
+		TouchFor:       e.touchFor,
 		NextPoll:       e.nextPoll,
 	}
 }
@@ -865,9 +869,14 @@ func readDraft(path string) (Draft, error) {
 	return d, json.Unmarshal(b, &d)
 }
 
-func (e *Engine) setPrompt(p string) {
+// waitForTouch shows that fetching k needs a security key touch; the zero
+// key clears it.
+func (e *Engine) waitForTouch(k PRKey) {
 	e.mu.Lock()
-	e.prompt = p
+	e.prompt, e.touchFor = "", k
+	if k != (PRKey{}) {
+		e.prompt = fmt.Sprintf("Touch your security key to fetch %s", k)
+	}
 	e.mu.Unlock()
 }
 

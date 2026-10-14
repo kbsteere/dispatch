@@ -28,9 +28,9 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 	repo, err := e.localRepo(ctx, job.Key)
 	if err == nil {
 		err = FetchPR(ctx, repo, job.Key, d.BaseRef, func() {
-			e.setPrompt(fmt.Sprintf("Touch your security key to fetch %s", job.Key))
+			e.waitForTouch(job.Key)
 		})
-		e.setPrompt("")
+		e.waitForTouch(PRKey{})
 	}
 	if errors.Is(err, ErrKeyTouch) {
 		return e.holdForTouch(job.Key, out)

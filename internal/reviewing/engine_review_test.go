@@ -425,6 +425,20 @@ func TestReviewSSHFallbackClearsPrompt(t *testing.T) {
 	require.NoError(t, out.Err)
 	assert.Equal(t, ActionApprove, out.Posted, "the SSH fetch worked and the pass completed")
 	assert.Empty(t, h.e.Status().Prompt, "the touch prompt is cleared once the fetch ends")
+	assert.Zero(t, h.e.Status().TouchFor, "no row waits for a touch once the fetch ends")
+}
+
+func TestWaitForTouchNamesThePR(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	h.e.waitForTouch(h.job.Key)
+	ws := h.e.Status()
+	assert.Equal(t, h.job.Key, ws.TouchFor)
+	assert.Equal(t, "Touch your security key to fetch "+h.job.Key.String(), ws.Prompt)
+
+	h.e.waitForTouch(PRKey{})
+	ws = h.e.Status()
+	assert.Zero(t, ws.TouchFor)
+	assert.Empty(t, ws.Prompt)
 }
 
 func TestReviewNonBlockingFindingApprovesWithLabelledComment(t *testing.T) {

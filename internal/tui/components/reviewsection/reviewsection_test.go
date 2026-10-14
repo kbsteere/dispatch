@@ -331,3 +331,38 @@ func TestFitColumns(t *testing.T) {
 	visible := slices.DeleteFunc(cols, func(c table.Column) bool { return c.Hidden != nil })
 	assert.Len(t, visible, len(all), "widening shows hidden columns again")
 }
+
+func TestTouchRowFlashes(t *testing.T) {
+	m := newTestSection(t)
+	waiting := st("stereo", 385039, reviewing.StatusReviewing, time.Minute)
+	other := st("stereo", 385042, reviewing.StatusReviewing, 2*time.Minute)
+	ws := reviewing.WatchStatus{
+		Name:     "sustaining-automation",
+		Mode:     "live",
+		InFlight: 2,
+		Prompt:   "Touch your security key to fetch chainguard-dev/stereo#385039",
+		TouchFor: waiting.Key,
+	}
+	m.SetData(ws, []reviewing.PRState{waiting, other})
+
+	rows := m.BuildRows()
+	require.Len(t, rows, 2)
+	assert.Equal(t, "🔑 touch key", ansi.Strip(rows[0][0]), "the PR waiting on the key")
+	assert.Equal(t, "reviewing", ansi.Strip(rows[1][0]), "other reviews are unmarked")
+	assert.Contains(t, m.View(), "🔑 touch key")
+
+	m.now = func() time.Time { return now.Add(time.Second) }
+	next := m.BuildRows()
+	assert.Equal(t, ansi.Strip(rows[0][0]), ansi.Strip(next[0][0]))
+	assert.NotEqual(t, rows[0][0], next[0][0], "the marker flashes from one second to the next")
+	assert.Equal(t, rows[1][0], next[1][0], "other rows stay still")
+
+	ws.Prompt, ws.TouchFor = "", reviewing.PRKey{}
+	m.SetData(ws, []reviewing.PRState{waiting, other})
+	assert.Equal(
+		t,
+		"reviewing",
+		ansi.Strip(m.BuildRows()[0][0]),
+		"the marker goes once the fetch ends",
+	)
+}

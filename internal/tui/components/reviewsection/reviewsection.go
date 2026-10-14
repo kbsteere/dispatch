@@ -112,6 +112,9 @@ func (m Model) BuildRows() []table.Row {
 			sep = " "
 		}
 		status := lipgloss.NewStyle().Foreground(m.toneColor(StatusTone(s))).Render(c.Status)
+		if s.Key == m.status.TouchFor {
+			status = m.touchCell(now)
+		}
 		rows = append(
 			rows,
 			table.Row{
@@ -129,6 +132,20 @@ func (m Model) BuildRows() []table.Row {
 	}
 	return rows
 }
+
+// touchCell marks the row whose fetch waits for a security key touch. It
+// flashes, inverting each second the table redraws, so the row stands out
+// while the key waits.
+func (m Model) touchCell(now time.Time) string {
+	return lipgloss.NewStyle().
+		Foreground(m.Ctx.Theme.WarningText).
+		Bold(true).
+		Reverse(now.Unix()%2 == 0).
+		Render(touchStatus)
+}
+
+// touchStatus is the Status cell of a PR waiting for a security key touch.
+const touchStatus = "🔑 touch key"
 
 func (m Model) toneColor(t Tone) color.Color {
 	switch t {
