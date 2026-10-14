@@ -87,8 +87,8 @@ func TestCells(t *testing.T) {
 	assert.Equal(t, "changes", c.Status)
 	assert.Equal(
 		t,
-		"mono#62436 versiondata: add epochs[2J",
-		c.PR,
+		"versiondata: add epochs[2J",
+		c.Title,
 		"control characters are stripped",
 	)
 	assert.Equal(t, "tcnghia", c.Author)
@@ -106,7 +106,8 @@ func TestCellsEdgeCases(t *testing.T) {
 	assert.Equal(t, "-", c.Open)
 	assert.Equal(t, "…", c.Spend, "a running review shows progress, not the previous run")
 	assert.True(t, strings.HasSuffix(c.PR, "(added)"))
-	assert.LessOrEqual(t, len([]rune(c.PR)), maxTitleRunes+40, "titles are length-limited")
+	assert.Equal(t, maxTitleRunes, len([]rune(c.Title)), "titles are length-limited")
+	assert.Equal(t, "omnibump#88 (added)", c.PR)
 
 	b := st("mono", 1, reviewing.StatusBaseline, 48*time.Hour)
 	c = Cells(b, now)
@@ -210,7 +211,7 @@ func TestSortStatesPutsRequestedReviewsFirst(t *testing.T) {
 	}
 	assert.Equal(t, []int{367334, 66173, 59119, 66370}, order,
 		"requested first, each group in status order")
-	assert.Equal(t, "mono#66173 title (requested)", Cells(asked, now).PR)
+	assert.Equal(t, "mono#66173 (requested)", Cells(asked, now).PR)
 }
 
 func TestCellsShowsTotalSpend(t *testing.T) {

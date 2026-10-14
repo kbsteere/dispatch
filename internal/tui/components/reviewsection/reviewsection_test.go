@@ -1,6 +1,8 @@
 package reviewsection
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/kbsteere/dispatch/v4/internal/data"
 	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/components/prrow"
+	"github.com/kbsteere/dispatch/v4/internal/tui/components/table"
 	"github.com/kbsteere/dispatch/v4/internal/tui/context"
 	"github.com/kbsteere/dispatch/v4/internal/tui/theme"
 )
@@ -58,7 +61,7 @@ func TestSectionShowsWatchStateInOrder(t *testing.T) {
 	assert.NotEqual(t, "attention", rows[0][0], "the status is colored")
 	assert.Equal(
 		t,
-		"mono#66173 version-reconciler: enable heuristic Actions EOL for every project",
+		"mono#66173\nversion-reconciler: enable heuristic Actions EOL for every project",
 		rows[0][1],
 	)
 	assert.Equal(t, "-", rows[0][3], "you have not reviewed it")
@@ -269,4 +272,62 @@ func TestSectionHidesStandingApprovals(t *testing.T) {
 	m.SetData(ws, []reviewing.PRState{done, pushed, open})
 	assert.Equal(t, 3, m.NumRows())
 	assert.NotContains(t, ansi.Strip(m.View()), "approved hidden")
+}
+
+func TestNarrowSectionShowsWholePRNumbers(t *testing.T) {
+	m := newTestSection(t)
+	// A run of PRs whose numbers differ only in the last digit, as when one
+	// author opens a batch of PRs at once.
+	var states []reviewing.PRState
+	for n := 386270; n <= 386278; n++ {
+		s := st("stereo", n, reviewing.StatusNeedsAttention, time.Hour)
+		s.Author = "powersj"
+		s.Title = "chore: set explicit language on bump steps (batch 70)"
+		states = append(states, s)
+	}
+	m.SetData(reviewing.WatchStatus{Name: "sustaining-automation", Mode: "live"}, states)
+	for _, width := range []int{160, 98, 70} {
+		m.Ctx.MainContentWidth = width
+		m.UpdateProgramContext(m.Ctx)
+		out := ansi.Strip(m.View())
+		for n := 386270; n <= 386278; n++ {
+			assert.Contains(t, out, fmt.Sprintf("stereo#%d", n), "width %d", width)
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if strings.Contains(line, "stereo#") {
+				assert.NotContains(t, line, "chore", "the title has its own line; width %d", width)
+			}
+			assert.LessOrEqual(t, lipgloss.Width(line), width, "width %d", width)
+		}
+	}
+	m.Ctx.MainContentWidth = 160
+	m.UpdateProgramContext(m.Ctx)
+	assert.Contains(t, ansi.Strip(m.View()), "Update", "a wide table shows every column")
+}
+
+func TestFitColumns(t *testing.T) {
+	shown := func(width int) []string {
+		cols := Columns()
+		FitColumns(cols, width)
+		var titles []string
+		for _, c := range cols {
+			if c.Hidden == nil || !*c.Hidden {
+				titles = append(titles, c.Title)
+			}
+		}
+		return titles
+	}
+	all := []string{"Status", "PR", "Author", "You", "Open", "CI", "Spend", "Opened", "Updated"}
+	assert.Equal(t, all, shown(160))
+	assert.Equal(t, all, shown(83+minPRWidth), "exactly enough room hides nothing")
+	assert.Equal(t, []string{"Status", "PR", "Author", "You", "Open", "CI", "Spend", "Opened"},
+		shown(83+minPRWidth-1))
+	assert.Equal(t, []string{"Status", "PR", "Author", "CI", "Spend"}, shown(70))
+	assert.Equal(t, []string{"Status", "PR", "Author", "CI", "Spend"}, shown(0),
+		"columns outside the drop order stay even when nothing fits")
+	cols := Columns()
+	FitColumns(cols, 0)
+	FitColumns(cols, 160)
+	visible := slices.DeleteFunc(cols, func(c table.Column) bool { return c.Hidden != nil })
+	assert.Len(t, visible, len(all), "widening shows hidden columns again")
 }

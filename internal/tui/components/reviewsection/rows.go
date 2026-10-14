@@ -113,7 +113,8 @@ func HideApproved(states []reviewing.PRState) ([]reviewing.PRState, int) {
 // RowCells are the text cells of one table row.
 type RowCells struct {
 	Status  string
-	PR      string
+	PR      string // repo#number and markers; never split across lines
+	Title   string
 	Author  string
 	You     string
 	Open    string
@@ -137,12 +138,8 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 	clean := reviewing.SanitizeTerminal
 	c := RowCells{
 		Status: statusShort[s.Status],
-		PR: fmt.Sprintf(
-			"%s#%d %s",
-			s.Key.Repo,
-			s.Key.Number,
-			clip(clean(s.Title), maxTitleRunes),
-		),
+		PR:     fmt.Sprintf("%s#%d", s.Key.Repo, s.Key.Number),
+		Title:  clip(clean(s.Title), maxTitleRunes),
 		Author: clip(clean(s.Author), 39),
 		You:    youGlyph(s.MyReview, s.MyReviewOnHead),
 		Open:   "-",

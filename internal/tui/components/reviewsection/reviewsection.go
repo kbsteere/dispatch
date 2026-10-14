@@ -3,6 +3,7 @@ package reviewsection
 import (
 	"fmt"
 	"image/color"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -46,6 +47,7 @@ func NewModel(id int, ctx *context.ProgramContext, watch string) Model {
 		CreatedAt:   time.Now(),
 	})
 	m.status = reviewing.WatchStatus{Name: watch}
+	m.fitColumns()
 	return m
 }
 
@@ -102,12 +104,19 @@ func (m Model) BuildRows() []table.Row {
 	rows := make([]table.Row, 0, len(m.states))
 	for _, s := range m.states {
 		c := Cells(s, now)
+		// The reference gets its own line so a narrow column cuts the title,
+		// never the PR number; the table truncates each line instead of
+		// wrapping it.
+		sep := "\n"
+		if m.Ctx.Config.Theme.Ui.Table.Compact {
+			sep = " "
+		}
 		status := lipgloss.NewStyle().Foreground(m.toneColor(StatusTone(s))).Render(c.Status)
 		rows = append(
 			rows,
 			table.Row{
 				status,
-				c.PR,
+				c.PR + sep + c.Title,
 				c.Author,
 				c.You,
 				c.Open,
@@ -268,4 +277,47 @@ func summaryLine(ws reviewing.WatchStatus, hidden int, now time.Time) string {
 		s += " · " + next
 	}
 	return s
+}
+
+// minPRWidth is the narrowest the PR column gets before other columns are
+// hidden to make room: enough for a reference like "stereo#386277" and the
+// start of its title.
+const minPRWidth = 24
+
+// dropOrder lists the columns hidden, first to last, when the table is too
+// narrow for the PR column.
+var dropOrder = []string{"Updated", "Opened", "Open", "You"}
+
+// FitColumns hides the columns in dropOrder, in turn, until the PR column
+// can be at least minPRWidth wide in a table width cells wide.
+func FitColumns(cols []table.Column, width int) {
+	fixed := 0
+	for i := range cols {
+		cols[i].Hidden = nil
+		if cols[i].Width != nil {
+			fixed += *cols[i].Width
+		}
+	}
+	for _, title := range dropOrder {
+		if width-fixed >= minPRWidth {
+			return
+		}
+		i := slices.IndexFunc(cols, func(c table.Column) bool { return c.Title == title })
+		if i < 0 || cols[i].Width == nil {
+			continue
+		}
+		cols[i].Hidden = utils.BoolPtr(true)
+		fixed -= *cols[i].Width
+	}
+}
+
+func (m *Model) fitColumns() {
+	FitColumns(m.Table.Columns, m.GetDimensions().Width)
+}
+
+// UpdateProgramContext refits the columns to the section's width.
+func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
+	m.BaseModel.UpdateProgramContext(ctx)
+	m.fitColumns()
+	m.Table.SyncViewPortContent()
 }
