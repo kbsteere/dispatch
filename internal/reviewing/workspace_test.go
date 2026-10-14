@@ -3,10 +3,13 @@ package reviewing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -345,4 +348,155 @@ git@github.com: Permission denied (publickey).`
 		t,
 		isTouchError(errors.New("fatal: couldn't find remote ref refs/pull/66155/head")),
 	)
+}
+
+// breakDispatchRef points refs/dispatch/9/head at a commit whose tree is
+// gone, as a fetch cut off while writing loose objects leaves it.
+func breakDispatchRef(t *testing.T, clone string) {
+	t.Helper()
+	gitT(t, clone, "checkout", "-q", "-b", "scratch")
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(clone, "lost.go"), []byte("package lost\n"), 0o644),
+	)
+	gitT(t, clone, "add", ".")
+	gitT(t, clone, "commit", "-q", "-m", "lost")
+	commit := strings.TrimSpace(gitT(t, clone, "rev-parse", "HEAD"))
+	tree := strings.TrimSpace(gitT(t, clone, "rev-parse", "HEAD^{tree}"))
+	gitT(t, clone, "update-ref", "refs/dispatch/9/head", commit)
+	gitT(t, clone, "checkout", "-q", "main")
+	gitT(t, clone, "branch", "-q", "-D", "scratch")
+	require.NoError(t, os.Remove(filepath.Join(clone, ".git", "objects", tree[:2], tree[2:])))
+}
+
+func TestDropBrokenRefsRemovesOnlyBrokenDispatchRefs(t *testing.T) {
+	origin, _ := prOrigin(t)
+	useRemotes(t, origin, origin)
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitT(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+	repo, err := ResolveLocalRepo(clone)
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, FetchPR(ctx, repo, PRKey{"chainguard-dev", "stereo", 7}, "main", nil))
+	breakDispatchRef(t, clone)
+
+	dropped, err := DropBrokenRefs(ctx, repo)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"refs/dispatch/9/head"}, dropped)
+	refs := gitT(t, clone, "for-each-ref", "--format=%(refname)")
+	assert.NotContains(t, refs, "refs/dispatch/9/")
+	assert.Contains(t, refs, "refs/dispatch/7/head", "a sound dispatch ref stays")
+	assert.Contains(t, refs, "refs/dispatch/7/base")
+	assert.Contains(t, refs, "refs/heads/main", "user refs are untouched")
+	gitT(t, clone, "fsck", "--connectivity-only", "--no-dangling", "--no-reflogs")
+}
+
+func TestFetchPRRepairsRefToMissingCommit(t *testing.T) {
+	// The base ref of stereo#385039 pointed at a commit the clone no longer
+	// had, which failed every fetch, the user's own pulls included.
+	origin, head := prOrigin(t)
+	useRemotes(t, origin, origin)
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitT(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+	repo, err := ResolveLocalRepo(clone)
+	require.NoError(t, err)
+	missing := "0cadd0cbaa2c90b4493a82b40aaf3d41177a9344"
+	require.NoError(
+		t,
+		os.MkdirAll(filepath.Join(clone, ".git", "refs", "dispatch", "385039"), 0o755),
+	)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(
+			clone,
+			".git",
+			"refs",
+			"dispatch",
+			"385039",
+			"base",
+		),
+		[]byte(missing+"\n"),
+		0o644,
+	))
+	_, err = gitCmd(context.Background(), clone, "fetch", "--quiet", "origin")
+	require.Error(t, err, "a broken ref fails a plain fetch")
+
+	require.NoError(
+		t,
+		FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "stereo", 7}, "main", nil),
+	)
+	assert.Equal(t, head, strings.TrimSpace(gitT(t, clone, "rev-parse", "refs/dispatch/7/head")))
+	assert.NotContains(t, gitT(t, clone, "for-each-ref", "--format=%(refname)"), "385039")
+	gitT(t, clone, "fetch", "--quiet", "origin")
+}
+
+func TestFetchPRLeavesNoLooseObjects(t *testing.T) {
+	origin, _ := prOrigin(t)
+	useRemotes(t, origin, origin)
+	clone := filepath.Join(t.TempDir(), "clone")
+	// A single-branch file:// clone copies only what main reaches, so the
+	// fetch transfers the PR objects.
+	gitT(t, filepath.Dir(clone), "clone", "-q", "--single-branch", "file://"+origin, clone)
+	repo, err := ResolveLocalRepo(clone)
+	require.NoError(t, err)
+	loose := func() string { return strings.SplitN(gitT(t, clone, "count-objects", "-v"), "\n", 2)[0] }
+	before := loose()
+	require.NoError(
+		t,
+		FetchPR(context.Background(), repo, PRKey{"chainguard-dev", "stereo", 7}, "main", nil),
+	)
+	assert.Equal(t, before, loose(), "fetched objects land in a pack, never loose")
+}
+
+func TestParallelFetchPRsIntoOneRepo(t *testing.T) {
+	origin, head := prOrigin(t)
+	for _, n := range []int{8, 9, 10, 11} {
+		gitT(t, origin, "update-ref", fmt.Sprintf("refs/pull/%d/head", n), head)
+	}
+	useRemotes(t, origin, origin)
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitT(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+	repo, err := ResolveLocalRepo(clone)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 5)
+	for i, n := range []int{7, 8, 9, 10, 11} {
+		wg.Go(func() {
+			errs[i] = FetchPR(
+				context.Background(),
+				repo,
+				PRKey{"chainguard-dev", "stereo", n},
+				"main",
+				nil,
+			)
+		})
+	}
+	wg.Wait()
+	for i, err := range errs {
+		assert.NoError(t, err, i)
+	}
+	gitT(t, clone, "fsck", "--connectivity-only", "--no-dangling")
+}
+
+func TestLockFetchesSerializesOneRepo(t *testing.T) {
+	unlock := lockFetches("/repos/stereo")
+	other := lockFetches("/repos/mono")
+	other()
+
+	got := make(chan struct{})
+	go func() {
+		defer lockFetches("/repos/stereo")()
+		close(got)
+	}()
+	select {
+	case <-got:
+		t.Fatal("a second fetch into the same repo started while the first ran")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second fetch never started")
+	}
 }

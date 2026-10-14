@@ -105,11 +105,32 @@ func isTouchError(err error) bool {
 		(strings.Contains(s, "signing failed") && strings.Contains(s, "-SK"))
 }
 
+// fetchLocks holds a mutex per git directory, so dispatch never runs two
+// fetches into one repository at once.
+var fetchLocks sync.Map
+
+func lockFetches(gitDir string) func() {
+	v, _ := fetchLocks.LoadOrStore(gitDir, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// fetchArgs fetch without loose objects, which a fetch cut off midway can
+// leave as a commit with no tree, and without starting git maintenance in
+// the user's repository.
+var fetchArgs = []string{
+	"-c", "fetch.unpackLimit=1",
+	"fetch", "--quiet", "--no-tags", "--force", "--no-auto-maintenance",
+}
+
 // FetchPR fetches the PR head to refs/dispatch/N/head and its base branch to
 // refs/dispatch/N/base from the canonical repository, without touching any
 // working tree or remote. It uses HTTPS with gh's login, and falls back to
 // SSH; onTouch, when set, is called before an SSH fetch that may need a
-// security key touch.
+// security key touch. Fetches into one repository run one at a time. When a
+// fetch fails, dispatch refs that point at missing objects, which make every
+// fetch in the repository fail, are deleted and the fetch is tried again.
 func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string, onTouch func()) error {
 	if baseRef == "" || !branchRe.MatchString(baseRef) || strings.HasPrefix(baseRef, "-") ||
 		strings.Contains(baseRef, "..") {
@@ -122,10 +143,26 @@ func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string, onTou
 		fmt.Sprintf("+refs/pull/%d/head:refs/dispatch/%d/head", k.Number, k.Number),
 		fmt.Sprintf("+refs/heads/%s:refs/dispatch/%d/base", baseRef, k.Number),
 	}
-	fetch := []string{"fetch", "--quiet", "--no-tags", "--force"}
-	httpsURL, sshURL := remoteURLs(k)
+	defer lockFetches(repo.GitDir)()
+	err := fetchSpecs(ctx, repo, k, specs, onTouch)
+	if err == nil || errors.Is(err, ErrKeyTouch) {
+		return err
+	}
+	if dropped, derr := DropBrokenRefs(ctx, repo); derr != nil || len(dropped) == 0 {
+		return err
+	}
+	return fetchSpecs(ctx, repo, k, specs, onTouch)
+}
 
-	args := slices.Concat(ghAuthArgs, fetch, []string{httpsURL}, specs)
+func fetchSpecs(
+	ctx context.Context,
+	repo LocalRepo,
+	k PRKey,
+	specs []string,
+	onTouch func(),
+) error {
+	httpsURL, sshURL := remoteURLs(k)
+	args := slices.Concat(ghAuthArgs, fetchArgs, []string{httpsURL}, specs)
 	_, httpsErr := gitCmd(ctx, repo.GitDir, args...)
 	if httpsErr == nil {
 		return nil
@@ -133,7 +170,7 @@ func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string, onTou
 	if onTouch != nil && sshNeedsTouch() {
 		onTouch()
 	}
-	_, sshErr := gitCmd(ctx, repo.GitDir, slices.Concat(fetch, []string{sshURL}, specs)...)
+	_, sshErr := gitCmd(ctx, repo.GitDir, slices.Concat(fetchArgs, []string{sshURL}, specs)...)
 	switch {
 	case sshErr == nil:
 		return nil
@@ -142,6 +179,39 @@ func FetchPR(ctx context.Context, repo LocalRepo, k PRKey, baseRef string, onTou
 	default:
 		return fmt.Errorf("fetching %s: https: %v; ssh: %w", k, httpsErr, sshErr)
 	}
+}
+
+var dispatchRefRe = regexp.MustCompile(`^refs/dispatch/[0-9]+/(head|base)$`)
+
+// DropBrokenRefs deletes dispatch refs that reach objects missing from the
+// repository, other than through the user's branches, and returns their
+// names. Only refs under refs/dispatch/ are ever deleted.
+func DropBrokenRefs(ctx context.Context, repo LocalRepo) ([]string, error) {
+	out, err := gitCmd(ctx, repo.GitDir, "for-each-ref", "--format=%(refname)", "refs/dispatch/")
+	if err != nil {
+		return nil, err
+	}
+	var dropped []string
+	for _, ref := range strings.Fields(string(out)) {
+		if !dispatchRefRe.MatchString(ref) {
+			continue
+		}
+		// A missing tip makes rev-list fail; a missing object below it is
+		// printed with a leading "?".
+		objs, err := gitCmd(ctx, repo.GitDir,
+			"rev-list", "--objects", "--missing=print", ref, "--not", "--branches")
+		if ctx.Err() != nil {
+			return dropped, ctx.Err()
+		}
+		if err == nil && !strings.Contains("\n"+string(objs), "\n?") {
+			continue
+		}
+		if _, err := gitCmd(ctx, repo.GitDir, "update-ref", "-d", ref); err != nil {
+			return dropped, err
+		}
+		dropped = append(dropped, ref)
+	}
+	return dropped, nil
 }
 
 // MergeBase returns the merge base of two commits.
