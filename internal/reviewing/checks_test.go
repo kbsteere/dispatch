@@ -19,6 +19,26 @@ func checkRun(name, status, conclusion string, app int, required bool) CheckNode
 	}
 }
 
+func inSuite(n CheckNode, suite int64) CheckNode {
+	n.SuiteID = suite
+	return n
+}
+
+// presubmit is a run of chainguard-dev/stereo's presubmit-containers
+// workflow, as GitHub reported them on stereo#387095.
+func presubmit(name, status, conclusion string, suite int64) CheckNode {
+	n := inSuite(checkRun(name, status, conclusion, 15368, true), suite)
+	n.WorkflowID = 264707181
+	return n
+}
+
+// The two presubmit-containers runs on stereo#387095; the first was
+// cancelled by the second.
+const (
+	cancelledSuite = 105042041284
+	laterSuite     = 105042049023
+)
+
 func TestRequiredState(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -83,10 +103,69 @@ func TestRequiredState(t *testing.T) {
 			"SUCCESS",
 		},
 		{
-			"worst run wins among re-runs",
+			"worst run wins within one check suite",
 			[]CheckNode{
-				checkRun("build", "COMPLETED", "SUCCESS", 1, true),
-				checkRun("build", "COMPLETED", "FAILURE", 1, true),
+				inSuite(checkRun("build", "COMPLETED", "SUCCESS", 1, true), 7),
+				inSuite(checkRun("build", "COMPLETED", "FAILURE", 1, true), 7),
+			},
+			nil,
+			"FAILURE",
+		},
+		{
+			"failure in a superseded workflow run is ignored",
+			[]CheckNode{
+				presubmit("check-build-roundup", "COMPLETED", "FAILURE", cancelledSuite),
+				presubmit("check-build-roundup", "COMPLETED", "SUCCESS", laterSuite),
+			},
+			nil,
+			"SUCCESS",
+		},
+		{
+			"failure in the newest workflow run blocks",
+			[]CheckNode{
+				presubmit("check-build-roundup", "COMPLETED", "SUCCESS", cancelledSuite),
+				presubmit("check-build-roundup", "COMPLETED", "FAILURE", laterSuite),
+			},
+			nil,
+			"FAILURE",
+		},
+		{
+			"pending run in the newest workflow run is pending",
+			[]CheckNode{
+				presubmit("check-build-roundup", "COMPLETED", "SUCCESS", cancelledSuite),
+				presubmit("check-build-roundup", "QUEUED", "", laterSuite),
+			},
+			nil,
+			"PENDING",
+		},
+		{
+			// A PR can add a workflow with a job named like a required one.
+			"a newer run of another workflow does not supersede",
+			func() []CheckNode {
+				other := presubmit("check-build-roundup", "COMPLETED", "SUCCESS", laterSuite)
+				other.WorkflowID = 1
+				return []CheckNode{
+					presubmit("check-build-roundup", "COMPLETED", "FAILURE", cancelledSuite),
+					other,
+				}
+			}(),
+			nil,
+			"FAILURE",
+		},
+		{
+			"a newer suite from another app does not supersede",
+			[]CheckNode{
+				inSuite(checkRun("build", "COMPLETED", "FAILURE", 15368, true), 100),
+				inSuite(checkRun("build", "COMPLETED", "SUCCESS", 99, true), 200),
+			},
+			nil,
+			"FAILURE",
+		},
+		{
+			"run without a suite id is never dropped",
+			[]CheckNode{
+				checkRun("build", "COMPLETED", "FAILURE", 15368, true),
+				inSuite(checkRun("build", "COMPLETED", "SUCCESS", 15368, true), 200),
 			},
 			nil,
 			"FAILURE",

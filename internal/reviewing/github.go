@@ -979,9 +979,15 @@ type contextJSON struct {
 	State      string    `json:"state"`
 	IsRequired bool      `json:"isRequired"`
 	CheckSuite *struct {
-		App *struct {
+		DatabaseID int64 `json:"databaseId"`
+		App        *struct {
 			DatabaseID int `json:"databaseId"`
 		} `json:"app"`
+		WorkflowRun *struct {
+			Workflow *struct {
+				DatabaseID int64 `json:"databaseId"`
+			} `json:"workflow"`
+		} `json:"workflowRun"`
 	} `json:"checkSuite"`
 }
 
@@ -1000,15 +1006,21 @@ func (x contextJSON) toCheckNode() CheckNode {
 		node.Name = x.Context
 		node.StartedAt = x.CreatedAt
 	}
-	if x.CheckSuite != nil && x.CheckSuite.App != nil {
-		node.AppID = x.CheckSuite.App.DatabaseID
+	if x.CheckSuite != nil {
+		node.SuiteID = x.CheckSuite.DatabaseID
+		if x.CheckSuite.App != nil {
+			node.AppID = x.CheckSuite.App.DatabaseID
+		}
+		if r := x.CheckSuite.WorkflowRun; r != nil && r.Workflow != nil {
+			node.WorkflowID = r.Workflow.DatabaseID
+		}
 	}
 	return node
 }
 
 // contextFields are the check fields fetched on every page.
 const contextFields = `__typename
-      ... on CheckRun { databaseId name status conclusion startedAt isRequired(pullRequestId: $id) checkSuite { app { databaseId } } }
+      ... on CheckRun { databaseId name status conclusion startedAt isRequired(pullRequestId: $id) checkSuite { databaseId app { databaseId } workflowRun { workflow { databaseId } } } }
       ... on StatusContext { context state createdAt isRequired(pullRequestId: $id) }`
 
 const checksPageQuery = `query($id: ID!, $after: String) {

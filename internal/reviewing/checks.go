@@ -16,6 +16,12 @@ type CheckNode struct {
 	AppID      int
 	// ID is the check run's database id; zero for a commit status.
 	ID int64
+	// SuiteID is the database id of the check suite (for Actions, the
+	// workflow run) the check run belongs to; zero for a commit status.
+	SuiteID int64
+	// WorkflowID is the database id of the Actions workflow whose run
+	// reported the check; zero for other apps and commit statuses.
+	WorkflowID int64
 	// StartedAt is when the check run started or the status was set.
 	StartedAt time.Time
 }
@@ -83,10 +89,12 @@ type RequiredCheck struct {
 }
 
 // RequiredChecks reduces the head commit's checks to one result per
-// required check, sorted by name. Approval gates are left out.
+// required check, sorted by name. Approval gates are left out. Runs from a
+// check suite that a later suite of the same check superseded are ignored;
+// among the rest, the worst result wins.
 func RequiredChecks(nodes []CheckNode, req RequiredContexts, now time.Time) []RequiredCheck {
 	worst := map[string]RequiredCheck{}
-	for _, n := range nodes {
+	for _, n := range dropSupersededRuns(nodes) {
 		allowed, inReq := req[n.Name]
 		want := inReq
 		if want && n.Typename == "CheckRun" && allowed != nil {
@@ -119,6 +127,35 @@ func RequiredChecks(nodes []CheckNode, req RequiredContexts, now time.Time) []Re
 	}
 	slices.SortFunc(out, func(a, b RequiredCheck) int { return cmp.Compare(a.Name, b.Name) })
 	return out
+}
+
+// suiteKey groups check runs that report the same check: one name from one
+// app and, for Actions, one workflow. Keying on the workflow keeps a
+// workflow added by a PR from superseding a same-named job of another.
+type suiteKey struct {
+	name       string
+	appID      int
+	workflowID int64
+}
+
+func keyOf(n CheckNode) suiteKey {
+	return suiteKey{n.Name, n.AppID, n.WorkflowID}
+}
+
+// dropSupersededRuns removes check runs whose check suite is older than the
+// newest suite reporting the same check, as when a workflow run is cancelled
+// by a later one on the same commit. Suite ids increase over time. Runs
+// without a suite id are always kept.
+func dropSupersededRuns(nodes []CheckNode) []CheckNode {
+	newest := map[suiteKey]int64{}
+	for _, n := range nodes {
+		if k := keyOf(n); n.Typename == "CheckRun" && n.SuiteID > newest[k] {
+			newest[k] = n.SuiteID
+		}
+	}
+	return slices.DeleteFunc(slices.Clone(nodes), func(n CheckNode) bool {
+		return n.Typename == "CheckRun" && n.SuiteID != 0 && n.SuiteID < newest[keyOf(n)]
+	})
 }
 
 // RequiredState summarises required checks: FAILURE if any failed or was

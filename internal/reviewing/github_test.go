@@ -269,7 +269,7 @@ const detailResp = `{"data":{"rateLimit":{"cost":1,"remaining":4000,"resetAt":"2
  "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":true,"isOutdated":false,"path":"kev.yaml","line":4,"resolvedBy":{"login":"powersj"},
    "comments":{"nodes":[{"id":"PRRC_1","body":"epoch not bumped","createdAt":"2026-10-05T14:31:00Z","author":{"login":"powersj"}}]}}]},
  "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
-   {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true,"checkSuite":{"app":{"databaseId":15368}}},
+   {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true,"checkSuite":{"databaseId":105042049023,"app":{"databaseId":15368},"workflowRun":{"workflow":{"databaseId":264707181}}}},
    {"__typename":"StatusContext","context":"ci/legacy","state":"PENDING","isRequired":false}
  ]}}}}]}
 }}}`
@@ -327,6 +327,8 @@ func TestDetails(t *testing.T) {
 			Conclusion: "SUCCESS",
 			IsRequired: true,
 			AppID:      15368,
+			SuiteID:    105042049023,
+			WorkflowID: 264707181,
 		},
 		{Typename: "StatusContext", Name: "ci/legacy", State: "PENDING"},
 	}, d.Checks)
