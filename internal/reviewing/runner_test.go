@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 func fakeClaudeBin(t *testing.T) string {
@@ -54,6 +56,31 @@ func TestBuildArgs(t *testing.T) {
 	assert.NotContains(t, args, "Bash", "review sessions never get a shell")
 	assert.NotContains(t, args, "--allowedTools")
 	assert.NotContains(t, args, "review this", "the prompt goes over stdin, never argv")
+	assert.NotContains(t, args, "--model", "unset keeps the claude CLI default")
+	assert.NotContains(t, args, "--effort")
+}
+
+func TestBuildArgsModel(t *testing.T) {
+	s := fakeSpec(t)
+	s.Model = config.ReviewModel{Name: "claude-sonnet-5-5", Effort: "high"}
+	args := strings.Join(BuildArgs(s), " ")
+	assert.Contains(t, args, "--model claude-sonnet-5-5 --effort high")
+	assert.Contains(t, args, "--tools Read,Grep,Glob --permission-mode dontAsk")
+
+	s.Resume = true
+	assert.Contains(
+		t,
+		strings.Join(BuildArgs(s), " "),
+		"--model claude-sonnet-5-5 --effort high",
+		"a continuation runs on the same model",
+	)
+
+	assert.Equal(t, []string{"--effort", "max"}, ModelArgs(config.ReviewModel{Effort: "max"}))
+	assert.Equal(
+		t,
+		[]string{"--model", "opus[1m]"},
+		ModelArgs(config.ReviewModel{Name: "opus[1m]"}),
+	)
 }
 
 func TestStartRejectsUnsafeDirs(t *testing.T) {

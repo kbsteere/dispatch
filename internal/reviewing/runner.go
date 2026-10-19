@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 // reviewerTools are the only tools a review session gets. There is no
@@ -48,6 +50,8 @@ type RunSpec struct {
 	// Resume continues the session SessionID instead of starting it; its
 	// events are appended to EventsPath.
 	Resume bool
+	// Model is the claude model and effort; empty fields keep the CLI's.
+	Model config.ReviewModel
 }
 
 // BuildArgs returns the claude arguments for s. The prompt is not among
@@ -77,6 +81,19 @@ func BuildArgs(s RunSpec) []string {
 	}
 	if s.Schema != "" {
 		args = append(args, "--json-schema", s.Schema)
+	}
+	return append(args, ModelArgs(s.Model)...)
+}
+
+// ModelArgs returns the claude arguments selecting m's model and effort,
+// leaving out whichever is empty.
+func ModelArgs(m config.ReviewModel) []string {
+	var args []string
+	if m.Name != "" {
+		args = append(args, "--model", m.Name)
+	}
+	if m.Effort != "" {
+		args = append(args, "--effort", m.Effort)
 	}
 	return args
 }

@@ -48,6 +48,7 @@ func nextBackoff(b Backoff, steps []time.Duration, now time.Time) Backoff {
 type Deps struct {
 	Watch       config.ReviewWatch
 	Limits      config.ReviewingLimits
+	Model       config.ReviewModel
 	StateRoot   string
 	GitHub      GitHub
 	LookupPath  func(nameWithOwner string) (string, bool)

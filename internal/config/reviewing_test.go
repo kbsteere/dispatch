@@ -65,6 +65,51 @@ func TestReviewingForParses(t *testing.T) {
 	assert.Equal(t, 1500, lim.MaxGithubPointsPerHour)
 }
 
+func TestReviewingForModel(t *testing.T) {
+	cfg, err := parseReviewingYAML(t, `
+prSections:
+  - title: x
+    filters: is:open
+reviewingFor:
+  model: claude-sonnet-5-5
+  effort: high
+  watches:
+    - name: deep
+      authors: [powersj]
+      scopes: [repo:chainguard-dev/mono]
+      model: opus[1m]
+      effort: max
+    - name: inherits
+      authors: [tcnghia]
+      scopes: [repo:chainguard-dev/stereo]
+      effort: medium
+`)
+	require.NoError(t, err)
+	rf := cfg.ReviewingFor
+	require.Len(t, rf.Watches, 2)
+	assert.Equal(t, ReviewModel{Name: "opus[1m]", Effort: "max"}, rf.ModelFor(rf.Watches[0]))
+	assert.Equal(
+		t,
+		ReviewModel{Name: "claude-sonnet-5-5", Effort: "medium"},
+		rf.ModelFor(rf.Watches[1]),
+		"an unset watch model falls back to the global one",
+	)
+	assert.Equal(
+		t,
+		ReviewModel{Name: "claude-sonnet-5-5", Effort: "high"},
+		rf.ModelFor(ReviewWatch{}),
+		"manual reviews get the global settings",
+	)
+
+	cfg, err = parseReviewingYAML(t, reviewingYAML)
+	require.NoError(t, err)
+	assert.Zero(
+		t,
+		cfg.ReviewingFor.ModelFor(cfg.ReviewingFor.Watches[0]),
+		"unset leaves the claude CLI defaults",
+	)
+}
+
 func TestReviewingViewDefault(t *testing.T) {
 	cfg, err := parseReviewingYAML(t, "defaults:\n  view: reviewing\n"+reviewingYAML)
 	require.NoError(t, err)
@@ -129,6 +174,18 @@ func TestReviewingForValidation(t *testing.T) {
 		"bad pr-only repo": {
 			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n      prOnlyRepos: [stereo]\n",
 			"'reponame' tag",
+		},
+		"bad effort": {
+			"reviewingFor:\n  effort: extreme\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n",
+			"'claudeeffort' tag",
+		},
+		"model read as a flag": {
+			"reviewingFor:\n  model: --dangerously-skip-permissions\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n",
+			"'claudemodel' tag",
+		},
+		"watch model with a space": {
+			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n      model: sonnet --tools Bash\n",
+			"'claudemodel' tag",
 		},
 		"duplicate names": {
 			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [repo:o/r]\n    - name: w\n      authors: [b]\n      scopes: [repo:o/r]\n",

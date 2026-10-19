@@ -226,6 +226,7 @@ func (e *Engine) runSession(
 		MaxTurns:     maxTurns,
 		MaxBudgetUSD: e.d.Limits.MaxBudgetUsd,
 		Timeout:      e.d.Limits.RunTimeout,
+		Model:        e.d.Model,
 	}
 	run, err := Start(ctx, spec)
 	if err != nil {

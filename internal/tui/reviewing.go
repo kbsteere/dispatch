@@ -47,6 +47,7 @@ func newReviewers(cfg *config.Config) reviewers {
 		e, err := reviewing.NewEngine(reviewing.Deps{
 			Watch:       w,
 			Limits:      cfg.ReviewingFor.LimitsFor(w),
+			Model:       cfg.ReviewingFor.ModelFor(w),
 			StateRoot:   reviewing.DefaultStateRoot(),
 			GitHub:      reviewing.DefaultGitHub(),
 			LookupPath:  lookup,

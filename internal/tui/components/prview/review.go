@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kbsteere/dispatch/v4/internal/config"
 	"github.com/kbsteere/dispatch/v4/internal/reviewing"
 	"github.com/kbsteere/dispatch/v4/internal/tui/common"
 	"github.com/kbsteere/dispatch/v4/internal/tui/constants"
@@ -33,9 +34,10 @@ type PrReviewMsg struct {
 // The only commands allowed are gh pr view and gh pr diff, which cannot
 // write files; git is excluded because flags such as --output can. User
 // settings are not loaded because their hooks can approve commands the
-// allowlist would deny. The prompt goes over stdin.
-func manualReviewArgs() []string {
-	return []string{
+// allowlist would deny. The prompt goes over stdin. m picks the model and
+// effort.
+func manualReviewArgs(m config.ReviewModel) []string {
+	args := []string{
 		"-p",
 		"--output-format", "json",
 		"--setting-sources", "local",
@@ -43,6 +45,7 @@ func manualReviewArgs() []string {
 		"--permission-mode", "dontAsk",
 		"--allowedTools", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
 	}
+	return append(args, reviewing.ModelArgs(m)...)
 }
 
 // resolveReviewDir picks the working directory for the claude subprocess:
@@ -82,11 +85,12 @@ func (m *Model) StartReview() tea.Cmd {
 	m.ctx.ClaudeReviews[url] = &context.ClaudeReview{State: context.ClaudeReviewRunning}
 
 	dir := resolveReviewDir(m.pr.Data.Primary.GetRepoNameWithOwner(), m.ctx.Config.RepoPaths)
+	args := manualReviewArgs(m.ctx.Config.ReviewingFor.ModelFor(config.ReviewWatch{}))
 	return func() tea.Msg {
 		ctx, cancel := goctx.WithTimeout(goctx.Background(), reviewTimeout)
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, "claude", manualReviewArgs()...)
+		cmd := exec.CommandContext(ctx, "claude", args...)
 		cmd.Dir = dir
 		cmd.Stdin = strings.NewReader(reviewing.ManualPrompt(url))
 		out, err := cmd.Output()

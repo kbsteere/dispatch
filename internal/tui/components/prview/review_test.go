@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kbsteere/dispatch/v4/internal/config"
 )
 
 func TestManualReviewArgs(t *testing.T) {
-	args := manualReviewArgs()
+	args := manualReviewArgs(config.ReviewModel{})
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
 		"-p --output-format json", "--setting-sources local", "--tools Read,Grep,Glob,Bash", "--permission-mode dontAsk",
@@ -32,6 +34,19 @@ func TestManualReviewArgs(t *testing.T) {
 	}
 	if strings.Contains(joined, "gh pr review") || strings.Contains(joined, "gh api") {
 		t.Error("the manual review must not be able to post")
+	}
+	if strings.Contains(joined, "--model") || strings.Contains(joined, "--effort") {
+		t.Errorf("unset model and effort keep the claude CLI defaults: %s", joined)
+	}
+}
+
+func TestManualReviewArgsModel(t *testing.T) {
+	joined := strings.Join(
+		manualReviewArgs(config.ReviewModel{Name: "claude-sonnet-5-5", Effort: "high"}),
+		" ",
+	)
+	if !strings.HasSuffix(joined, "Bash(gh pr diff:*) --model claude-sonnet-5-5 --effort high") {
+		t.Errorf("model and effort follow the allowlist as their own flags: %s", joined)
 	}
 }
 

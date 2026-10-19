@@ -40,12 +40,20 @@ type ReviewWatch struct {
 	// approval, even where a repository marks them required.
 	NonBlockingChecks []string        `yaml:"nonBlockingChecks,omitempty" validate:"dive,required"`
 	Limits            ReviewingLimits `yaml:"limits,omitempty"`
+	// Model and Effort override the global claude model and effort for
+	// this watch's reviews.
+	Model  string `yaml:"model,omitempty"  validate:"omitempty,claudemodel"`
+	Effort string `yaml:"effort,omitempty" validate:"omitempty,claudeeffort"`
 }
 
 // ReviewingForConfig configures autonomous reviews of other people's PRs.
 type ReviewingForConfig struct {
 	Limits  ReviewingLimits `yaml:"limits,omitempty"`
 	Watches []ReviewWatch   `yaml:"watches,omitempty" validate:"unique=Name,dive"`
+	// Model and Effort are the claude model and effort every review runs
+	// with, manual ones included; empty leaves the claude CLI's defaults.
+	Model  string `yaml:"model,omitempty"  validate:"omitempty,claudemodel"`
+	Effort string `yaml:"effort,omitempty" validate:"omitempty,claudeeffort"`
 }
 
 func DefaultReviewingLimits() ReviewingLimits {
@@ -83,6 +91,19 @@ func (c ReviewingForConfig) LimitsFor(w ReviewWatch) ReviewingLimits {
 	return out
 }
 
+// ReviewModel is the claude model and effort a review session runs with.
+// Empty fields leave the claude CLI's defaults.
+type ReviewModel struct {
+	Name   string
+	Effort string
+}
+
+// ModelFor is the model and effort for w's reviews: the watch's own
+// settings, then the global ones. Manual reviews pass a zero watch.
+func (c ReviewingForConfig) ModelFor(w ReviewWatch) ReviewModel {
+	return ReviewModel{Name: cmp.Or(w.Model, c.Model), Effort: cmp.Or(w.Effort, c.Effort)}
+}
+
 // SearchFilter is the GitHub search for this watch's reviewable PRs.
 func (w ReviewWatch) SearchFilter() string {
 	parts := []string{"is:open", "draft:false", "archived:false"}
@@ -97,6 +118,9 @@ var (
 	watchNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	scopeRe     = regexp.MustCompile(`^(repo:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|org:[A-Za-z0-9_.-]+)$`)
 	repoNameRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	// modelRe accepts names such as claude-sonnet-5-5, sonnet, and opus[1m];
+	// the leading character keeps a value from reading as a claude flag.
+	modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}$`)
 )
 
 func validateWatchName(fl validator.FieldLevel) bool {
@@ -109,6 +133,17 @@ func validateReviewScope(fl validator.FieldLevel) bool {
 
 func validateRepoName(fl validator.FieldLevel) bool {
 	return repoNameRe.MatchString(fl.Field().String())
+}
+
+func validateClaudeModel(fl validator.FieldLevel) bool {
+	return modelRe.MatchString(fl.Field().String())
+}
+
+// claudeEfforts are the levels claude --effort accepts.
+var claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+func validateClaudeEffort(fl validator.FieldLevel) bool {
+	return slices.Contains(claudeEfforts, fl.Field().String())
 }
 
 // PROnly reports whether reviews of nameWithOwner cover only the PR's own

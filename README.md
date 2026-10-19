@@ -63,6 +63,8 @@ All upstream gh-dash keybindings and configuration continue to work; see the [up
 
 ```yaml
 reviewingFor:
+  model: claude-sonnet-5-5      # optional: claude model for every review, `b` included; unset uses the claude CLI default
+  effort: high                  # optional: low, medium, high, xhigh, or max
   limits:                       # defaults shown; each watch may override any of them
     maxBudgetUsd: 10            # per claude run
     maxTurns: 100               # per claude run
@@ -83,6 +85,8 @@ reviewingFor:
       ignoreLogins: []          # optional: activity from these never triggers a review
       prOnlyRepos: [chainguard-dev/stereo]  # optional: review only the PR itself, for data-heavy repos
       nonBlockingChecks: [skillup]          # optional: CI checks that never hold up an approval
+      model: opus               # optional: this watch's model and effort, overriding the ones above
+      effort: max
 ```
 
 Watches have their own **Reviewing** view (cycle views with `s`, or set `defaults.view: reviewing`). Each watch is a tab with a summary line (mode, spend against the daily budget and for the week and month, reviews running, GitHub quota) and a table of its PRs, searched and hand-added together, built from local state so it costs no API quota: status, PR, author, your own standing review on GitHub (`✓` approved, `✗` changes requested, `💬` commented, `*` when it was on an older commit), open findings (`2b 1n` = 2 blocking, 1 non-blocking), required CI, spend (total cost across all of the PR's review runs, and how many runs), and last update. PRs merged or closed in the last five minutes stay at the bottom with status `merged` or `closed`, then drop off the list. `approved` means an approval of yours is on the PR at its current commit; `approved (not posted)` means dispatch would approve but never posted. Approved PRs are hidden while your approval stands on the current commit, and the summary counts them; they come back when new commits land, your approval is dismissed, or your review is requested again. `H` shows or hides them. PRs where you or one of your teams is a requested reviewer sort first and are marked `(requested)`; within each group, PRs needing your attention come first. Selecting a row opens the PR sidebar on the Review tab, with outstanding findings, the private note, the session, and any held review. Watched PRs also show their status icon in the Claude column wherever they appear in the PRs view.
