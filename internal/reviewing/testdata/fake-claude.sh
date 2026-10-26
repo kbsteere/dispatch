@@ -46,6 +46,10 @@ explore() {
 # understanding is the account of the code each result carries, unless
 # FAKE_CLAUDE_UNDERSTANDING is set, empty for none.
 understanding="${FAKE_CLAUDE_UNDERSTANDING-kev.go is the kev bot. Sync fetches the CISA KEV feed, compares it with the stored advisories, and publishes one CloudEvent per added CVE for the advisory recorder and the Slack notifier. This PR adds the package and its Sync entry point.}"
+# assumptions is what each result says the change relies on, unless
+# FAKE_CLAUDE_ASSUMPTIONS is set.
+default_assumptions='[{"claim":"the scheduler calls Sync once per run","evidence":"kev.go:1"}]'
+assumptions="${FAKE_CLAUDE_ASSUMPTIONS-$default_assumptions}"
 # result reports a run like claude does: turns for this run, but the cost of
 # the whole session, so a resumed run adds to what the session cost so far.
 result() {
@@ -56,6 +60,9 @@ result() {
   out="$3"
   if [ -n "$understanding" ] && [[ "$out" != *'"understanding"'* ]]; then
     out="{\"understanding\":\"$understanding\",${out#\{}"
+  fi
+  if [[ "$out" != *'"assumptions"'* ]]; then
+    out="{\"assumptions\":$assumptions,${out#\{}"
   fi
   printf '{"type":"result","subtype":"success","is_error":false,"num_turns":%s,"total_cost_usd":%s,"session_id":"%s","result":"","structured_output":%s}\n' "$1" "$cost" "$sid" "$out"
 }

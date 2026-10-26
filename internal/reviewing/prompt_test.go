@@ -234,6 +234,7 @@ func TestReviewSchemaRequiresExamined(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(ReviewSchema), &v))
 	assert.Contains(t, v.Required, "examined")
 	assert.Contains(t, v.Required, "understanding")
+	assert.Contains(t, v.Required, "assumptions")
 }
 
 func TestReviewerInstructionsChallengeTheChange(t *testing.T) {
@@ -244,6 +245,8 @@ func TestReviewerInstructionsChallengeTheChange(t *testing.T) {
 		"Challenge the change itself",
 		"already exist in production",
 		"ask it as a non-blocking question that starts with \"question:\"",
+		"record it in `assumptions` with that code's `path:line`. Never take the PR's word for it.",
+		"an answer returned before the reading is done is sent back",
 	} {
 		assert.Contains(t, p, s)
 	}
@@ -334,4 +337,25 @@ func TestContinuationPrompt(t *testing.T) {
 
 	assert.NotContains(t, ContinuationPrompt([]string{"read no documentation or design docs"}, nil),
 		"security review guide", "references are listed only when there are some")
+}
+
+// mono#75043's review answered before it read the docs and tests, read them
+// when sent back, and returned the same verdict. The continuation treats the
+// first answer as a draft to re-check, not one to keep.
+func TestContinuationPromptReopensTheVerdict(t *testing.T) {
+	p := ContinuationPrompt([]string{"read no documentation or design docs"}, nil)
+	assert.Contains(t, p, "Your previous answer was a draft")
+	assert.Contains(t, p, "change the verdict if the evidence calls for it")
+	assert.NotContains(t, p, "keeping every finding from your previous answer")
+}
+
+// The session read all twelve security references when sent back for docs
+// and tests; they are listed only when not having read one is a gap.
+func TestContinuationPromptListsSecurityReferencesOnlyWhenMissing(t *testing.T) {
+	refs := []string{"/state/sessions/s1/security/fail-open.md"}
+	assert.NotContains(t,
+		ContinuationPrompt([]string{"read no existing tests for the changed code"}, refs),
+		"fail-open.md")
+	assert.Contains(t, ContinuationPrompt([]string{gapSecurityRefs}, refs),
+		"- /state/sessions/s1/security/fail-open.md\n")
 }

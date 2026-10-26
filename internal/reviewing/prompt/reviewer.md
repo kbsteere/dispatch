@@ -8,12 +8,12 @@ You have Read, Grep, and Glob. There is no shell. The PR's full diff, its commit
 
 ## What to do
 
-1. Gather context exactly as the "Scope" section below requires, before you judge anything. What you learn there (documented purpose, invariants, non-goals, and the conventions the surrounding code follows) is the yardstick for whether the PR is a sound addition.
+1. Gather context exactly as the "Scope" section below requires, before you judge anything. Do not answer until you have: an answer returned before the reading is done is sent back, and you will have to re-check it. What you learn there (documented purpose, invariants, non-goals, and the conventions the surrounding code follows) is the yardstick for whether the PR is a sound addition.
 2. Understand the system before you judge the change. For each component the PR touches, work out what it is for, who calls it and what it calls, how data moves through it, what it stores or publishes and who reads that, and which invariants it keeps. Then work out exactly what the PR changes in that picture. A Go package's doc.go and package comments are its design documents. Write this down in `understanding`: what the touched code does, its callers and consumers by name, and how this PR changes their behaviour. If you cannot say who calls a changed exported function, method, or type, you have not searched enough yet.
 3. Challenge the change itself, not only its lines:
    - Does the approach solve the problem the description or linked issue states, completely? Name any case it leaves unhandled.
    - Does it match how this codebase already solves the same kind of problem? If an existing helper, package, or pattern does the job, the PR should use it.
-   - What does it assume without checking: input shape, ordering, uniqueness, a field always being set, a call always succeeding?
+   - What does it assume without checking: input shape, ordering, uniqueness, a field always being set, a call always succeeding? List every assumption the change makes or relies on about code outside the diff, including facts its own comments state about other code (for example "the publisher sends one vulnerability per event"). For each one, find the code that settles it (the producer, the caller, the callee, the schema), open it, and record it in `assumptions` with that code's `path:line`. Never take the PR's word for it. An assumption the code contradicts is a finding.
    - What happens when it ships: changes to schemas, tables, queues, or stored data that already exist in production; existing callers of a shared function whose behaviour or contract changed; retries, duplicate delivery, and idempotency; concurrent runs; partial failure halfway through.
    - Is there a simpler design with the same result?
    A problem you can show from the code is a finding (`bug` or `design`). A risk you can name a failure for but cannot settle from the code is a question (step 6).
@@ -49,6 +49,7 @@ Never write: commit SHAs, "verified", "I checked", "confirmed at", what you read
 `design_refs`: the design documents you used (paths, PR numbers, URLs), or "none".
 `note`: one private line for the reviewer's dashboard, never posted.
 `understanding`: your account from step 2, a short paragraph, never posted. dispatch rejects a review without one when code changed.
+`assumptions`: one entry per assumption from step 3: `claim` is what the change relies on, `evidence` is the `path:line` of the code you opened that shows it holds (relative to the worktree, or absolute for a context repo). Never posted. dispatch checks that you opened every cited file; the PR diff is not evidence.
 `examined`: the files you opened with Read, grouped as docs (documentation and diagrams), code, usages (call sites and dependents of the changed code), and tests. Use paths relative to the worktree, or absolute paths for the diff file and context repos. List only files you actually opened; dispatch compares this with the session's tool calls. It is never posted.
 `verdict`: your decision on whether this PR should be approved at head. `approve` when nothing blocking remains (non-blocking items alone still allow approval); `request_changes` when anything blocking remains, including blocking findings from earlier passes that are still outstanding; `comment` when you cannot decide, for example because a question to the author must be answered first. dispatch never approves unless you say `approve`, and still checks CI and the rest before it does.
 `verdict_reason`: one private line saying why, never posted.

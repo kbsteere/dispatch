@@ -39,19 +39,26 @@ type coverageInput struct {
 	// Understanding is the reviewer's account of what the touched code does
 	// and how the PR changes it.
 	Understanding string
+	// Assumptions are what the reviewer says the change relies on outside
+	// the diff, each with the code it cites as evidence.
+	Assumptions []Assumption
 	// SecurityRefs are the security guide reference files the session was
 	// given; when code changed, at least one must be read.
 	SecurityRefs []string
 }
 
 // Gaps a pass records when it searched only the changed code, or never
-// explained it.
+// explained it, or relied on assumptions it never checked.
 const (
 	gapUsages = "never searched for usages of the changed code beyond the changed files' " +
 		"directories: Grep the worktree root, a parent directory, or a context repo for each " +
 		"changed exported name"
 	gapUnderstanding = "never explained in `understanding` what the touched code does, who " +
 		"calls it, and how this PR changes it"
+	gapSecurityRefs = "read none of the security review guide's references"
+	gapAssumptions  = "listed no `assumptions`: name what the change relies on outside the " +
+		"diff (its callers, the code it calls, the data it reads or writes) and open the code " +
+		"that shows each one holds"
 )
 
 // minUnderstandingWords is the shortest account of the touched code that
@@ -62,10 +69,12 @@ const minUnderstandingWords = 30
 // diff; read every changed code file, up to maxPerFileChecks files; on a
 // full pass, open each changed non-test code file and read documentation;
 // and, when code changed, read existing tests, search for usages beyond the
-// changed files' directories, explain the touched code, and read the
-// security guide. On an incremental pass, reading a file's whole change in
-// the diff counts as reading it, and the pass is judged on what changed
-// since the last review. A pass with gaps has not reviewed the code and
+// changed files' directories, explain the touched code, list on a full
+// pass what it relies on outside the diff, and read the security guide.
+// On any pass, the code each listed assumption cites must have been
+// opened. On an incremental pass, reading a file's whole change in the
+// diff counts as reading it, and the pass is judged on what changed since
+// the last review. A pass with gaps has not reviewed the code and
 // cannot approve. Comments-only passes have no requirements. Paths from the
 // reviewer are only compared, never opened.
 func reviewGaps(in coverageInput) []string {
@@ -132,10 +141,14 @@ func reviewGaps(in coverageInput) []string {
 		if len(strings.Fields(in.Understanding)) < minUnderstandingWords {
 			gaps = append(gaps, gapUnderstanding)
 		}
+		if in.Pass == PassFull && len(in.Assumptions) == 0 {
+			gaps = append(gaps, gapAssumptions)
+		}
 		if len(in.SecurityRefs) > 0 && !slices.ContainsFunc(in.SecurityRefs, opened) {
-			gaps = append(gaps, "read none of the security review guide's references")
+			gaps = append(gaps, gapSecurityRefs)
 		}
 	}
+	gaps = append(gaps, assumptionGaps(in.Assumptions, in.Worktree, session, opened)...)
 	return capGaps(gaps)
 }
 
@@ -462,4 +475,56 @@ func (d diffLines) accepts(path string, startLine, line int) bool {
 		}
 	}
 	return line > 0
+}
+
+// assumptionGaps lists the assumptions whose evidence the session never
+// opened. Evidence is a path, relative to the worktree or absolute, with an
+// optional :line or :start-end suffix; the PR diff and the session's other
+// files are not evidence about the repository's code.
+func assumptionGaps(
+	assumptions []Assumption,
+	worktree, session string,
+	opened func(string) bool,
+) []string {
+	var gaps []string
+	for i, a := range assumptions {
+		p := evidencePath(a.Evidence)
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(worktree, abs)
+		}
+		switch {
+		case p == "" || within(abs, session):
+			gaps = append(gaps, fmt.Sprintf("assumption %d cites no code in the repository", i+1))
+		case !opened(p):
+			gaps = append(
+				gaps,
+				fmt.Sprintf("never opened %s, the evidence for assumption %d", p, i+1),
+			)
+		}
+	}
+	return gaps
+}
+
+// evidencePath is the file an assumption's evidence names, without its
+// line suffix.
+func evidencePath(evidence string) string {
+	p := strings.Trim(strings.TrimSpace(evidence), "`")
+	if i := strings.LastIndexByte(p, ':'); i > 0 && isLineSpec(p[i+1:]) {
+		p = p[:i]
+	}
+	return p
+}
+
+// isLineSpec reports whether s is a line number or a start-end range.
+func isLineSpec(s string) bool {
+	from, to, isRange := strings.Cut(s, "-")
+	if _, err := strconv.Atoi(from); err != nil {
+		return false
+	}
+	if isRange {
+		_, err := strconv.Atoi(to)
+		return err == nil
+	}
+	return true
 }

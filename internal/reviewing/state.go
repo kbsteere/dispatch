@@ -152,6 +152,8 @@ type PRState struct {
 	// Understanding is the last pass's account of what the touched code
 	// does and how the PR changes it; never posted.
 	Understanding string `json:"understanding,omitempty"`
+	// Assumptions are the last pass's checked assumptions; never posted.
+	Assumptions []Assumption `json:"assumptions,omitempty"`
 	// Verdict and VerdictReason are the last pass's approval call.
 	Verdict       string `json:"verdict,omitempty"`
 	VerdictReason string `json:"verdict_reason,omitempty"`

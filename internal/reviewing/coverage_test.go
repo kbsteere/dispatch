@@ -13,13 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// coverageWorktree lays out a checkout like a mono bot: code, its test,
-// its docs, and a lockfile.
+// coverageWorktree lays out a checkout like a mono bot: code, its caller,
+// its test, its docs, and a lockfile.
 func coverageWorktree(t *testing.T) string {
 	t.Helper()
 	wt := t.TempDir()
 	for _, f := range []string{
 		"bots/kev/sync.go", "bots/kev/sync_test.go", "bots/kev/README.md", "go.sum",
+		"bots/kev/cmd/kev/main.go",
 	} {
 		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(wt, f)), 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(wt, f), []byte("x\n"), 0o600))
@@ -33,6 +34,12 @@ const kevUnderstanding = "bots/kev syncs CISA's Known Exploited Vulnerabilities 
 	"and publishes one CloudEvent per added CVE; the advisory recorder and the Slack " +
 	"notifier consume those events. This PR makes Sync skip entries whose dateAdded is " +
 	"before the last successful run."
+
+// kevAssumptions is what that review relied on outside the diff.
+var kevAssumptions = []Assumption{{
+	Claim:    "main passes Sync the time of the last successful run, read from the state bucket",
+	Evidence: "bots/kev/cmd/kev/main.go:42",
+}}
 
 func TestReviewGaps(t *testing.T) {
 	wt := coverageWorktree(t)
@@ -48,10 +55,12 @@ func TestReviewGaps(t *testing.T) {
 				filepath.Join(wt, "bots/kev/sync.go"),
 				filepath.Join(wt, "bots/kev/sync_test.go"),
 				filepath.Join(wt, "bots/kev/README.md"),
+				filepath.Join(wt, "bots/kev/cmd/kev/main.go"),
 				"/home/u/Dev/cg/mono/main/docs/version-pipeline/overview.svg",
 			},
 			GrepPaths:     []string{wt},
 			Understanding: kevUnderstanding,
+			Assumptions:   kevAssumptions,
 		}
 		if mut != nil {
 			mut(&c)
@@ -81,7 +90,10 @@ func TestReviewGaps(t *testing.T) {
 		},
 		{
 			"no docs read on a full pass",
-			in(func(c *coverageInput) { c.Reads = c.Reads[:3] }),
+			in(func(c *coverageInput) {
+				c.Reads = without(without(c.Reads, filepath.Join(wt, "bots/kev/README.md")),
+					"/home/u/Dev/cg/mono/main/docs/version-pipeline/overview.svg")
+			}),
 			[]string{"read no documentation or design docs"},
 		},
 		{
@@ -109,6 +121,7 @@ func TestReviewGaps(t *testing.T) {
 		{
 			"data-only change needs no tests or searches",
 			in(func(c *coverageInput) {
+				c.Assumptions = nil
 				c.Changed = []string{"bots/kev/README.md"}
 				c.Reads = []string{diff, filepath.Join(wt, "bots/kev/README.md")}
 				c.GrepPaths = nil
@@ -119,6 +132,7 @@ func TestReviewGaps(t *testing.T) {
 			// mono#66370: the author moved a cron schedule in a template.
 			"follow-up with a config-only change needs only the diff since last review",
 			in(func(c *coverageInput) {
+				c.Assumptions = nil
 				c.Pass, c.SinceLast = PassIncremental, "/state/sessions/s1/since-last-review.diff"
 				c.Changed = []string{"env/400-alert-slack-bot/policies.yaml.tpl"}
 				c.Reads, c.GrepPaths = []string{c.SinceLast}, nil
@@ -128,6 +142,7 @@ func TestReviewGaps(t *testing.T) {
 		{
 			"follow-up that changes code still needs tests and usages, not docs",
 			in(func(c *coverageInput) {
+				c.Assumptions = nil
 				c.Pass, c.SinceLast = PassIncremental, "/state/sessions/s1/since-last-review.diff"
 				c.Changed = []string{"bots/kev/sync.go"}
 				c.Reads = []string{c.SinceLast, filepath.Join(wt, "bots/kev/sync.go")}
@@ -167,6 +182,7 @@ func TestReviewGaps(t *testing.T) {
 					diff,
 					filepath.Join(wt, "bots/kev/sync.go"),
 					filepath.Join(wt, "bots/kev/sync_test.go"),
+					filepath.Join(wt, "bots/kev/cmd/kev/main.go"),
 					"/state/sessions/s1/security/fail-open.md",
 				}
 			}),
@@ -179,6 +195,7 @@ func TestReviewGaps(t *testing.T) {
 					diff,
 					filepath.Join(wt, "bots/kev/sync.go"),
 					filepath.Join(wt, "bots/kev/sync_test.go"),
+					filepath.Join(wt, "bots/kev/cmd/kev/main.go"),
 					filepath.Join(wt, "bots/kev/doc.go"),
 				}
 			}),
@@ -251,7 +268,7 @@ func TestReviewGapsAreCapped(t *testing.T) {
 		Pass: PassFull, Worktree: wt, Diff: "/d", Reads: []string{"/d"}, Changed: changed,
 	})
 	require.Len(t, gaps, maxGaps+1)
-	assert.Equal(t, "and 9 more", gaps[maxGaps])
+	assert.Equal(t, "and 10 more", gaps[maxGaps])
 }
 
 func TestVerifiedExaminedDropsUnopenedPaths(t *testing.T) {
@@ -314,9 +331,11 @@ func TestReviewGapsConfigChangesNeedOnlyTheDiff(t *testing.T) {
 			filepath.Join(wt, "bots/kev/sync.go"),
 			filepath.Join(wt, "bots/kev/sync_test.go"),
 			filepath.Join(wt, "bots/kev/README.md"),
+			filepath.Join(wt, "bots/kev/cmd/kev/main.go"),
 		},
 		GrepPaths:     []string{wt},
 		Understanding: kevUnderstanding,
+		Assumptions:   kevAssumptions,
 	})
 	assert.Empty(t, gaps)
 }
@@ -333,20 +352,22 @@ func TestReviewGapsSecurityGuideReferences(t *testing.T) {
 		Reads: []string{
 			diff, filepath.Join(wt, "bots/kev/sync.go"), filepath.Join(wt, "bots/kev/sync_test.go"),
 			filepath.Join(wt, "bots/kev/README.md"),
+			filepath.Join(wt, "bots/kev/cmd/kev/main.go"),
 		},
-		GrepPaths: []string{wt}, Understanding: kevUnderstanding, SecurityRefs: refs,
+		GrepPaths: []string{wt}, Understanding: kevUnderstanding,
+		Assumptions: kevAssumptions, SecurityRefs: refs,
 	}
 	assert.Equal(t, []string{"read none of the security review guide's references"}, reviewGaps(in))
 
 	in.Reads = append(in.Reads, refs[1])
 	assert.Empty(t, reviewGaps(in), "reading the references that match the change is enough")
 
-	in.Changed, in.Reads = []string{
+	in.Changed, in.Reads, in.Assumptions = []string{
 		"bots/kev/README.md",
 	}, []string{
 		diff,
 		filepath.Join(wt, "bots/kev/README.md"),
-	}
+	}, nil
 	assert.Empty(t, reviewGaps(in), "a docs-only change needs no security references")
 }
 
@@ -451,7 +472,11 @@ func TestReviewGapsCreditsChangesReadInTheDiff(t *testing.T) {
 		},
 		GrepPaths:     []string{wt},
 		Understanding: kevUnderstanding,
-		SecurityRefs:  []string{"/state/sessions/s1/security/path-traversal.md"},
+		Assumptions: []Assumption{{
+			Claim:    "the reconciler runs the evasion check before it opens a remediation PR",
+			Evidence: "bots/cve-remediation/internal/cveremediation/reconciler.go:118",
+		}},
+		SecurityRefs: []string{"/state/sessions/s1/security/path-traversal.md"},
 	}
 	assert.Equal(t, []string{
 		"never read changed file bots/cve-remediation/internal/cveremediation/eval_export.go",
@@ -614,4 +639,84 @@ func TestNumberDiffNewFileHeadingSitsAtItsFileLine(t *testing.T) {
 		strings.TrimSuffix("+"+strings.ReplaceAll(visionDoc, "\n", "\n+"), "+")
 	lines := strings.Split(numberDiff(diff), "\n")
 	assert.Equal(t, "L8     +## Where we are, honestly.", lines[13])
+}
+
+// TestAssumptionGaps replays mono#75043: the PR records only Findings[0]
+// because "the detection publisher sends one vulnerability per event". The
+// publisher is cve_advisory_automation.go, which groups findings by CVE and
+// publishes one event per CVE at line 1237; the review never opened it.
+func TestAssumptionGaps(t *testing.T) {
+	wt, session := "/wt", "/state/sessions/s1"
+	publisher := "lifecycle/cve-automation/internal/cve-automation/cve_advisory_automation.go"
+	claim := "the detection publisher sends one vulnerability per event"
+	reads := newReadSet([]string{
+		filepath.Join(session, "pr.diff"),
+		filepath.Join(wt, publisher),
+		"/home/u/Dev/cg/terraform-infra-common/modules/cloudevent-recorder/bigquery.tf",
+	})
+	opened := func(p string) bool { return reads.opened(wt, p) }
+
+	tests := []struct {
+		name     string
+		evidence string
+		want     []string
+	}{
+		{"opened, with a line", publisher + ":1237", nil},
+		{"opened, with a range in backticks", "`" + publisher + ":1220-1245`", nil},
+		{
+			"a context repo file opened by absolute path",
+			"/home/u/Dev/cg/terraform-infra-common/modules/cloudevent-recorder/bigquery.tf:12",
+			nil,
+		},
+		{
+			"never opened",
+			"lifecycle/pkg/scanevents/events.go:40",
+			[]string{
+				"never opened lifecycle/pkg/scanevents/events.go, the evidence for assumption 1",
+			},
+		},
+		{
+			"the PR diff is not evidence",
+			filepath.Join(session, "pr.diff") + ":1132",
+			[]string{"assumption 1 cites no code in the repository"},
+		},
+		{"no evidence", " ", []string{"assumption 1 cites no code in the repository"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := assumptionGaps(
+				[]Assumption{{Claim: claim, Evidence: tt.evidence}}, wt, session, opened,
+			)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestReviewGapsAssumptions(t *testing.T) {
+	wt := coverageWorktree(t)
+	diff := "/state/sessions/s1/pr.diff"
+	in := coverageInput{
+		Pass: PassFull, Worktree: wt, Diff: diff, Changed: []string{"bots/kev/sync.go"},
+		Reads: []string{
+			diff,
+			filepath.Join(wt, "bots/kev/sync.go"),
+			filepath.Join(wt, "bots/kev/sync_test.go"),
+			filepath.Join(wt, "bots/kev/README.md"),
+		},
+		GrepPaths:     []string{wt},
+		Understanding: kevUnderstanding,
+	}
+	assert.Equal(t, []string{gapAssumptions}, reviewGaps(in),
+		"a full pass that changes code names what it relies on")
+
+	in.Assumptions = kevAssumptions
+	assert.Equal(t, []string{
+		"never opened bots/kev/cmd/kev/main.go, the evidence for assumption 1",
+	}, reviewGaps(in), "the cited caller was never opened")
+
+	in.Reads = append(in.Reads, filepath.Join(wt, "bots/kev/cmd/kev/main.go"))
+	assert.Empty(t, reviewGaps(in))
+
+	in.Pass, in.Assumptions = PassIncremental, nil
+	assert.Empty(t, reviewGaps(in), "a follow-up builds on the full pass's assumptions")
 }

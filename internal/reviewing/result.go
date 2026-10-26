@@ -38,14 +38,24 @@ type ReviewOutput struct {
 	Note          string         `json:"note"`
 	// Understanding is the reviewer's private account of what the touched
 	// code does, who calls it, and how the PR changes it.
-	Understanding string   `json:"understanding"`
-	Examined      Examined `json:"examined"`
+	Understanding string `json:"understanding"`
+	// Assumptions are what the change relies on outside the diff, each with
+	// the code that shows it holds.
+	Assumptions []Assumption `json:"assumptions"`
+	Examined    Examined     `json:"examined"`
 	// Verdict is the reviewer's call: approve, comment, or request_changes.
 	// dispatch never approves unless it is approve.
 	Verdict       string `json:"verdict"`
 	VerdictReason string `json:"verdict_reason"`
 	// CI is the reviewer's call on each failing required check it was shown.
 	CI []CIAssessment `json:"ci,omitempty"`
+}
+
+// Assumption is one thing the change relies on about code outside the diff,
+// and where the reviewer saw that it holds: a path, optionally with :line.
+type Assumption struct {
+	Claim    string `json:"claim"`
+	Evidence string `json:"evidence"`
 }
 
 // Examined is the reviewer's private account of what it read. It is never

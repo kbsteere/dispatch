@@ -130,7 +130,7 @@ func BuildPrompt(in PromptInput) string {
 		)
 		if len(g.References) > 0 {
 			b.WriteString(
-				"\nIts reference files, copied for you; read the ones that match what the diff touches:\n",
+				"\nIts reference files, copied for you. Open only the ones that match what the diff touches; reading the rest spends turns you need for usages and assumptions:\n",
 			)
 			for _, r := range g.References {
 				fmt.Fprintf(&b, "- %s\n", r)
@@ -342,17 +342,20 @@ func ContinuationPrompt(gaps, securityRefs []string) string {
 	for _, g := range gaps {
 		fmt.Fprintf(&b, "- %s\n", SanitizeTerminal(g))
 	}
-	if len(securityRefs) > 0 {
+	if len(securityRefs) > 0 && slices.Contains(gaps, gapSecurityRefs) {
 		b.WriteString("\nThe security review guide's references are:\n")
 		for _, r := range securityRefs {
 			fmt.Fprintf(&b, "- %s\n", r)
 		}
-		b.WriteString("Read the ones that apply to what this PR changes.\n")
+		b.WriteString("Open only the ones that apply to what this PR changes.\n")
 	}
 	b.WriteString("\nDo that now. Open each changed file named above with the Read tool; on a " +
 		"follow-up pass, reading its whole section of the diff since your last review also " +
-		"counts. Search and write `understanding` where the list above asks. Then return " +
-		"the complete review again in the same structured format, keeping every finding " +
-		"from your previous answer that still stands and adding any the new reading turned up.\n")
+		"counts. Search, write `understanding`, and open the code behind each assumption " +
+		"where the list above asks.\n\nYour previous answer was a draft written before you " +
+		"had read enough. Do not defend it. Re-check every finding, every assumption, and the " +
+		"verdict against what you read now: drop what the code does not support, add what it " +
+		"turned up, and change the verdict if the evidence calls for it. Then return the " +
+		"complete review again in the same structured format.\n")
 	return b.String()
 }

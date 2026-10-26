@@ -98,6 +98,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		Ranges:        res.Ranges,
 		GrepPaths:     res.GrepPaths,
 		Understanding: review.Understanding,
+		Assumptions:   review.Assumptions,
 		SinceLast:     files.SinceLast,
 		SecurityRefs:  files.SecurityRefs,
 	}
@@ -130,6 +131,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		res.GrepPaths = append(res.GrepPaths, more.GrepPaths...)
 		cov.Reads, cov.Ranges, cov.GrepPaths = res.Reads, res.Ranges, res.GrepPaths
 		cov.Understanding = review.Understanding
+		cov.Assumptions = review.Assumptions
 		gaps = reviewGaps(cov)
 	}
 	if st, _ = e.load(job.Key); st.Claim == nil || st.Claim.SessionID != sessionID {
@@ -141,6 +143,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		s.Examined = &verified
 		s.ReviewGaps = gaps
 		s.Understanding = review.Understanding
+		s.Assumptions = review.Assumptions
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 		s.CIAssessment = review.CI
 	})

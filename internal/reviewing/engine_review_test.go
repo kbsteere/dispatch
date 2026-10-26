@@ -1141,3 +1141,23 @@ func TestReviewHoldsMisplacedBlockingSuggestion(t *testing.T) {
 		"suggestion on docs/vision.md:14 does not match the lines it would replace",
 	)
 }
+
+func TestReviewUncheckedAssumptionCannotApprove(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	t.Setenv(
+		"FAKE_CLAUDE_ASSUMPTIONS",
+		`[{"claim":"the detection publisher sends one vulnerability per event","evidence":"publisher.go:1237"}]`,
+	)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	assert.Empty(t, h.gh.posted)
+	st := h.state(t)
+	assert.Equal(
+		t,
+		[]string{"never opened publisher.go, the evidence for assumption 1"},
+		st.ReviewGaps,
+	)
+	require.Len(t, st.Assumptions, 1)
+	assert.Equal(t, "publisher.go:1237", st.Assumptions[0].Evidence)
+}
