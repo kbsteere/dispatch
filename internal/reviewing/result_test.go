@@ -86,7 +86,7 @@ func TestParseResultStreamRecordsReads(t *testing.T) {
 	assert.Equal(t, 5, res.Turns)
 	assert.JSONEq(t, `{"ok":"done"}`, string(res.Structured))
 	assert.Equal(t, []string{"/tmp/sj/a.txt"}, res.Reads)
-	assert.Equal(t, 1, res.Searches, "one Grep")
+	assert.Equal(t, []string{"/tmp/sj"}, res.GrepPaths, "one Grep")
 }
 
 func TestParseResultIgnoresFailedReads(t *testing.T) {
@@ -169,5 +169,21 @@ func TestParseResultSkipsPermissionDenied(t *testing.T) {
 	assert.InDelta(t, 0.9999496, res.CostUSD, 1e-9, "the spend is recorded")
 	assert.JSONEq(t, `{"verdict":"approve"}`, string(res.Structured))
 	assert.Equal(t, []string{"/w/rules/source_rule.go"}, res.Reads)
-	assert.Equal(t, 1, res.Searches, "the refused Glob was still a search attempt")
+	assert.Empty(t, res.GrepPaths, "a Glob lists files; it finds no usages")
+}
+
+// A Grep outside the session's directories is refused, as mono#61487's Glob
+// was; it searched nothing, so it is no usage search.
+func TestParseResultIgnoresRefusedGreps(t *testing.T) {
+	out := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"PublishWithID","path":"/home/u/go/pkg/mod"}},` +
+		`{"type":"tool_use","id":"g2","name":"Grep","input":{"pattern":"PublishWithID","path":"/w/lifecycle/"}}]}}
+{"type":"user","message":{"content":[` +
+		`{"type":"tool_result","tool_use_id":"g1","is_error":true},` +
+		`{"type":"tool_result","tool_use_id":"g2"}]}}
+{"type":"result","subtype":"success","num_turns":2,"session_id":"s1"}
+`
+	res, err := ParseResult([]byte(out))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/w/lifecycle"}, res.GrepPaths)
 }

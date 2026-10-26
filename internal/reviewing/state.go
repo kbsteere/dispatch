@@ -149,6 +149,9 @@ type PRState struct {
 	// was required to read and did not.
 	Examined   *Examined `json:"examined,omitempty"`
 	ReviewGaps []string  `json:"review_gaps,omitempty"`
+	// Understanding is the last pass's account of what the touched code
+	// does and how the PR changes it; never posted.
+	Understanding string `json:"understanding,omitempty"`
 	// Verdict and VerdictReason are the last pass's approval call.
 	Verdict       string `json:"verdict,omitempty"`
 	VerdictReason string `json:"verdict_reason,omitempty"`

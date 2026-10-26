@@ -27,6 +27,13 @@ func coverageWorktree(t *testing.T) string {
 	return wt
 }
 
+// kevUnderstanding is a reviewer's account of the kev bot's sync.
+const kevUnderstanding = "bots/kev syncs CISA's Known Exploited Vulnerabilities feed. " +
+	"Sync fetches the feed on a schedule, diffs it against the advisories already stored, " +
+	"and publishes one CloudEvent per added CVE; the advisory recorder and the Slack " +
+	"notifier consume those events. This PR makes Sync skip entries whose dateAdded is " +
+	"before the last successful run."
+
 func TestReviewGaps(t *testing.T) {
 	wt := coverageWorktree(t)
 	diff := "/state/sessions/s1/pr.diff"
@@ -43,7 +50,8 @@ func TestReviewGaps(t *testing.T) {
 				filepath.Join(wt, "bots/kev/README.md"),
 				"/home/u/Dev/cg/mono/main/docs/version-pipeline/overview.svg",
 			},
-			Searches: 3,
+			GrepPaths:     []string{wt},
+			Understanding: kevUnderstanding,
 		}
 		if mut != nil {
 			mut(&c)
@@ -78,8 +86,8 @@ func TestReviewGaps(t *testing.T) {
 		},
 		{
 			"never searched for usages",
-			in(func(c *coverageInput) { c.Searches = 0 }),
-			[]string{"never searched for usages of the changed code"},
+			in(func(c *coverageInput) { c.GrepPaths = nil }),
+			[]string{gapUsages},
 		},
 		{
 			"diff never read",
@@ -93,7 +101,9 @@ func TestReviewGaps(t *testing.T) {
 		},
 		{
 			"pr-only repo needs only the diff",
-			in(func(c *coverageInput) { c.PROnly = true; c.Reads, c.Searches = []string{diff}, 0 }),
+			in(
+				func(c *coverageInput) { c.PROnly = true; c.Reads, c.GrepPaths = []string{diff}, nil },
+			),
 			nil,
 		},
 		{
@@ -101,7 +111,7 @@ func TestReviewGaps(t *testing.T) {
 			in(func(c *coverageInput) {
 				c.Changed = []string{"bots/kev/README.md"}
 				c.Reads = []string{diff, filepath.Join(wt, "bots/kev/README.md")}
-				c.Searches = 0
+				c.GrepPaths = nil
 			}),
 			nil,
 		},
@@ -111,7 +121,7 @@ func TestReviewGaps(t *testing.T) {
 			in(func(c *coverageInput) {
 				c.Pass, c.SinceLast = PassIncremental, "/state/sessions/s1/since-last-review.diff"
 				c.Changed = []string{"env/400-alert-slack-bot/policies.yaml.tpl"}
-				c.Reads, c.Searches = []string{c.SinceLast}, 0
+				c.Reads, c.GrepPaths = []string{c.SinceLast}, nil
 			}),
 			nil,
 		},
@@ -121,12 +131,58 @@ func TestReviewGaps(t *testing.T) {
 				c.Pass, c.SinceLast = PassIncremental, "/state/sessions/s1/since-last-review.diff"
 				c.Changed = []string{"bots/kev/sync.go"}
 				c.Reads = []string{c.SinceLast, filepath.Join(wt, "bots/kev/sync.go")}
-				c.Searches = 0
+				c.GrepPaths = nil
 			}),
 			[]string{
 				"read no existing tests for the changed code",
-				"never searched for usages of the changed code",
+				gapUsages,
 			},
+		},
+		{
+			"searching only the changed package finds no callers",
+			in(func(c *coverageInput) { c.GrepPaths = []string{filepath.Join(wt, "bots/kev")} }),
+			[]string{gapUsages},
+		},
+		{
+			"searching a parent of the changed package counts",
+			in(func(c *coverageInput) { c.GrepPaths = []string{filepath.Join(wt, "bots")} }),
+			nil,
+		},
+		{
+			"a Grep with no path searches the session directory",
+			in(func(c *coverageInput) { c.GrepPaths = []string{""} }),
+			[]string{gapUsages},
+		},
+		{
+			"a one-line understanding is not an account of the code",
+			in(func(c *coverageInput) { c.Understanding = "Sync syncs the KEV feed." }),
+			[]string{gapUnderstanding},
+		},
+		{
+			// mono#73530: the session read the security guide's .md
+			// references, which are not the repository's documentation.
+			"the security guide is not documentation",
+			in(func(c *coverageInput) {
+				c.Reads = []string{
+					diff,
+					filepath.Join(wt, "bots/kev/sync.go"),
+					filepath.Join(wt, "bots/kev/sync_test.go"),
+					"/state/sessions/s1/security/fail-open.md",
+				}
+			}),
+			[]string{"read no documentation or design docs"},
+		},
+		{
+			"a package's doc.go is documentation",
+			in(func(c *coverageInput) {
+				c.Reads = []string{
+					diff,
+					filepath.Join(wt, "bots/kev/sync.go"),
+					filepath.Join(wt, "bots/kev/sync_test.go"),
+					filepath.Join(wt, "bots/kev/doc.go"),
+				}
+			}),
+			nil,
 		},
 	}
 	for _, tt := range tests {
@@ -134,6 +190,52 @@ func TestReviewGaps(t *testing.T) {
 			assert.Equal(t, tt.want, reviewGaps(tt.in))
 		})
 	}
+}
+
+// TestSearchedForUsages replays mono#73530's searches. The PR added the
+// cverecords package and changed events.Publish, which other bots import,
+// yet every Grep stayed in a changed directory or a single file, so no
+// caller of Publish was ever found.
+func TestSearchedForUsages(t *testing.T) {
+	wt, session := t.TempDir(), t.TempDir()
+	changed := []string{
+		"lifecycle/pkg/cverecords/run.go",
+		"lifecycle/pkg/cverecords/cverecordstest/emitter.go",
+		"lifecycle/pkg/events/publish.go",
+		"lifecycle/pkg/iac/cve-remediation-observability-recorder-schemas/schemas/run_started.schema.json",
+	}
+	for _, f := range append(slices.Clone(changed),
+		"lifecycle/go.mod",
+		"lifecycle/cve-automation/cmd/cve-eol/main.go",
+		"public/terraform-infra-common/modules/cloudevent-recorder/bigquery.tf",
+	) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(wt, f)), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(wt, f), []byte("x\n"), 0o600))
+	}
+	at := func(p string) string { return filepath.Join(wt, p) }
+	greps := []string{
+		at("lifecycle/pkg/cverecords"),
+		at("lifecycle/pkg/iac/cve-remediation-observability-recorder-schemas/schemas"),
+		at("public/terraform-infra-common/modules/cloudevent-recorder/bigquery.tf"),
+		at("lifecycle/go.mod"),
+		session,
+	}
+	assert.False(t, searchedForUsages(greps, wt, session, changed))
+
+	for _, wide := range []string{
+		wt,
+		at("lifecycle"),
+		at("lifecycle/cve-automation"),
+		t.TempDir(), // a context repo
+	} {
+		assert.True(
+			t,
+			searchedForUsages(append(slices.Clone(greps), wide), wt, session, changed),
+			wide,
+		)
+	}
+	assert.False(t, searchedForUsages([]string{"lifecycle"}, wt, session, changed),
+		"a relative path is resolved against the session directory, not the worktree")
 }
 
 func TestReviewGapsAreCapped(t *testing.T) {
@@ -149,7 +251,7 @@ func TestReviewGapsAreCapped(t *testing.T) {
 		Pass: PassFull, Worktree: wt, Diff: "/d", Reads: []string{"/d"}, Changed: changed,
 	})
 	require.Len(t, gaps, maxGaps+1)
-	assert.Equal(t, "and 8 more", gaps[maxGaps])
+	assert.Equal(t, "and 9 more", gaps[maxGaps])
 }
 
 func TestVerifiedExaminedDropsUnopenedPaths(t *testing.T) {
@@ -213,7 +315,8 @@ func TestReviewGapsConfigChangesNeedOnlyTheDiff(t *testing.T) {
 			filepath.Join(wt, "bots/kev/sync_test.go"),
 			filepath.Join(wt, "bots/kev/README.md"),
 		},
-		Searches: 2,
+		GrepPaths:     []string{wt},
+		Understanding: kevUnderstanding,
 	})
 	assert.Empty(t, gaps)
 }
@@ -231,7 +334,7 @@ func TestReviewGapsSecurityGuideReferences(t *testing.T) {
 			diff, filepath.Join(wt, "bots/kev/sync.go"), filepath.Join(wt, "bots/kev/sync_test.go"),
 			filepath.Join(wt, "bots/kev/README.md"),
 		},
-		Searches: 1, SecurityRefs: refs,
+		GrepPaths: []string{wt}, Understanding: kevUnderstanding, SecurityRefs: refs,
 	}
 	assert.Equal(t, []string{"read none of the security review guide's references"}, reviewGaps(in))
 
@@ -346,11 +449,18 @@ func TestReviewGapsCreditsChangesReadInTheDiff(t *testing.T) {
 		Ranges: map[string][]LineRange{
 			diff: {readRange(0, 950), readRange(3643, 0)},
 		},
-		Searches:     4,
-		SecurityRefs: []string{"/state/sessions/s1/security/path-traversal.md"},
+		GrepPaths:     []string{wt},
+		Understanding: kevUnderstanding,
+		SecurityRefs:  []string{"/state/sessions/s1/security/path-traversal.md"},
 	}
+	assert.Equal(t, []string{
+		"never read changed file bots/cve-remediation/internal/cveremediation/eval_export.go",
+		"read none of the security review guide's references",
+	}, reviewGaps(in), "a full pass opens changed code; a test read in the diff is enough")
+
+	in.Pass = PassIncremental
 	assert.Equal(t, []string{"read none of the security review guide's references"},
-		reviewGaps(in), "main_test.go and eval_export.go were read in the diff")
+		reviewGaps(in), "a follow-up credits main_test.go and eval_export.go read in the diff")
 
 	in.Ranges = nil
 	assert.Equal(t, []string{
@@ -378,7 +488,8 @@ func TestReviewGapsLargePRsAreJudgedOnTheDiff(t *testing.T) {
 	}
 	in := coverageInput{
 		Pass: PassIncremental, Worktree: wt, Diff: diff, Changed: changed,
-		Reads: []string{diff, filepath.Join(wt, "pkg/f0_test.go")}, Searches: 1,
+		Reads:     []string{diff, filepath.Join(wt, "pkg/f0_test.go")},
+		GrepPaths: []string{wt}, Understanding: kevUnderstanding,
 	}
 	assert.Empty(t, reviewGaps(in), "41 changed code files need not each be opened")
 

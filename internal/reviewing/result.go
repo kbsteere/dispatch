@@ -36,7 +36,10 @@ type ReviewOutput struct {
 	AgreedThreads []string       `json:"agreed_threads"`
 	DesignRefs    string         `json:"design_refs"`
 	Note          string         `json:"note"`
-	Examined      Examined       `json:"examined"`
+	// Understanding is the reviewer's private account of what the touched
+	// code does, who calls it, and how the PR changes it.
+	Understanding string   `json:"understanding"`
+	Examined      Examined `json:"examined"`
 	// Verdict is the reviewer's call: approve, comment, or request_changes.
 	// dispatch never approves unless it is approve.
 	Verdict       string `json:"verdict"`
@@ -66,8 +69,9 @@ type RunResult struct {
 	// Reads are the files the session opened with Read, excluding reads
 	// that failed.
 	Reads []string
-	// Searches counts the session's Grep and Glob calls.
-	Searches int
+	// GrepPaths are the paths the session's successful Grep calls searched,
+	// cleaned; empty for a Grep with no path.
+	GrepPaths []string
 	// Ranges are the lines each successful Read covered, by path.
 	Ranges map[string][]LineRange
 }
@@ -136,6 +140,7 @@ type contentBlock struct {
 	IsError   bool   `json:"is_error"`
 	Input     struct {
 		FilePath string     `json:"file_path"`
+		Path     string     `json:"path"`
 		Offset   lenientInt `json:"offset"`
 		Limit    lenientInt `json:"limit"`
 	} `json:"input"`
@@ -173,6 +178,8 @@ func ParseResult(out []byte) (RunResult, error) {
 		lines LineRange
 	}
 	reads := map[string]read{} // tool_use id -> what it read
+	type grep struct{ id, path string }
+	var greps []grep
 	failed := map[string]struct{}{}
 	var res RunResult
 	found := false
@@ -184,8 +191,12 @@ func ParseResult(out []byte) (RunResult, error) {
 					path:  filepath.Clean(c.Input.FilePath),
 					lines: readRange(int(c.Input.Offset), int(c.Input.Limit)),
 				}
-			case c.Type == "tool_use" && (c.Name == "Grep" || c.Name == "Glob"):
-				res.Searches++
+			case c.Type == "tool_use" && c.Name == "Grep":
+				p := c.Input.Path
+				if p != "" {
+					p = filepath.Clean(p)
+				}
+				greps = append(greps, grep{c.ID, p})
 			case c.Type == "tool_result" && c.IsError:
 				failed[c.ToolUseID] = struct{}{}
 			}
@@ -203,6 +214,12 @@ func ParseResult(out []byte) (RunResult, error) {
 	}
 	if !found {
 		return RunResult{}, errors.New("claude output has no result event")
+	}
+	// A refused or failed search found nothing.
+	for _, g := range greps {
+		if _, bad := failed[g.id]; !bad {
+			res.GrepPaths = append(res.GrepPaths, g.path)
+		}
 	}
 	for id, r := range reads {
 		if _, bad := failed[id]; bad {

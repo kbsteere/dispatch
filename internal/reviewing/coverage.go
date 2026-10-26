@@ -33,20 +33,40 @@ type coverageInput struct {
 	// Reads are the files the session opened with Read.
 	Reads []string
 	// Ranges are the lines each Read covered, by path.
-	Ranges   map[string][]LineRange
-	Searches int
+	Ranges map[string][]LineRange
+	// GrepPaths are the paths the session's Grep calls searched.
+	GrepPaths []string
+	// Understanding is the reviewer's account of what the touched code does
+	// and how the PR changes it.
+	Understanding string
 	// SecurityRefs are the security guide reference files the session was
 	// given; when code changed, at least one must be read.
 	SecurityRefs []string
 }
 
-// reviewGaps lists what a full or incremental pass failed to read: the
-// diff; every changed code file, opened or with its whole change read in
-// the diff, up to maxPerFileChecks files; documentation on a full pass;
-// and, when code changed, existing tests, a search for usages, and the
-// security guide. An incremental pass is judged on what changed since the
-// last review. A pass with gaps has not reviewed the code and cannot
-// approve. Comments-only passes have no requirements. Paths from the
+// Gaps a pass records when it searched only the changed code, or never
+// explained it.
+const (
+	gapUsages = "never searched for usages of the changed code beyond the changed files' " +
+		"directories: Grep the worktree root, a parent directory, or a context repo for each " +
+		"changed exported name"
+	gapUnderstanding = "never explained in `understanding` what the touched code does, who " +
+		"calls it, and how this PR changes it"
+)
+
+// minUnderstandingWords is the shortest account of the touched code that
+// counts as one.
+const minUnderstandingWords = 30
+
+// reviewGaps lists what a full or incremental pass failed to do: read the
+// diff; read every changed code file, up to maxPerFileChecks files; on a
+// full pass, open each changed non-test code file and read documentation;
+// and, when code changed, read existing tests, search for usages beyond the
+// changed files' directories, explain the touched code, and read the
+// security guide. On an incremental pass, reading a file's whole change in
+// the diff counts as reading it, and the pass is judged on what changed
+// since the last review. A pass with gaps has not reviewed the code and
+// cannot approve. Comments-only passes have no requirements. Paths from the
 // reviewer are only compared, never opened.
 func reviewGaps(in coverageInput) []string {
 	if in.Pass == PassLedger {
@@ -79,31 +99,75 @@ func reviewGaps(in coverageInput) []string {
 		}
 	}
 	if len(code) <= maxPerFileChecks {
-		// Code needs its surrounding file read, unless the reviewer read
-		// the file's whole change in the diff.
+		// Code needs its surrounding file read. Tests, and any code on a
+		// follow-up pass, may instead have their whole change read in the
+		// diff.
 		inDiff := readInDiff(in.Ranges, in.Diff, in.SinceLast)
 		for _, f := range code {
-			if _, ok := inDiff[f]; !ok && !opened(f) {
+			_, seen := inDiff[f]
+			if in.Pass == PassFull && !isTest(f) {
+				seen = false
+			}
+			if !seen && !opened(f) {
 				gaps = append(gaps, "never read changed file "+f)
 			}
 		}
 	}
-	// A follow-up review builds on the full review that read the docs.
-	if in.Pass == PassFull && !slices.ContainsFunc(in.Reads, isDoc) {
+	// A follow-up review builds on the full review that read the docs. The
+	// session's own files, such as the security guide, are not the
+	// repository's documentation.
+	session := filepath.Dir(in.Diff)
+	if in.Pass == PassFull && !slices.ContainsFunc(in.Reads, func(p string) bool {
+		return isDoc(p) && !within(p, session)
+	}) {
 		gaps = append(gaps, "read no documentation or design docs")
 	}
 	if codeChanged {
 		if !slices.ContainsFunc(in.Reads, isTest) {
 			gaps = append(gaps, "read no existing tests for the changed code")
 		}
-		if in.Searches == 0 {
-			gaps = append(gaps, "never searched for usages of the changed code")
+		if !searchedForUsages(in.GrepPaths, in.Worktree, session, in.Changed) {
+			gaps = append(gaps, gapUsages)
+		}
+		if len(strings.Fields(in.Understanding)) < minUnderstandingWords {
+			gaps = append(gaps, gapUnderstanding)
 		}
 		if len(in.SecurityRefs) > 0 && !slices.ContainsFunc(in.SecurityRefs, opened) {
 			gaps = append(gaps, "read none of the security review guide's references")
 		}
 	}
 	return capGaps(gaps)
+}
+
+// searchedForUsages reports whether any Grep searched a directory outside
+// every changed file's directory and the session's own files, such as the
+// worktree root, a parent of the changed code, or a context repo. Searching
+// only the changed package, or a single file, finds no callers elsewhere.
+func searchedForUsages(greps []string, worktree, session string, changed []string) bool {
+	dirs := make([]string, 0, len(changed))
+	for _, f := range changed {
+		if d := filepath.Dir(f); d != "." {
+			dirs = append(dirs, filepath.Join(worktree, d))
+		}
+	}
+	for _, p := range greps {
+		if !filepath.IsAbs(p) || within(p, session) {
+			continue
+		}
+		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+			continue
+		}
+		if !slices.ContainsFunc(dirs, func(d string) bool { return within(p, d) }) {
+			return true
+		}
+	}
+	return false
+}
+
+// within reports whether p is dir or inside it.
+func within(p, dir string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func capGaps(gaps []string) []string {
@@ -174,9 +238,11 @@ var docExts = []string{
 	".svg", ".png", ".jpg", ".jpeg",
 }
 
-// isDoc reports whether p is documentation or a diagram.
+// isDoc reports whether p is documentation or a diagram. A Go package's
+// doc.go is its design write-up.
 func isDoc(p string) bool {
-	return slices.Contains(docExts, strings.ToLower(path.Ext(p)))
+	return slices.Contains(docExts, strings.ToLower(path.Ext(p))) ||
+		path.Base(filepath.ToSlash(p)) == "doc.go"
 }
 
 // verifiedExamined keeps only the examined paths the session really opened.

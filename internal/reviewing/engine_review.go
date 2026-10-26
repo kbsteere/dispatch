@@ -89,16 +89,17 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		return e.fail(job.Key, out, err)
 	}
 	cov := coverageInput{
-		Pass:         job.Pass,
-		PROnly:       e.prOnly(job.Key),
-		Worktree:     slot,
-		Diff:         files.Diff,
-		Changed:      changedFor(job, files),
-		Reads:        res.Reads,
-		Ranges:       res.Ranges,
-		Searches:     res.Searches,
-		SinceLast:    files.SinceLast,
-		SecurityRefs: files.SecurityRefs,
+		Pass:          job.Pass,
+		PROnly:        e.prOnly(job.Key),
+		Worktree:      slot,
+		Diff:          files.Diff,
+		Changed:       changedFor(job, files),
+		Reads:         res.Reads,
+		Ranges:        res.Ranges,
+		GrepPaths:     res.GrepPaths,
+		Understanding: review.Understanding,
+		SinceLast:     files.SinceLast,
+		SecurityRefs:  files.SecurityRefs,
 	}
 	gaps := reviewGaps(cov)
 	sessionCost := res.CostUSD
@@ -126,8 +127,9 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		for p, r := range more.Ranges {
 			res.Ranges[p] = append(res.Ranges[p], r...)
 		}
-		res.Searches += more.Searches
-		cov.Reads, cov.Ranges, cov.Searches = res.Reads, res.Ranges, res.Searches
+		res.GrepPaths = append(res.GrepPaths, more.GrepPaths...)
+		cov.Reads, cov.Ranges, cov.GrepPaths = res.Reads, res.Ranges, res.GrepPaths
+		cov.Understanding = review.Understanding
 		gaps = reviewGaps(cov)
 	}
 	if st, _ = e.load(job.Key); st.Claim == nil || st.Claim.SessionID != sessionID {
@@ -138,6 +140,7 @@ func (e *Engine) Review(ctx context.Context, job Job) Outcome {
 		verified := verifiedExamined(review.Examined, slot, res.Reads)
 		s.Examined = &verified
 		s.ReviewGaps = gaps
+		s.Understanding = review.Understanding
 		s.Verdict, s.VerdictReason = review.Verdict, review.VerdictReason
 		s.CIAssessment = review.CI
 	})
@@ -874,7 +877,8 @@ func labelSeverity(body string, blocking bool) string {
 		return body
 	}
 	lower := strings.ToLower(strings.TrimSpace(body))
-	if strings.HasPrefix(lower, "nit:") || strings.HasPrefix(lower, "non-blocking:") {
+	if strings.HasPrefix(lower, "nit:") || strings.HasPrefix(lower, "non-blocking:") ||
+		strings.HasPrefix(lower, "question:") {
 		return body
 	}
 	return "non-blocking: " + body

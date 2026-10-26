@@ -349,8 +349,9 @@ func ContinuationPrompt(gaps, securityRefs []string) string {
 		}
 		b.WriteString("Read the ones that apply to what this PR changes.\n")
 	}
-	b.WriteString("\nRead those files now with the Read tool. A changed file counts as read " +
-		"when you open it, or when you read its whole section of the PR diff. Then return " +
+	b.WriteString("\nDo that now. Open each changed file named above with the Read tool; on a " +
+		"follow-up pass, reading its whole section of the diff since your last review also " +
+		"counts. Search and write `understanding` where the list above asks. Then return " +
 		"the complete review again in the same structured format, keeping every finding " +
 		"from your previous answer that still stands and adding any the new reading turned up.\n")
 	return b.String()

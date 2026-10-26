@@ -43,6 +43,9 @@ explore() {
   for f in ${FAKE_CLAUDE_READS-kev.go README.md kev_test.go}; do read_file "$wt/$f"; done
   printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"Sync","path":"%s"}}]}}\n' "$wt"
 }
+# understanding is the account of the code each result carries, unless
+# FAKE_CLAUDE_UNDERSTANDING is set, empty for none.
+understanding="${FAKE_CLAUDE_UNDERSTANDING-kev.go is the kev bot. Sync fetches the CISA KEV feed, compares it with the stored advisories, and publishes one CloudEvent per added CVE for the advisory recorder and the Slack notifier. This PR adds the package and its Sync entry point.}"
 # result reports a run like claude does: turns for this run, but the cost of
 # the whole session, so a resumed run adds to what the session cost so far.
 result() {
@@ -50,7 +53,11 @@ result() {
   explore
   cost=$(awk -v a="${session_cost:-0}" -v b="$2" 'BEGIN { print a + b }')
   printf 'session_cost=%s\n' "$cost" >> ./fake-session
-  printf '{"type":"result","subtype":"success","is_error":false,"num_turns":%s,"total_cost_usd":%s,"session_id":"%s","result":"","structured_output":%s}\n' "$1" "$cost" "$sid" "$3"
+  out="$3"
+  if [ -n "$understanding" ] && [[ "$out" != *'"understanding"'* ]]; then
+    out="{\"understanding\":\"$understanding\",${out#\{}"
+  fi
+  printf '{"type":"result","subtype":"success","is_error":false,"num_turns":%s,"total_cost_usd":%s,"session_id":"%s","result":"","structured_output":%s}\n' "$1" "$cost" "$sid" "$out"
 }
 case "${FAKE_CLAUDE_MODE:-success}" in
   success)

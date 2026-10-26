@@ -217,7 +217,9 @@ func TestBuildPromptScope(t *testing.T) {
 	}
 	full := BuildPrompt(PromptInput{Pass: PassFull})
 	for _, step := range []string{
-		"Read every changed code file in full", "Grep the worktree and every context repo",
+		"Open every changed code file in full", "reading its section of the diff does not count",
+		"Grep the whole worktree", "read every caller", "find the readers and the place it is deployed",
+		"package documentation (a Go doc.go",
 		"Open the diagrams too", "Read the existing unit and integration tests",
 	} {
 		assert.Contains(t, full, step)
@@ -231,6 +233,21 @@ func TestReviewSchemaRequiresExamined(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(ReviewSchema), &v))
 	assert.Contains(t, v.Required, "examined")
+	assert.Contains(t, v.Required, "understanding")
+}
+
+func TestReviewerInstructionsChallengeTheChange(t *testing.T) {
+	p := BuildPrompt(PromptInput{Pass: PassFull})
+	for _, s := range []string{
+		"Understand the system before you judge the change",
+		"Write this down in `understanding`",
+		"Challenge the change itself",
+		"already exist in production",
+		"ask it as a non-blocking question that starts with \"question:\"",
+	} {
+		assert.Contains(t, p, s)
+	}
+	assert.NotContains(t, p, "A false positive costs more than a miss")
 }
 
 func TestBuildPromptSecurityGuide(t *testing.T) {
@@ -311,7 +328,7 @@ func TestContinuationPrompt(t *testing.T) {
 	)
 	assert.Contains(t, p, "- never read changed file bots/kev/sync.go\n")
 	assert.Contains(t, p, "- /state/sessions/s1/security/path-traversal.md\n")
-	assert.Contains(t, p, "whole section of the PR diff")
+	assert.Contains(t, p, "on a follow-up pass, reading its whole section of the diff")
 	assert.Contains(t, p, "same structured format")
 	assert.NotContains(t, p, "\x1b", "paths from the PR are sanitised")
 

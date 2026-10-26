@@ -517,6 +517,12 @@ func TestLabelSeverity(t *testing.T) {
 		{"non-blocking gets a label", "Rename `x`.", false, "non-blocking: Rename `x`."},
 		{"nit label is kept", "nit: rename `x`.", false, "nit: rename `x`."},
 		{"existing label is kept", "Non-blocking: rename `x`.", false, "Non-blocking: rename `x`."},
+		{
+			"question label is kept",
+			"question: is `variant` added at the end of the deployed table?",
+			false,
+			"question: is `variant` added at the end of the deployed table?",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -542,6 +548,28 @@ func TestReviewShallowPassCannotApprove(t *testing.T) {
 	assert.True(t, strings.HasPrefix(st.Note, "review incomplete: "), st.Note)
 	assert.Equal(t, maxContinuations, st.LastRun.Continuations,
 		"the session was asked to finish before the gaps stood")
+}
+
+func TestReviewWithoutUnderstandingCannotApprove(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	t.Setenv("FAKE_CLAUDE_UNDERSTANDING", "")
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+
+	assert.Empty(t, h.gh.posted)
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	assert.Equal(t, []string{gapUnderstanding}, st.ReviewGaps)
+	assert.Empty(t, st.Understanding)
+}
+
+func TestReviewRecordsItsUnderstanding(t *testing.T) {
+	h := newReviewHarness(t, "success", nil)
+	out := h.e.Review(t.Context(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionApprove, out.Posted)
+	assert.True(t, strings.HasPrefix(h.state(t).Understanding, "kev.go is the kev bot."),
+		h.state(t).Understanding)
 }
 
 func TestReviewShallowPassStillPostsFindings(t *testing.T) {
