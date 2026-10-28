@@ -253,6 +253,25 @@ func TestReviewerInstructionsChallengeTheChange(t *testing.T) {
 	assert.NotContains(t, p, "A false positive costs more than a miss")
 }
 
+// TestReviewerInstructionsKeepFindingsShort pins the writing rules that
+// came out of mono#75472, where a follow-up on a flag built like cuebump's
+// stacked the rule's section, audit line, and examples into one paragraph,
+// described the fix in prose, and dismissed the precedent in its last line.
+func TestReviewerInstructionsKeepFindingsShort(t *testing.T) {
+	p := BuildPrompt(PromptInput{Pass: PassFull})
+	for _, s := range []string{
+		"Lead with the root problem and the one consequence that matters",
+		"Cite a rule once, by its document",
+		"When the fix is code, show it as code",
+		"go in one closing sentence",
+		"followed an existing pattern elsewhere in the repository, answer that first",
+		"A reply in an existing thread stays under 100 words.",
+	} {
+		assert.Contains(t, p, s)
+	}
+	assert.NotContains(t, p, "Use a ```suggestion block for small mechanical fixes.")
+}
+
 func TestBuildPromptSecurityGuide(t *testing.T) {
 	g := &SecurityGuide{
 		Dir:        "agents/skills/go-security-review",
