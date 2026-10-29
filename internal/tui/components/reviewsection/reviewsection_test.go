@@ -366,3 +366,29 @@ func TestTouchRowFlashes(t *testing.T) {
 		"the marker goes once the fetch ends",
 	)
 }
+
+func TestSectionListsOutsidePRsAfterTeammates(t *testing.T) {
+	m := newTestSection(t)
+	m.Ctx.Config.ReviewingFor.Watches = []config.ReviewWatch{
+		{Name: "other-watch", Authors: []string{"brianmcarey"}},
+		{
+			Name:    "sustaining-automation",
+			Authors: []string{"dnegreira"},
+			Teams:   []string{"chainguard-dev/sustaining-tooling-team-write"},
+		},
+	}
+	outside := st("mono", 75471, reviewing.StatusNeedsAttention, time.Minute)
+	outside.Author, outside.ReviewRequested = "brianmcarey", true
+	mate := st("stereo", 401855, reviewing.StatusWaitingOnCI, time.Hour)
+	m.SetData(
+		reviewing.WatchStatus{Name: "sustaining-automation"},
+		[]reviewing.PRState{outside, mate},
+	)
+
+	rows := m.BuildRows()
+	require.Len(t, rows, 2)
+	assert.True(t, strings.HasPrefix(ansi.Strip(rows[0][1]), "stereo#401855\n"),
+		"the teammate's PR is listed first: %q", rows[0][1])
+	assert.True(t, strings.HasPrefix(ansi.Strip(rows[1][1]), "mono#75471 (outside)\n"),
+		"another watch's authors are outside this one: %q", rows[1][1])
+}

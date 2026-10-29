@@ -70,10 +70,24 @@ func Columns() []table.Column {
 // Watch is the name of the watch this table shows.
 func (m *Model) Watch() string { return m.Config.Title }
 
+// isTeammate reports whether author is one of the watch's authors. Without
+// the watch's config every author counts as one.
+func (m Model) isTeammate(author string) bool {
+	if m.Ctx == nil || m.Ctx.Config == nil {
+		return true
+	}
+	for _, w := range m.Ctx.Config.ReviewingFor.Watches {
+		if w.Name == m.Watch() {
+			return w.IsAuthor(author)
+		}
+	}
+	return true
+}
+
 // SetData replaces the table's contents with the watch's current state.
 func (m *Model) SetData(ws reviewing.WatchStatus, states []reviewing.PRState) {
 	m.status = ws
-	m.states, m.hidden = SortStates(states, m.now()), 0
+	m.states, m.hidden = SortStates(states, m.now(), m.isTeammate), 0
 	if !m.Ctx.ShowApproved {
 		m.states, m.hidden = HideApproved(m.states)
 	}
@@ -103,7 +117,7 @@ func (m Model) BuildRows() []table.Row {
 	now := m.now()
 	rows := make([]table.Row, 0, len(m.states))
 	for _, s := range m.states {
-		c := Cells(s, now)
+		c := Cells(s, now, !m.isTeammate(s.Author))
 		// The reference gets its own line so a narrow column cuts the title,
 		// never the PR number; the table truncates each line instead of
 		// wrapping it.

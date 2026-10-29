@@ -13,6 +13,10 @@ import (
 
 var now = time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC)
 
+// everyone counts every author as one of the watch's authors, as a watch
+// without teams does.
+func everyone(string) bool { return true }
+
 func ts(d time.Duration) string { return now.Add(-d).Format(time.RFC3339) }
 
 func st(repo string, n int, status reviewing.Status, updated time.Duration) reviewing.PRState {
@@ -37,7 +41,7 @@ func TestSortStates(t *testing.T) {
 		st("mono", 7, reviewing.StatusWaitingOnCI, time.Minute),
 		st("mono", 8, reviewing.StatusFailed, time.Minute),
 	}
-	got := SortStates(in, now)
+	got := SortStates(in, now, everyone)
 	var order []int
 	for _, s := range got {
 		order = append(order, s.Key.Number)
@@ -57,6 +61,7 @@ func TestSortStatesHidesInactive(t *testing.T) {
 	got := SortStates(
 		[]reviewing.PRState{merged, st("stereo", 367322, reviewing.StatusFailed, time.Minute)},
 		now,
+		everyone,
 	)
 	require.Len(t, got, 1)
 	assert.Equal(t, 367322, got[0].Key.Number)
@@ -67,6 +72,7 @@ func TestSortStatesSkipsInvalidKeys(t *testing.T) {
 	got := SortStates(
 		[]reviewing.PRState{bad, st("mono", 2, reviewing.StatusApproved, time.Minute)},
 		now,
+		everyone,
 	)
 	require.Len(t, got, 1)
 	assert.Equal(t, 2, got[0].Key.Number)
@@ -83,7 +89,7 @@ func TestCells(t *testing.T) {
 		{Blocking: true, Status: reviewing.FindingAddressed},
 	}
 	s.LastRun = &reviewing.RunRecord{Turns: 9, CostUSD: 2.1}
-	c := Cells(s, now)
+	c := Cells(s, now, false)
 	assert.Equal(t, "changes", c.Status)
 	assert.Equal(
 		t,
@@ -102,7 +108,7 @@ func TestCellsEdgeCases(t *testing.T) {
 	s := st("omnibump", 88, reviewing.StatusReviewing, 3*time.Hour)
 	s.Pinned = true
 	s.Title = strings.Repeat("x", 500)
-	c := Cells(s, now)
+	c := Cells(s, now, false)
 	assert.Equal(t, "-", c.Open)
 	assert.Equal(t, "…", c.Spend, "a running review shows progress, not the previous run")
 	assert.True(t, strings.HasSuffix(c.PR, "(added)"))
@@ -110,13 +116,13 @@ func TestCellsEdgeCases(t *testing.T) {
 	assert.Equal(t, "omnibump#88 (added)", c.PR)
 
 	b := st("mono", 1, reviewing.StatusBaseline, 48*time.Hour)
-	c = Cells(b, now)
+	c = Cells(b, now, false)
 	assert.Equal(t, "baseline", c.Status)
 	assert.Equal(t, "-", c.Spend)
 	assert.Equal(t, "2d", c.Updated)
 
 	b.UpdatedAt = "garbage"
-	assert.Equal(t, "", Cells(b, now).Updated)
+	assert.Equal(t, "", Cells(b, now, false).Updated)
 }
 
 func TestSummaryBeforeFirstPollAndOnError(t *testing.T) {
@@ -189,9 +195,9 @@ func TestPRData(t *testing.T) {
 func TestCellsMarksDryRunStatus(t *testing.T) {
 	s := st("stereo", 367322, reviewing.StatusApproved, time.Minute)
 	s.ApprovedHead = "d5dcdad"
-	assert.Equal(t, "approved", Cells(s, now).Status)
+	assert.Equal(t, "approved", Cells(s, now, false).Status)
 	s.DryRun = true
-	assert.Equal(t, "approved (dry)", Cells(s, now).Status, "nothing was posted")
+	assert.Equal(t, "approved (dry)", Cells(s, now, false).Status, "nothing was posted")
 }
 
 func TestSortStatesPutsRequestedReviewsFirst(t *testing.T) {
@@ -204,21 +210,21 @@ func TestSortStatesPutsRequestedReviewsFirst(t *testing.T) {
 		asked,
 		askedToo,
 		st("mono", 66370, reviewing.StatusChangesRequested, time.Minute),
-	}, now)
+	}, now, everyone)
 	var order []int
 	for _, s := range got {
 		order = append(order, s.Key.Number)
 	}
 	assert.Equal(t, []int{367334, 66173, 59119, 66370}, order,
 		"requested first, each group in status order")
-	assert.Equal(t, "mono#66173 (requested)", Cells(asked, now).PR)
+	assert.Equal(t, "mono#66173 (requested)", Cells(asked, now, false).PR)
 }
 
 func TestCellsShowsTotalSpend(t *testing.T) {
 	s := st("mono", 66173, reviewing.StatusApproved, time.Hour)
 	s.LastRun = &reviewing.RunRecord{Turns: 4, CostUSD: 0.11}
 	s.TotalCostUSD, s.TotalTurns, s.Runs = 0.37, 10, 2
-	assert.Equal(t, "$0.37 ·2", Cells(s, now).Spend, "every run, not just the last")
+	assert.Equal(t, "$0.37 ·2", Cells(s, now, false).Spend, "every run, not just the last")
 }
 
 func TestYouGlyph(t *testing.T) {
@@ -238,15 +244,15 @@ func TestYouGlyph(t *testing.T) {
 	}
 	s := st("mono", 66082, reviewing.StatusApproved, time.Hour)
 	s.MyReview, s.MyReviewOnHead = "APPROVED", true
-	assert.Equal(t, "✓", Cells(s, now).You)
+	assert.Equal(t, "✓", Cells(s, now, false).You)
 }
 
 func TestQueuedReviews(t *testing.T) {
 	s := st("mono", 47520, reviewing.StatusBaseline, time.Hour)
 	s.ForceReview = true
-	assert.Equal(t, "queued", Cells(s, now).Status)
+	assert.Equal(t, "queued", Cells(s, now, false).Status)
 	s.Status = reviewing.StatusReviewing
-	assert.Equal(t, "reviewing", Cells(s, now).Status, "a claimed review shows as running")
+	assert.Equal(t, "reviewing", Cells(s, now, false).Status, "a claimed review shows as running")
 
 	assert.Equal(t, "3 reviewing", ReviewCounts(reviewing.WatchStatus{InFlight: 3}))
 	assert.Equal(t, "3 reviewing · 25 queued",
@@ -285,19 +291,19 @@ func TestNextPoll(t *testing.T) {
 func TestCellsMarksApprovalsThatNeverReachedGitHub(t *testing.T) {
 	// mono#65196 read "approved" though no approval was ever posted.
 	s := st("mono", 65196, reviewing.StatusApproved, time.Hour)
-	assert.Equal(t, "approved (not posted)", Cells(s, now).Status)
+	assert.Equal(t, "approved (not posted)", Cells(s, now, false).Status)
 
 	s.MyReview, s.MyReviewOnHead = "APPROVED", true
-	assert.Equal(t, "approved", Cells(s, now).Status, "your approval is on the PR")
+	assert.Equal(t, "approved", Cells(s, now, false).Status, "your approval is on the PR")
 	s.MyReview, s.MyReviewOnHead = "APPROVED", false
 	assert.Equal(
 		t,
 		"approved (not posted)",
-		Cells(s, now).Status,
+		Cells(s, now, false).Status,
 		"an approval on an older commit does not count",
 	)
 	s.MyReview, s.ApprovedHead = "", "ef91cc3d"
-	assert.Equal(t, "approved", Cells(s, now).Status, "dispatch posted it")
+	assert.Equal(t, "approved", Cells(s, now, false).Status, "dispatch posted it")
 }
 
 func TestSortStatesKeepsPRsClosedInTheLastFiveMinutes(t *testing.T) {
@@ -312,7 +318,7 @@ func TestSortStatesKeepsPRsClosedInTheLastFiveMinutes(t *testing.T) {
 	drafted.Inactive = true // back to draft: not shown
 	open := st("stereo", 135128, reviewing.StatusApproved, 2*time.Hour)
 
-	got := SortStates([]reviewing.PRState{merged, old, open, drafted, closed}, now)
+	got := SortStates([]reviewing.PRState{merged, old, open, drafted, closed}, now, everyone)
 	var order []int
 	for _, s := range got {
 		order = append(order, s.Key.Number)
@@ -324,10 +330,10 @@ func TestSortStatesKeepsPRsClosedInTheLastFiveMinutes(t *testing.T) {
 		"open PRs first, then PRs closed in the last five minutes newest first; older and drafted ones hidden",
 	)
 
-	c := Cells(merged, now)
+	c := Cells(merged, now, false)
 	assert.Equal(t, "merged", c.Status)
 	assert.Equal(t, "✓", c.You, "your approval stays visible after it merges")
-	assert.Equal(t, "closed", Cells(closed, now).Status)
+	assert.Equal(t, "closed", Cells(closed, now, false).Status)
 }
 
 func TestStatusTone(t *testing.T) {
@@ -393,9 +399,14 @@ func TestOpenedAt(t *testing.T) {
 
 func TestCellsShowOpened(t *testing.T) {
 	s := st("mono", 66370, reviewing.StatusWaitingOnCI, time.Hour)
-	assert.Equal(t, "-", Cells(s, now).Opened, "state saved before the open time was recorded")
+	assert.Equal(
+		t,
+		"-",
+		Cells(s, now, false).Opened,
+		"state saved before the open time was recorded",
+	)
 	s.CreatedAt = time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
-	assert.Equal(t, "2025-06-01", Cells(s, now).Opened)
+	assert.Equal(t, "2025-06-01", Cells(s, now, false).Opened)
 }
 
 func TestHideApproved(t *testing.T) {
@@ -435,4 +446,46 @@ func TestHideApproved(t *testing.T) {
 	assert.Equal(t, []int{2, 3, 4, 5, 6, 7, 9, 10}, got,
 		"new commits, a dismissed approval, dry run, a fresh request, a queued review, "+
 			"a recent merge, an unposted approval, and other statuses stay")
+}
+
+func TestSortStatesGroupsTeammatesFirst(t *testing.T) {
+	teammates := func(author string) bool { return author == "dnegreira" || author == "powersj" }
+	outside := func(n int, status reviewing.Status, author string) reviewing.PRState {
+		s := st("mono", n, status, time.Minute)
+		s.Author = author
+		// Every team PR requested the viewer's team.
+		s.ReviewRequested = true
+		return s
+	}
+	mate := st("stereo", 409117, reviewing.StatusApproved, time.Hour)
+	mate.Author = "powersj"
+	merged := st("mono", 75000, reviewing.StatusApproved, time.Minute)
+	merged.Inactive, merged.ClosedState, merged.ClosedAt = true, "MERGED", now.Add(-time.Minute)
+	got := SortStates([]reviewing.PRState{
+		outside(75471, reviewing.StatusNeedsAttention, "brianmcarey"),
+		merged,
+		st("stereo", 401855, reviewing.StatusWaitingOnCI, time.Minute),
+		outside(54590, reviewing.StatusBaseline, "iainlane"),
+		mate,
+	}, now, teammates)
+	var order []int
+	for _, s := range got {
+		order = append(order, s.Key.Number)
+	}
+	assert.Equal(
+		t,
+		[]int{401855, 409117, 75471, 54590, 75000},
+		order,
+		"teammates, then everyone else, then recently closed; requested outside PRs stay below teammates",
+	)
+}
+
+func TestCellsMarksOutsidePRs(t *testing.T) {
+	s := st("mono", 75471, reviewing.StatusNeedsAttention, time.Minute)
+	s.Author, s.ReviewRequested = "brianmcarey", true
+	assert.Equal(t, "mono#75471 (outside)", Cells(s, now, true).PR,
+		"the outside marker replaces the requested one")
+	s.Pinned = true
+	assert.Equal(t, "mono#75471 (outside) (added)", Cells(s, now, true).PR)
+	assert.Equal(t, "mono#75471 (requested) (added)", Cells(s, now, false).PR)
 }

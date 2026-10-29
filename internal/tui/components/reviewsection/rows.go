@@ -57,11 +57,17 @@ func updatedAt(s reviewing.PRState) time.Time {
 }
 
 // SortStates returns the states to show, in display order, without
-// modifying the input: open PRs requesting your review first, then other
-// open PRs by status and most recent update, then PRs merged or closed in
-// the last few minutes, newest first. Other inactive PRs (back to draft, out of
+// modifying the input: open PRs by the watch's authors, as isTeammate
+// reports them, then everyone else's open PRs, then PRs merged or closed in
+// the last few minutes, newest first. Within each group of open PRs, those
+// requesting your review come first, then the rest by status and most
+// recent update. Other inactive PRs (back to draft, out of
 // scope) and states whose key fails validation are dropped.
-func SortStates(states []reviewing.PRState, now time.Time) []reviewing.PRState {
+func SortStates(
+	states []reviewing.PRState,
+	now time.Time,
+	isTeammate func(author string) bool,
+) []reviewing.PRState {
 	out := make([]reviewing.PRState, 0, len(states))
 	for _, s := range states {
 		if (!s.Inactive || s.ShownClosed(now)) && reviewing.ValidName(s.Key.Owner) &&
@@ -78,6 +84,12 @@ func SortStates(states []reviewing.PRState, now time.Time) []reviewing.PRState {
 		}
 		if a.Inactive {
 			return b.ClosedAt.Compare(a.ClosedAt)
+		}
+		if ta, tb := isTeammate(a.Author), isTeammate(b.Author); ta != tb {
+			if ta {
+				return -1
+			}
+			return 1
 		}
 		// PRs that request your review come first.
 		if a.ReviewRequested != b.ReviewRequested {
@@ -133,8 +145,10 @@ func clip(s string, n int) string {
 }
 
 // Cells renders a state as row text. Text from GitHub is sanitised and
-// length-limited.
-func Cells(s reviewing.PRState, now time.Time) RowCells {
+// length-limited. outside marks a PR by someone who is not one of the
+// watch's authors; it replaces the requested marker, since such a PR is
+// usually there because it requested a team's review.
+func Cells(s reviewing.PRState, now time.Time, outside bool) RowCells {
 	clean := reviewing.SanitizeTerminal
 	c := RowCells{
 		Status: statusShort[s.Status],
@@ -161,7 +175,10 @@ func Cells(s reviewing.PRState, now time.Time) RowCells {
 	case s.Status == reviewing.StatusApproved && !approvedOnGitHub(s):
 		c.Status += " (not posted)"
 	}
-	if s.ReviewRequested {
+	switch {
+	case outside:
+		c.PR += " (outside)"
+	case s.ReviewRequested:
 		c.PR += " (requested)"
 	}
 	if s.Pinned {
