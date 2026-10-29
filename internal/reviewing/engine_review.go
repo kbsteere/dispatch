@@ -485,6 +485,11 @@ func (e *Engine) apply(
 	dec := e.decide(ctx, fresh[0], st.ApprovedHead, viewer, sig, draft, tally)
 	action, status := dec.action, dec.status
 	draft.Event, draft.Body = string(action), dec.body
+	if !dec.snap.Trusted && tally.OutstandingBlocking == 0 && dec.snap.ReviewerApproves {
+		out.Note = strings.TrimSpace(
+			"not approved: " + Blocker(dec.snap, tally) + ". " + out.Note,
+		)
+	}
 
 	if len(draft.Reasons) > 0 {
 		path := e.store.DraftPath(job.Key, e.d.Now())
@@ -561,6 +566,7 @@ func (e *Engine) decide(
 		// author, so they rule out an approval.
 		CodeReviewed:     draft.CodeReviewed && len(draft.Unanchored) == 0,
 		ReviewerApproves: draft.Verdict == VerdictApprove,
+		Trusted:          e.d.Watch.IsAuthor(fresh.Author),
 	}
 	var note string
 	if sig.CI != "SUCCESS" {

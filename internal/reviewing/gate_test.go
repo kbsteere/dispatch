@@ -16,6 +16,7 @@ func cleanSnap() Snapshot {
 		RequiredCI:       "SUCCESS",
 		CodeReviewed:     true,
 		ReviewerApproves: true,
+		Trusted:          true,
 	}
 }
 
@@ -28,6 +29,34 @@ func TestDecide(t *testing.T) {
 		wantStatus Status
 	}{
 		{"all clear approves", nil, Tally{}, ActionApprove, StatusApproved},
+		{
+			"someone else's clean PR waits for the viewer",
+			func(s *Snapshot) { s.Trusted = false },
+			Tally{},
+			ActionNone,
+			StatusNeedsAttention,
+		},
+		{
+			"someone else's PR gets its nits as a comment",
+			func(s *Snapshot) { s.Trusted = false },
+			Tally{NewFindings: 1, OutstandingNonBlocking: 1},
+			ActionComment,
+			StatusNeedsAttention,
+		},
+		{
+			"someone else's PR never gets changes requested",
+			func(s *Snapshot) { s.Trusted, s.ApprovedHead = false, "h1" },
+			Tally{NewFindings: 1, NewBlocking: 1, OutstandingBlocking: 1},
+			ActionComment,
+			StatusChangesRequested,
+		},
+		{
+			"someone else's PR still waits on CI first",
+			func(s *Snapshot) { s.Trusted, s.RequiredCI = false, "PENDING" },
+			Tally{},
+			ActionNone,
+			StatusWaitingOnCI,
+		},
 		{
 			"already approved at head posts nothing",
 			func(s *Snapshot) { s.ApprovedHead = "h2" },
@@ -218,6 +247,7 @@ func TestBlockerMatchesDecide(t *testing.T) {
 		"ci excused":      func(s *Snapshot, _ *Tally) { s.RequiredCI, s.CIExcused = "FAILURE", true },
 		"approved here":   func(s *Snapshot, _ *Tally) { s.ApprovedHead = s.Head },
 		"others blocking": func(s *Snapshot, _ *Tally) { s.OthersRequestChanges = true },
+		"outside author":  func(s *Snapshot, _ *Tally) { s.Trusted = false },
 	}
 	for name, mut := range muts {
 		t.Run(name, func(t *testing.T) {

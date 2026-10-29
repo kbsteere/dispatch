@@ -14,6 +14,9 @@ type Snapshot struct {
 	// CodeReviewed reports that a full or incremental pass read the code at
 	// Head. A comments-only pass never does, so it alone cannot approve.
 	CodeReviewed bool
+	// Trusted marks a PR by one of the watch's authors. Only those PRs are
+	// approved, or have changes requested, for the viewer.
+	Trusted bool
 	// ReviewerApproves reports that the reviewer's verdict was approve.
 	ReviewerApproves bool
 	// CIExcused reports that every required check that has not passed is
@@ -50,7 +53,7 @@ func Decide(s Snapshot, t Tally) (Action, Status) {
 	self := s.Author == s.Viewer
 	if t.OutstandingBlocking > 0 {
 		switch {
-		case t.NewBlocking > 0 && s.ApprovedHead != "" && !self:
+		case t.NewBlocking > 0 && s.ApprovedHead != "" && !self && s.Trusted:
 			return ActionRequestChanges, StatusChangesRequested
 		case t.NewFindings > 0:
 			return ActionComment, StatusChangesRequested
@@ -74,6 +77,11 @@ func Decide(s Snapshot, t Tally) (Action, Status) {
 	}
 	if s.RequiredCI != "SUCCESS" && !s.CIExcused {
 		return held, StatusWaitingOnCI
+	}
+	if !s.Trusted {
+		// A clean review of anyone else's PR waits for the viewer to
+		// approve it.
+		return held, StatusNeedsAttention
 	}
 	approved := StatusApproved
 	if s.OthersRequestChanges {
@@ -103,6 +111,8 @@ func Blocker(s Snapshot, t Tally) string {
 		return "Claude's verdict was not approve"
 	case s.RequiredCI != "SUCCESS" && !s.CIExcused:
 		return "required CI is not green"
+	case !s.Trusted:
+		return "the author is not one of the watch's authors; approve it yourself"
 	case s.ApprovedHead == s.Head:
 		return "you already approved this commit"
 	default:

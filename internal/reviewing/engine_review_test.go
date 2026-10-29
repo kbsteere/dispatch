@@ -1161,3 +1161,18 @@ func TestReviewUncheckedAssumptionCannotApprove(t *testing.T) {
 	require.Len(t, st.Assumptions, 1)
 	assert.Equal(t, "publisher.go:1237", st.Assumptions[0].Evidence)
 }
+
+func TestReviewOutsideAuthorIsNeverApproved(t *testing.T) {
+	h := newReviewHarness(t, "success", func(w *config.ReviewWatch) {
+		w.Authors = []string{"powersj"}
+		w.Teams = []string{"chainguard-dev/sustaining-tooling-team-write"}
+	})
+	out := h.e.Review(context.Background(), h.job)
+	require.NoError(t, out.Err)
+	assert.Equal(t, ActionNone, out.Posted)
+	assert.Empty(t, h.gh.posted, "a clean review of someone else's PR posts nothing")
+	st := h.state(t)
+	assert.Equal(t, StatusNeedsAttention, st.Status)
+	assert.Empty(t, st.ApprovedHead)
+	assert.Contains(t, st.Note, "not approved: the author is not one of the watch's authors")
+}
