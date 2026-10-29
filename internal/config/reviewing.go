@@ -28,9 +28,9 @@ type ReviewingLimits struct {
 // teams whose review requests it answers. A watch needs authors, teams, or
 // both.
 type ReviewWatch struct {
-	Name    string   `yaml:"name"                   validate:"required,watchname"`
-	Authors []string `yaml:"authors,omitempty"      validate:"dive,required"`
-	Scopes  []string `yaml:"scopes"                 validate:"required,min=1,dive,reviewscope"`
+	Name    string   `yaml:"name"              validate:"required,watchname"`
+	Authors []string `yaml:"authors,omitempty" validate:"dive,required"`
+	Scopes  []string `yaml:"scopes"            validate:"required,min=1,dive,reviewscope"`
 	// Teams are org/team slugs. A PR that requests review from any of them
 	// is reviewed whoever wrote it, unless a bot did, with the slots the
 	// authors' PRs leave free, until it is merged, closed, or back to draft.

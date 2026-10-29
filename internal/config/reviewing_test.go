@@ -163,7 +163,10 @@ func TestReviewingForTeamFilter(t *testing.T) {
 		want string
 	}{
 		"no teams": {
-			w:    ReviewWatch{Authors: []string{"tcnghia"}, Scopes: []string{"repo:chainguard-dev/mono"}},
+			w: ReviewWatch{
+				Authors: []string{"tcnghia"},
+				Scopes:  []string{"repo:chainguard-dev/mono"},
+			},
 			want: "",
 		},
 		"each team's org once": {
