@@ -35,7 +35,7 @@ func newTestSection(t *testing.T) Model {
 		ScreenWidth: 160, ScreenHeight: 40, MainContentWidth: 160, MainContentHeight: 30,
 		StartTask: func(context.Task) tea.Cmd { return nil },
 	}
-	m := NewModel(1, ctx, "sustaining-automation")
+	m := NewModel(1, ctx, "sustaining-automation", GroupAll)
 	m.now = func() time.Time { return now }
 	return m
 }
@@ -391,4 +391,12 @@ func TestSectionListsOutsidePRsAfterTeammates(t *testing.T) {
 		"the teammate's PR is listed first: %q", rows[0][1])
 	assert.True(t, strings.HasPrefix(ansi.Strip(rows[1][1]), "mono#75471 (outside)\n"),
 		"another watch's authors are outside this one: %q", rows[1][1])
+}
+
+func TestGroups(t *testing.T) {
+	assert.Equal(t, []Group{GroupAll}, Groups(config.ReviewWatch{Authors: []string{"tcnghia"}}))
+	assert.Equal(t, []Group{GroupTeammates, GroupOutside}, Groups(config.ReviewWatch{
+		Authors: []string{"tcnghia"},
+		Teams:   []string{"chainguard-dev/sustaining-tooling-team-write"},
+	}))
 }

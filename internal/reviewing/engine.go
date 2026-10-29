@@ -1059,13 +1059,14 @@ func (e *Engine) markRequested(
 // every baselined PR or every PR whose last pass failed, and returns how
 // many it queued. Forcing skips backoff and the per-PR daily limit; reviews
 // still run a few at a time and stop at the daily budget.
-func (e *Engine) ForceAll(status Status) (int, error) {
+// keep, when set, limits it to the PRs it reports true for.
+func (e *Engine) ForceAll(status Status, keep func(PRState) bool) (int, error) {
 	if e.readOnly {
 		return 0, errors.New("watch is read-only in this dispatch")
 	}
 	n := 0
 	for _, st := range e.States() {
-		if st.Inactive || st.Status != status {
+		if st.Inactive || st.Status != status || (keep != nil && !keep(st)) {
 			continue
 		}
 		if err := e.Force(st.Key); err != nil {

@@ -236,15 +236,28 @@ func (m *Model) syncWatchState() []watchSnapshot {
 	return snaps
 }
 
-// buildReviewSections creates the Reviewing view's tables, one per watch.
+// buildReviewSections creates the Reviewing view's tables: one per watch,
+// and a second for a watch with teams.
 func (m *Model) buildReviewSections() []section.Section {
 	out := make([]section.Section, 0, len(m.reviewers))
-	for i, e := range m.reviewers {
-		s := reviewsection.NewModel(i, m.ctx, e.Name())
-		s.SetData(e.Status(), e.States())
-		out = append(out, &s)
+	for _, e := range m.reviewers {
+		for _, g := range reviewsection.Groups(m.watchConfig(e.Name())) {
+			s := reviewsection.NewModel(len(out), m.ctx, e.Name(), g)
+			s.SetData(e.Status(), e.States())
+			out = append(out, &s)
+		}
 	}
 	return out
+}
+
+// watchConfig is the configured watch named name.
+func (m *Model) watchConfig(name string) config.ReviewWatch {
+	for _, w := range m.ctx.Config.ReviewingFor.Watches {
+		if w.Name == name {
+			return w
+		}
+	}
+	return config.ReviewWatch{Name: name}
 }
 
 // refreshReviewSections reloads each table from its watch's state.
@@ -492,7 +505,7 @@ func (m *Model) retryFailed() tea.Cmd {
 }
 
 // queueAll forces a review of every open PR with the given status in the
-// current watch once the user answers prompt. done is a format for the
+// current table once the user answers prompt. done is a format for the
 // number queued.
 func (m *Model) queueAll(
 	status reviewing.Status,
@@ -503,9 +516,13 @@ func (m *Model) queueAll(
 	if e == nil {
 		return noWatches
 	}
+	var keep func(reviewing.PRState) bool
+	if rs, ok := m.getCurrSection().(*reviewsection.Model); ok && rs.Watch() == e.Name() {
+		keep = rs.Shows
+	}
 	n := 0
 	for _, st := range e.States() {
-		if !st.Inactive && st.Status == status {
+		if !st.Inactive && st.Status == status && (keep == nil || keep(st)) {
 			n++
 		}
 	}
@@ -513,7 +530,7 @@ func (m *Model) queueAll(
 		return m.notify(none)
 	}
 	return m.confirm(prompt(n, e.Status()), func() tea.Cmd {
-		queued, err := e.ForceAll(status)
+		queued, err := e.ForceAll(status, keep)
 		if err != nil {
 			return func() tea.Msg { return reviewActionMsg{err: err} }
 		}

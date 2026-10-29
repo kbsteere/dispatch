@@ -530,7 +530,7 @@ func TestSecondEngineIsReadOnly(t *testing.T) {
 	assert.False(t, e1.ReadOnly())
 	assert.True(t, e2.ReadOnly())
 	assert.Equal(t, "read-only", e2.Status().Paused)
-	_, err := e2.ForceAll(StatusFailed)
+	_, err := e2.ForceAll(StatusFailed, nil)
 	assert.Error(t, err, "a read-only watch queues nothing")
 	jobs, _, err := e2.Poll(context.Background())
 	assert.NoError(t, err)
@@ -818,7 +818,7 @@ func TestForceAllQueuesOnlyBaselinedPRs(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	n, err := e.ForceAll(StatusBaseline)
+	n, err := e.ForceAll(StatusBaseline, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 	assert.True(t, stateOf(t, e, keys["baseline"]).ForceReview)
@@ -1182,7 +1182,7 @@ func TestForceAllQueuesOnlyOpenFailedPRs(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	n, err := e.ForceAll(StatusFailed)
+	n, err := e.ForceAll(StatusFailed, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 	assert.True(t, stateOf(t, e, keys["failed"]).ForceReview)
@@ -1215,7 +1215,7 @@ func TestForceAllRetriesFailedDuringBackoff(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, jobs, "a failed PR waits out its backoff")
 
-	n, err := e.ForceAll(StatusFailed)
+	n, err := e.ForceAll(StatusFailed, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	now = now.Add(4 * time.Minute)

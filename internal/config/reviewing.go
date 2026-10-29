@@ -154,6 +154,12 @@ func (w ReviewWatch) TeamFilter() string {
 	return strings.Join(parts, " ")
 }
 
+// OutsideTitle is the title of the Reviewing tab that lists the PRs of a
+// watch with teams that are not by its authors.
+func (w ReviewWatch) OutsideTitle() string {
+	return w.Name + " · outside"
+}
+
 // IsAuthor reports whether login is one of the watch's authors.
 func (w ReviewWatch) IsAuthor(login string) bool {
 	return slices.ContainsFunc(w.Authors, func(a string) bool {

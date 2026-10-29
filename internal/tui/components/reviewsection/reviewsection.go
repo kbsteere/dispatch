@@ -22,10 +22,33 @@ import (
 
 const SectionType = "review"
 
+// Group is which of a watch's PRs a table lists.
+type Group int
+
+const (
+	// GroupAll lists every PR, for a watch without teams.
+	GroupAll Group = iota
+	// GroupTeammates lists the PRs by the watch's authors.
+	GroupTeammates
+	// GroupOutside lists everyone else's PRs.
+	GroupOutside
+)
+
+// Groups are the tables a watch gets: one, or one for its authors' PRs and
+// one for everyone else's when it has teams.
+func Groups(w config.ReviewWatch) []Group {
+	if len(w.Teams) == 0 {
+		return []Group{GroupAll}
+	}
+	return []Group{GroupTeammates, GroupOutside}
+}
+
 // Model is one watch's table in the Reviewing view. Its rows come from the
 // watch's local state, not from a GitHub search.
 type Model struct {
 	section.BaseModel
+	watch  string
+	group  Group
 	states []reviewing.PRState
 	status reviewing.WatchStatus
 	// hidden counts the approved PRs left out of states; see HideApproved.
@@ -34,11 +57,21 @@ type Model struct {
 	enriched map[string]data.EnrichedPullRequestData // full PR data by URL, once fetched
 }
 
-func NewModel(id int, ctx *context.ProgramContext, watch string) Model {
-	m := Model{now: time.Now, enriched: map[string]data.EnrichedPullRequestData{}}
+// NewModel is the table of watch's PRs in group.
+func NewModel(id int, ctx *context.ProgramContext, watch string, group Group) Model {
+	m := Model{
+		watch:    watch,
+		group:    group,
+		now:      time.Now,
+		enriched: map[string]data.EnrichedPullRequestData{},
+	}
+	title := watch
+	if group == GroupOutside {
+		title = config.ReviewWatch{Name: watch}.OutsideTitle()
+	}
 	m.BaseModel = section.NewModel(ctx, section.NewSectionOptions{
 		Id:          id,
-		Config:      config.SectionConfig{Title: watch},
+		Config:      config.SectionConfig{Title: title},
 		Type:        SectionType,
 		Columns:     Columns(),
 		Singular:    "PR",
@@ -46,7 +79,7 @@ func NewModel(id int, ctx *context.ProgramContext, watch string) Model {
 		LastUpdated: time.Now(),
 		CreatedAt:   time.Now(),
 	})
-	m.status = reviewing.WatchStatus{Name: watch}
+	m.status = reviewing.WatchStatus{Name: title}
 	m.fitColumns()
 	return m
 }
@@ -68,7 +101,7 @@ func Columns() []table.Column {
 }
 
 // Watch is the name of the watch this table shows.
-func (m *Model) Watch() string { return m.Config.Title }
+func (m *Model) Watch() string { return m.watch }
 
 // isTeammate reports whether author is one of the watch's authors. Without
 // the watch's config every author counts as one.
@@ -84,10 +117,26 @@ func (m Model) isTeammate(author string) bool {
 	return true
 }
 
+// Shows reports whether the table lists s.
+func (m Model) Shows(s reviewing.PRState) bool {
+	switch m.group {
+	case GroupTeammates:
+		return m.isTeammate(s.Author)
+	case GroupOutside:
+		return !m.isTeammate(s.Author)
+	default:
+		return true
+	}
+}
+
 // SetData replaces the table's contents with the watch's current state.
 func (m *Model) SetData(ws reviewing.WatchStatus, states []reviewing.PRState) {
 	m.status = ws
-	m.states, m.hidden = SortStates(states, m.now(), m.isTeammate), 0
+	m.status.Name = m.Config.Title
+	shown := slices.DeleteFunc(slices.Clone(states), func(s reviewing.PRState) bool {
+		return !m.Shows(s)
+	})
+	m.states, m.hidden = SortStates(shown, m.now(), m.isTeammate), 0
 	if !m.Ctx.ShowApproved {
 		m.states, m.hidden = HideApproved(m.states)
 	}
@@ -117,7 +166,8 @@ func (m Model) BuildRows() []table.Row {
 	now := m.now()
 	rows := make([]table.Row, 0, len(m.states))
 	for _, s := range m.states {
-		c := Cells(s, now, !m.isTeammate(s.Author))
+		// An outside tab already says where its PRs come from.
+		c := Cells(s, now, m.group == GroupAll && !m.isTeammate(s.Author))
 		// The reference gets its own line so a narrow column cuts the title,
 		// never the PR number; the table truncates each line instead of
 		// wrapping it.
