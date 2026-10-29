@@ -212,7 +212,8 @@ func TestPostReviewOtherErrorsFail(t *testing.T) {
 }
 
 const searchPage1 = `{"data":{"rateLimit":{"cost":1,"remaining":4023,"resetAt":"2026-10-05T16:11:29Z"},"search":{"pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29yOjEwMA=="},"nodes":[
- {"id":"PR_kwDOA1","number":1234,"updatedAt":"2026-10-05T15:00:00Z","repository":{"name":"stereo","owner":{"login":"chainguard-dev"}}},
+ {"id":"PR_kwDOA1","number":1234,"updatedAt":"2026-10-05T15:00:00Z","author":{"__typename":"User"},"repository":{"name":"stereo","owner":{"login":"chainguard-dev"}}},
+ {"id":"PR_kwDOA3","number":99,"updatedAt":"2026-10-05T15:02:00Z","author":{"__typename":"Bot"},"repository":{"name":"mono","owner":{"login":"chainguard-dev"}}},
  {"id":"PR_kwDOA2","number":7,"updatedAt":"2026-10-05T15:01:00Z","repository":{"name":"..","owner":{"login":"chainguard-dev"}}},
  {}
 ]}}}`
@@ -242,6 +243,12 @@ func TestSearch(t *testing.T) {
 				Key:       PRKey{"chainguard-dev", "stereo", 1234},
 				NodeID:    "PR_kwDOA1",
 				UpdatedAt: "2026-10-05T15:00:00Z",
+			},
+			{
+				Key:       PRKey{"chainguard-dev", "mono", 99},
+				NodeID:    "PR_kwDOA3",
+				UpdatedAt: "2026-10-05T15:02:00Z",
+				Bot:       true,
 			},
 		},
 		hits,
@@ -697,4 +704,56 @@ func TestPostFileComment(t *testing.T) {
 		"subject_type": "file",
 		"body":         "Line 304: non-blocking: no test covers the guard.\n\n" + Marker,
 	}, got, "a file thread sends no line")
+}
+
+func TestOpenHits(t *testing.T) {
+	var asked [][]any
+	gh, _ := fakeGH(t, func(r gqlRequest) string {
+		asked = append(asked, r.Variables["ids"].([]any))
+		if len(asked) > 1 {
+			return `{"data":{"rateLimit":{"cost":1,"remaining":3998,"resetAt":"2026-10-05T16:11:29Z"},"nodes":[]}}`
+		}
+		// GitHub answers what it found and reports the deleted PR as an error.
+		return `{"data":{"rateLimit":{"cost":1,"remaining":3999,"resetAt":"2026-10-05T16:11:29Z"},"nodes":[
+		  {"id":"PR_open","number":75471,"state":"OPEN","isDraft":false,"updatedAt":"2026-10-28T12:00:00Z",
+		   "author":{"__typename":"User"},"repository":{"name":"mono","owner":{"login":"chainguard-dev"}}},
+		  {"id":"PR_merged","number":75937,"state":"MERGED","isDraft":false,"updatedAt":"2026-10-28T12:00:00Z",
+		   "author":{"__typename":"User"},"repository":{"name":"mono","owner":{"login":"chainguard-dev"}}},
+		  {"id":"PR_draft","number":409268,"state":"OPEN","isDraft":true,"updatedAt":"2026-10-29T09:00:00Z",
+		   "author":{"__typename":"User"},"repository":{"name":"stereo","owner":{"login":"chainguard-dev"}}},
+		  null]},
+		 "errors":[{"type":"NOT_FOUND","path":["nodes",3],
+		  "message":"Could not resolve to a node with the global id of 'PR_gone'"}]}`
+	}, noREST(t))
+
+	ids := []string{"PR_open", "PR_merged", "PR_draft", "PR_gone"}
+	for i := range maxNodeIDs {
+		ids = append(ids, fmt.Sprintf("PR_more%d", i))
+	}
+	hits, rl, err := gh.OpenHits(context.Background(), ids)
+	require.NoError(t, err, "a deleted PR is not a failure")
+	assert.Equal(
+		t,
+		[]SearchHit{{
+			Key:       PRKey{"chainguard-dev", "mono", 75471},
+			NodeID:    "PR_open",
+			UpdatedAt: "2026-10-28T12:00:00Z",
+		}},
+		hits,
+		"merged, draft, and deleted PRs are left out",
+	)
+	require.Len(t, asked, 2, "ids are asked for in batches")
+	assert.Len(t, asked[0], maxNodeIDs)
+	assert.Len(t, asked[1], 4)
+	assert.Equal(t, 2, rl.Cost, "cost adds up across batches")
+	assert.Equal(t, 3998, rl.Remaining)
+}
+
+func TestOpenHitsOtherErrors(t *testing.T) {
+	gh, _ := fakeGH(t, func(gqlRequest) string {
+		return `{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}`
+	}, noREST(t))
+	_, _, err := gh.OpenHits(context.Background(), []string{"PR_open"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rate limit")
 }

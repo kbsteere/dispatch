@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,8 @@ type SearchHit struct {
 	Key       PRKey
 	NodeID    string
 	UpdatedAt string
+	// Bot marks a PR opened by a GitHub App, such as dependabot.
+	Bot bool
 }
 
 type Comment struct {
@@ -131,6 +134,7 @@ type ReviewPayload struct {
 type GitHub interface {
 	Viewer(ctx context.Context) (string, error)
 	Search(ctx context.Context, query string, maxPages int) ([]SearchHit, RateLimit, error)
+	OpenHits(ctx context.Context, nodeIDs []string) ([]SearchHit, RateLimit, error)
 	Details(ctx context.Context, nodeIDs []string) ([]PRDetail, RateLimit, error)
 	Resolve(ctx context.Context, k PRKey) (string, error)
 	OpenPRs(ctx context.Context, keys []PRKey) ([]PRKey, error)
@@ -248,13 +252,49 @@ func (g *ghClient) Viewer(ctx context.Context) (string, error) {
 	return resp.Viewer.Login, nil
 }
 
+// hitFields are what a SearchHit reads from a pull request node.
+const hitFields = `... on PullRequest {
+  id number state isDraft updatedAt author { __typename } repository { name owner { login } }
+}`
+
 const searchQuery = `query($q: String!, $after: String) {
   rateLimit { cost remaining resetAt }
   search(type: ISSUE, first: 100, after: $after, query: $q) {
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { id number updatedAt repository { name owner { login } } } }
+    nodes { ` + hitFields + ` }
   }
 }`
+
+type hitJSON struct {
+	ID        string `json:"id"`
+	Number    int    `json:"number"`
+	State     string `json:"state"`
+	IsDraft   bool   `json:"isDraft"`
+	UpdatedAt string `json:"updatedAt"`
+	Author    *struct {
+		Typename string `json:"__typename"`
+	} `json:"author"`
+	Repository repoJSON `json:"repository"`
+}
+
+// toHit converts n, reporting false when n is not a pull request with a
+// valid repository.
+func (n hitJSON) toHit() (SearchHit, bool) {
+	if n.ID == "" || n.Number <= 0 || !ValidName(n.Repository.Owner.Login) ||
+		!ValidName(n.Repository.Name) {
+		return SearchHit{}, false
+	}
+	return SearchHit{
+		Key: PRKey{
+			Owner:  n.Repository.Owner.Login,
+			Repo:   n.Repository.Name,
+			Number: n.Number,
+		},
+		NodeID:    n.ID,
+		UpdatedAt: n.UpdatedAt,
+		Bot:       n.Author != nil && n.Author.Typename == "Bot",
+	}, true
+}
 
 func (g *ghClient) Search(
 	ctx context.Context,
@@ -272,12 +312,7 @@ func (g *ghClient) Search(
 					HasNextPage bool   `json:"hasNextPage"`
 					EndCursor   string `json:"endCursor"`
 				} `json:"pageInfo"`
-				Nodes []struct {
-					ID         string   `json:"id"`
-					Number     int      `json:"number"`
-					UpdatedAt  string   `json:"updatedAt"`
-					Repository repoJSON `json:"repository"`
-				} `json:"nodes"`
+				Nodes []hitJSON `json:"nodes"`
 			} `json:"search"`
 		}
 		vars := map[string]any{"q": "is:pr " + query, "after": after}
@@ -288,25 +323,52 @@ func (g *ghClient) Search(
 		rl = resp.RateLimit.toRateLimit()
 		rl.Cost = cost
 		for _, n := range resp.Search.Nodes {
-			if n.ID == "" || n.Number <= 0 || !ValidName(n.Repository.Owner.Login) ||
-				!ValidName(n.Repository.Name) {
-				continue
+			if h, ok := n.toHit(); ok {
+				hits = append(hits, h)
 			}
-			hits = append(hits, SearchHit{
-				Key: PRKey{
-					Owner:  n.Repository.Owner.Login,
-					Repo:   n.Repository.Name,
-					Number: n.Number,
-				},
-				NodeID:    n.ID,
-				UpdatedAt: n.UpdatedAt,
-			})
 		}
 		if !resp.Search.PageInfo.HasNextPage {
 			break
 		}
 		cursor := resp.Search.PageInfo.EndCursor
 		after = &cursor
+	}
+	return hits, rl, nil
+}
+
+const openHitsQuery = `query($ids: [ID!]!) {
+  rateLimit { cost remaining resetAt }
+  nodes(ids: $ids) { ` + hitFields + ` }
+}`
+
+// maxNodeIDs is the most node IDs one nodes query asks for.
+const maxNodeIDs = 100
+
+// OpenHits reads the PRs nodeIDs name and returns those that are open and
+// ready for review, as a search would. A deleted PR is left out.
+func (g *ghClient) OpenHits(ctx context.Context, nodeIDs []string) ([]SearchHit, RateLimit, error) {
+	var hits []SearchHit
+	var rl RateLimit
+	for ids := range slices.Chunk(nodeIDs, maxNodeIDs) {
+		var resp struct {
+			RateLimit rateLimitJSON `json:"rateLimit"`
+			Nodes     []*hitJSON    `json:"nodes"`
+		}
+		err := g.gql.DoWithContext(ctx, openHitsQuery, map[string]any{"ids": ids}, &resp)
+		if err != nil && !onlyNotFound(err) {
+			return hits, rl, err
+		}
+		cost := rl.Cost + resp.RateLimit.Cost
+		rl = resp.RateLimit.toRateLimit()
+		rl.Cost = cost
+		for _, n := range resp.Nodes {
+			if n == nil || n.State != "OPEN" || n.IsDraft {
+				continue
+			}
+			if h, ok := n.toHit(); ok {
+				hits = append(hits, h)
+			}
+		}
 	}
 	return hits, rl, nil
 }
@@ -915,6 +977,10 @@ type failingGitHub struct{ err error }
 
 func (f failingGitHub) Viewer(context.Context) (string, error) { return "", f.err }
 func (f failingGitHub) Search(context.Context, string, int) ([]SearchHit, RateLimit, error) {
+	return nil, RateLimit{}, f.err
+}
+
+func (f failingGitHub) OpenHits(context.Context, []string) ([]SearchHit, RateLimit, error) {
 	return nil, RateLimit{}, f.err
 }
 

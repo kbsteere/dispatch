@@ -50,6 +50,12 @@ type fakeGitHub struct {
 	// fileComments are the file-level threads opened; fileErr fails them.
 	fileComments []ReviewComment
 	fileErr      error
+	// teamHits are the hits a team-review-requested search returns; open
+	// are the hits OpenHits reports, by node ID, and keptAsked the node IDs
+	// it was asked about.
+	teamHits  []SearchHit
+	openHits  map[string]SearchHit
+	keptAsked []string
 }
 
 func (f *fakeGitHub) Viewer(context.Context) (string, error) { return f.viewer, nil }
@@ -66,6 +72,9 @@ func (f *fakeGitHub) Search(
 		return nil, RateLimit{}, f.searchErr
 	}
 	hits := slices.Clone(f.hits)
+	if strings.Contains(filter, "team-review-requested:") {
+		hits = slices.Clone(f.teamHits)
+	}
 	if strings.HasSuffix(filter, " "+requestedQualifier) {
 		if f.requestedErr != nil {
 			return nil, RateLimit{}, f.requestedErr
@@ -73,6 +82,19 @@ func (f *fakeGitHub) Search(
 		hits = slices.Clone(f.requested)
 	}
 	return hits, RateLimit{Cost: 1, Remaining: 4000, ResetAt: t0.Add(time.Hour)}, nil
+}
+
+func (f *fakeGitHub) OpenHits(_ context.Context, ids []string) ([]SearchHit, RateLimit, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keptAsked = append(f.keptAsked, ids...)
+	var out []SearchHit
+	for _, id := range ids {
+		if h, ok := f.openHits[id]; ok {
+			out = append(out, h)
+		}
+	}
+	return out, RateLimit{Cost: 1, Remaining: 4000, ResetAt: t0.Add(time.Hour)}, nil
 }
 
 func (f *fakeGitHub) Details(_ context.Context, ids []string) ([]PRDetail, RateLimit, error) {

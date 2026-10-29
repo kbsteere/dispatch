@@ -149,15 +149,98 @@ func TestReviewingForSearchFilter(t *testing.T) {
 	)
 }
 
+func TestReviewingForSearchFilterWithoutAuthors(t *testing.T) {
+	w := ReviewWatch{
+		Teams:  []string{"chainguard-dev/sustaining-tooling-team-write"},
+		Scopes: []string{"repo:chainguard-dev/mono"},
+	}
+	assert.Empty(t, w.SearchFilter())
+}
+
+func TestReviewingForTeamFilter(t *testing.T) {
+	tests := map[string]struct {
+		w    ReviewWatch
+		want string
+	}{
+		"no teams": {
+			w:    ReviewWatch{Authors: []string{"tcnghia"}, Scopes: []string{"repo:chainguard-dev/mono"}},
+			want: "",
+		},
+		"each team's org once": {
+			w: ReviewWatch{
+				Scopes: []string{"repo:chainguard-dev/mono"},
+				Teams: []string{
+					"chainguard-dev/sustaining-tooling-team-write",
+					"chainguard-dev/sustaining-automation-team-write",
+					"wolfi-dev/maintainers",
+				},
+			},
+			want: "is:open draft:false archived:false org:chainguard-dev org:wolfi-dev " +
+				"team-review-requested:chainguard-dev/sustaining-tooling-team-write " +
+				"team-review-requested:chainguard-dev/sustaining-automation-team-write " +
+				"team-review-requested:wolfi-dev/maintainers",
+		},
+		"team scopes": {
+			w: ReviewWatch{
+				Scopes:     []string{"repo:chainguard-dev/mono"},
+				Teams:      []string{"chainguard-dev/sustaining-tooling-team-write"},
+				TeamScopes: []string{"repo:chainguard-dev/stereo"},
+			},
+			want: "is:open draft:false archived:false repo:chainguard-dev/stereo " +
+				"team-review-requested:chainguard-dev/sustaining-tooling-team-write",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.w.TeamFilter())
+		})
+	}
+}
+
+func TestReviewingForIsAuthor(t *testing.T) {
+	w := ReviewWatch{Authors: []string{"AdamIsrael", "powersj"}}
+	assert.True(t, w.IsAuthor("adamisrael"))
+	assert.True(t, w.IsAuthor("powersj"))
+	assert.False(t, w.IsAuthor("gaughen"))
+	assert.False(t, ReviewWatch{}.IsAuthor(""))
+}
+
+func TestReviewingForTeamsOnlyWatch(t *testing.T) {
+	cfg, err := parseReviewingYAML(
+		t,
+		"prSections:\n  - title: x\n    filters: is:open\n"+
+			"reviewingFor:\n  watches:\n    - name: w\n      teams: [chainguard-dev/sustaining-tooling-team-write]\n      scopes: [repo:o/r]\n",
+	)
+	require.NoError(t, err)
+	require.Len(t, cfg.ReviewingFor.Watches, 1)
+	assert.Equal(
+		t,
+		[]string{"chainguard-dev/sustaining-tooling-team-write"},
+		cfg.ReviewingFor.Watches[0].Teams,
+	)
+}
+
 func TestReviewingForValidation(t *testing.T) {
 	tests := map[string]struct{ body, rule string }{
 		"bad name": {
 			"reviewingFor:\n  watches:\n    - name: ../x\n      authors: [a]\n      scopes: [repo:o/r]\n",
 			"'watchname' tag",
 		},
-		"no authors": {
+		"no authors or teams": {
 			"reviewingFor:\n  watches:\n    - name: w\n      authors: []\n      scopes: [repo:o/r]\n",
-			"'authors' failed on the 'min' tag",
+			"'authors' failed on the 'authorsorteams' tag",
+		},
+		"team without org": {
+			"reviewingFor:\n  watches:\n    - name: w\n      teams: [sustaining-tooling-team-write]\n      scopes: [repo:o/r]\n",
+			"'teamslug' tag",
+		},
+		"team with a qualifier": {
+			"reviewingFor:\n  watches:\n    - name: w\n      teams: ['chainguard-dev/t author:x']\n      scopes: [repo:o/r]\n",
+			"'teamslug' tag",
+		},
+		"bad team scope": {
+			"reviewingFor:\n  watches:\n    - name: w\n      teams: [chainguard-dev/t]\n      teamScopes: [chainguard-dev]\n      scopes: [repo:o/r]\n",
+			"'reviewscope' tag",
 		},
 		"bad scope": {
 			"reviewingFor:\n  watches:\n    - name: w\n      authors: [a]\n      scopes: [mono]\n",

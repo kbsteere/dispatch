@@ -875,6 +875,8 @@ func initParser() ConfigParser {
 	validate.RegisterValidation("watchname", validateWatchName)
 	validate.RegisterValidation("reviewscope", validateReviewScope)
 	validate.RegisterValidation("reponame", validateRepoName)
+	validate.RegisterValidation("teamslug", validateTeamSlug)
+	validate.RegisterStructValidation(validateReviewWatch, ReviewWatch{})
 	validate.RegisterValidation("claudemodel", validateClaudeModel)
 	validate.RegisterValidation("claudeeffort", validateClaudeEffort)
 

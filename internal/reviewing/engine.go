@@ -561,18 +561,17 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 		return nil, lim.PollInterval, err
 	}
 
-	hits, rl, err := e.d.GitHub.Search(ctx, e.d.Watch.SearchFilter(), searchPages)
-	e.observe(rl)
-	if err != nil {
-		e.setErr(err)
-		return nil, lim.PollInterval, err
-	}
-
 	states, _ := e.store.AllPRs()
 	byKey := map[PRKey]PRState{}
 	for _, st := range states {
 		byKey[st.Key] = st
 	}
+	found, err := e.search(ctx, states)
+	if err != nil {
+		e.setErr(err)
+		return nil, lim.PollInterval, err
+	}
+	hits := found.hits
 	e.mu.Lock()
 	refreshAll := !e.refreshed
 	e.mu.Unlock()
@@ -620,6 +619,7 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 
 	var details []PRDetail
 	if len(ids) > 0 {
+		var rl RateLimit
 		details, rl, err = e.d.GitHub.Details(ctx, ids)
 		e.observe(rl)
 		if err != nil {
@@ -631,15 +631,25 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 	e.recordClosed(ctx, left, viewer, now)
 
 	initialized := e.store.Initialized()
+	teamsInitialized := e.store.TeamsInitialized()
 	var jobs []Job
-	for _, d := range details {
-		if job, ok := e.evaluate(ctx, d, viewer, now, initialized); ok {
+	for _, d := range byPriority(details, e.d.Watch) {
+		_, viaTeam := found.teamOnly[d.Key]
+		// The PRs a watch's first team search finds are a baseline, like
+		// the ones its first search finds.
+		pastBaseline := initialized && (!viaTeam || teamsInitialized)
+		if job, ok := e.evaluate(ctx, d, viewer, now, pastBaseline, viaTeam); ok {
 			jobs = append(jobs, job)
 		}
 	}
-	e.markRequested(ctx, hits)
+	e.markRequested(ctx, hits, found.teamRequested)
 	if !initialized {
 		if err := e.store.MarkInitialized(); err != nil {
+			e.setErr(err)
+		}
+	}
+	if !teamsInitialized && e.d.Watch.TeamFilter() != "" {
+		if err := e.store.MarkTeamsInitialized(); err != nil {
 			e.setErr(err)
 		}
 	}
@@ -655,13 +665,14 @@ func (e *Engine) poll(ctx context.Context) ([]Job, time.Duration, error) {
 }
 
 // evaluate records what a poll saw for one PR and claims a pass when one
-// is due.
+// is due. viaTeam marks a PR found only by a team review request.
 func (e *Engine) evaluate(
 	ctx context.Context,
 	d PRDetail,
 	viewer string,
 	now time.Time,
 	initialized bool,
+	viaTeam bool,
 ) (Job, bool) {
 	lim := e.d.Limits
 	sig := e.signature(ctx, d, viewer)
@@ -681,6 +692,9 @@ func (e *Engine) evaluate(
 	st.Author = d.Author
 	st.CI = sig.CI
 	st.MyReview, st.MyReviewOnHead = myReview(d.Reviews, viewer, d.HeadOID)
+	if viaTeam {
+		st.ViaTeam = true
+	}
 
 	switch {
 	case d.State != "OPEN":
@@ -895,25 +909,136 @@ func choosePass(codeReviewedHead, head string, forced bool) Pass {
 	}
 }
 
+// searchResult is what one poll's searches found.
+type searchResult struct {
+	hits []SearchHit
+	// teamOnly are the hits found by a team review request, now or on an
+	// earlier poll, and not by their author.
+	teamOnly map[PRKey]struct{}
+	// teamRequested are the hits this poll's team search found.
+	teamRequested map[PRKey]struct{}
+}
+
+// search finds the watch's PRs: its authors' PRs, the PRs that request
+// review from one of its teams, and the team PRs earlier polls found that
+// are still open and ready.
+func (e *Engine) search(ctx context.Context, states []PRState) (searchResult, error) {
+	var byAuthor, byTeam, kept []SearchHit
+	if f := e.d.Watch.SearchFilter(); f != "" {
+		hits, rl, err := e.d.GitHub.Search(ctx, f, searchPages)
+		e.observe(rl)
+		if err != nil {
+			return searchResult{}, err
+		}
+		byAuthor = hits
+	}
+	if f := e.d.Watch.TeamFilter(); f != "" {
+		hits, rl, err := e.d.GitHub.Search(ctx, f, searchPages)
+		e.observe(rl)
+		if err != nil {
+			return searchResult{}, err
+		}
+		byTeam = hits
+		if ids := keptTeamIDs(states, byAuthor, byTeam); len(ids) > 0 {
+			hits, rl, err := e.d.GitHub.OpenHits(ctx, ids)
+			e.observe(rl)
+			if err != nil {
+				return searchResult{}, err
+			}
+			kept = hits
+		}
+	}
+	return mergeHits(byAuthor, byTeam, kept), nil
+}
+
+// keptTeamIDs are the node IDs of active PRs a team review request brought
+// in that neither search returned, such as one whose request a teammate's
+// review answered.
+func keptTeamIDs(states []PRState, byAuthor, byTeam []SearchHit) []string {
+	found := make(map[PRKey]struct{}, len(byAuthor)+len(byTeam))
+	for _, h := range slices.Concat(byAuthor, byTeam) {
+		found[h.Key] = struct{}{}
+	}
+	var ids []string
+	for _, st := range states {
+		if _, ok := found[st.Key]; ok || !st.ViaTeam || st.Inactive || st.NodeID == "" {
+			continue
+		}
+		ids = append(ids, st.NodeID)
+	}
+	return ids
+}
+
+// mergeHits combines the author search, the team search, and team PRs kept
+// from earlier polls, listing each PR once. A PR the author search found is
+// never team-only. Team PRs opened by bots are dropped.
+func mergeHits(byAuthor, byTeam, kept []SearchHit) searchResult {
+	out := searchResult{
+		hits:          slices.Clone(byAuthor),
+		teamOnly:      map[PRKey]struct{}{},
+		teamRequested: map[PRKey]struct{}{},
+	}
+	seen := make(map[PRKey]struct{}, len(byAuthor)+len(byTeam)+len(kept))
+	for _, h := range byAuthor {
+		seen[h.Key] = struct{}{}
+	}
+	for _, h := range byTeam {
+		if !h.Bot {
+			out.teamRequested[h.Key] = struct{}{}
+		}
+	}
+	for _, h := range slices.Concat(byTeam, kept) {
+		if _, ok := seen[h.Key]; ok || h.Bot {
+			continue
+		}
+		seen[h.Key] = struct{}{}
+		out.hits = append(out.hits, h)
+		out.teamOnly[h.Key] = struct{}{}
+	}
+	return out
+}
+
+// byPriority orders details so the watch's authors' PRs claim review slots
+// before anyone else's, keeping the order within each group.
+func byPriority(details []PRDetail, w config.ReviewWatch) []PRDetail {
+	rank := func(d PRDetail) int {
+		if w.IsAuthor(d.Author) {
+			return 0
+		}
+		return 1
+	}
+	out := slices.Clone(details)
+	slices.SortStableFunc(out, func(a, b PRDetail) int {
+		return cmp.Compare(rank(a), rank(b))
+	})
+	return out
+}
+
 // requestedQualifier narrows a search to PRs where the viewer, or a team
 // the viewer belongs to, is a requested reviewer.
 const requestedQualifier = "review-requested:@me"
 
-// markRequested records which of hits request the viewer's review. A failed
-// search leaves the previous marks in place.
-func (e *Engine) markRequested(ctx context.Context, hits []SearchHit) {
-	requested, rl, err := e.d.GitHub.Search(
-		ctx,
-		e.d.Watch.SearchFilter()+" "+requestedQualifier,
-		1,
-	)
-	e.observe(rl)
-	if err != nil {
-		return
+// markRequested records which of hits request the viewer's review.
+// teamRequested are hits already known to request a team the viewer is in.
+// A failed search leaves the previous marks in place.
+func (e *Engine) markRequested(
+	ctx context.Context,
+	hits []SearchHit,
+	teamRequested map[PRKey]struct{},
+) {
+	want := maps.Clone(teamRequested)
+	if want == nil {
+		want = map[PRKey]struct{}{}
 	}
-	want := make(map[PRKey]struct{}, len(requested))
-	for _, h := range requested {
-		want[h.Key] = struct{}{}
+	if f := e.d.Watch.SearchFilter(); f != "" {
+		requested, rl, err := e.d.GitHub.Search(ctx, f+" "+requestedQualifier, 1)
+		e.observe(rl)
+		if err != nil {
+			return
+		}
+		for _, h := range requested {
+			want[h.Key] = struct{}{}
+		}
 	}
 	for _, h := range hits {
 		_, req := want[h.Key]

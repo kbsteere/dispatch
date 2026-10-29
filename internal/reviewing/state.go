@@ -122,6 +122,10 @@ type PRState struct {
 	// ReviewRequested marks a PR where you, or a team you belong to, are a
 	// requested reviewer.
 	ReviewRequested bool `json:"review_requested,omitempty"`
+	// ViaTeam marks a PR found because it requested review from one of the
+	// watch's teams rather than by its author. It stays watched after the
+	// request is answered, until it is merged, closed, or back to draft.
+	ViaTeam bool `json:"via_team,omitempty"`
 	// MyReview is your standing review on GitHub (APPROVED,
 	// CHANGES_REQUESTED, or COMMENTED), whether posted by dispatch or by
 	// you; MyReviewOnHead reports that it was on the current head.
@@ -337,6 +341,21 @@ func (s Store) Initialized() bool {
 func (s Store) MarkInitialized() error {
 	return os.WriteFile(
 		filepath.Join(string(s), "initialized"),
+		[]byte(time.Now().Format(time.RFC3339)),
+		0o600,
+	)
+}
+
+// TeamsInitialized reports whether the watch has recorded a baseline of the
+// PRs its first team search found.
+func (s Store) TeamsInitialized() bool {
+	_, err := os.Stat(filepath.Join(string(s), "teams-initialized"))
+	return err == nil
+}
+
+func (s Store) MarkTeamsInitialized() error {
+	return os.WriteFile(
+		filepath.Join(string(s), "teams-initialized"),
 		[]byte(time.Now().Format(time.RFC3339)),
 		0o600,
 	)
