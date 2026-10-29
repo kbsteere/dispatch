@@ -704,6 +704,9 @@ func (e *Engine) evaluate(
 	case d.IsDraft:
 		kill = st.Claim != nil
 		st.dropClaim()
+	case strings.EqualFold(d.Author, viewer) && !st.Pinned && !st.ForceReview:
+		// The viewer's own PRs are reviewed only when they ask.
+		st.Status = cmp.Or(st.Status, StatusBaseline)
 	default:
 		ObserveHead(&st, d.HeadOID, now)
 		ObserveCI(&st, sig.CI)

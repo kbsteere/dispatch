@@ -149,6 +149,8 @@ func (w ReviewWatch) TeamFilter() string {
 	for _, t := range w.Teams {
 		parts = append(parts, "team-review-requested:"+t)
 	}
+	// The viewer's own PRs often request their team through CODEOWNERS.
+	parts = append(parts, "-author:@me")
 	return strings.Join(parts, " ")
 }
 

@@ -282,3 +282,26 @@ func TestPollTeamsOnlyWatch(t *testing.T) {
 	assert.Equal(t, []string{e.d.Watch.TeamFilter()}, gh.filters,
 		"a watch without authors runs only the team search")
 }
+
+func TestPollSkipsOwnPRsUnlessAsked(t *testing.T) {
+	now := t0
+	own := hit("mono", 1)
+	gh := &fakeGitHub{
+		viewer:   "kbsteere",
+		teamHits: []SearchHit{own},
+		details:  map[string]PRDetail{own.NodeID: teamDetail(1, "KBSteere")},
+	}
+	e := newTeamEngine(t, gh, &now)
+	require.NoError(t, e.store.MarkTeamsInitialized())
+
+	jobs, _, err := e.Poll(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, jobs, "the viewer's own PR is not reviewed on its own")
+	assert.Equal(t, StatusBaseline, stateOf(t, e, own.Key).Status)
+
+	require.NoError(t, e.Force(own.Key))
+	jobs, _, err = e.Poll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, jobs, 1, "a review the viewer asks for still runs")
+	assert.Equal(t, own.Key, jobs[0].Key)
+}

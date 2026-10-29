@@ -181,7 +181,7 @@ func TestReviewingForTeamFilter(t *testing.T) {
 			want: "is:open draft:false archived:false org:chainguard-dev org:wolfi-dev " +
 				"team-review-requested:chainguard-dev/sustaining-tooling-team-write " +
 				"team-review-requested:chainguard-dev/sustaining-automation-team-write " +
-				"team-review-requested:wolfi-dev/maintainers",
+				"team-review-requested:wolfi-dev/maintainers -author:@me",
 		},
 		"team scopes": {
 			w: ReviewWatch{
@@ -190,7 +190,7 @@ func TestReviewingForTeamFilter(t *testing.T) {
 				TeamScopes: []string{"repo:chainguard-dev/stereo"},
 			},
 			want: "is:open draft:false archived:false repo:chainguard-dev/stereo " +
-				"team-review-requested:chainguard-dev/sustaining-tooling-team-write",
+				"team-review-requested:chainguard-dev/sustaining-tooling-team-write -author:@me",
 		},
 	}
 	for name, tt := range tests {
